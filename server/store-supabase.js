@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 const SESSION_DAYS = 60;
 
@@ -30,7 +31,11 @@ export function createSupabaseStore() {
   if (!url || !key) {
     throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Supabase store');
   }
-  const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const sb = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    // Node < 22 has no global WebSocket; supabase-js Realtime requires one (Render uses Node 20 in Docker).
+    realtime: { transport: WebSocket },
+  });
 
   async function pruneSessions() {
     const now = Date.now();

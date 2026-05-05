@@ -1,5 +1,5 @@
 # One URL: game + WebSocket + accounts on the same process (TLS via your platform)
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 COPY server/package.json server/package-lock.json ./server/
