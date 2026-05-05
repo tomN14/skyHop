@@ -1,0 +1,10 @@
+{
+  "name": "skyhop",
+  "private": true,
+  "description": "Sky Hop game — run npm run play from here (no cd server).",
+  "scripts": {
+    "start": "npm run start --prefix server",
+    "play": "npm run play --prefix server",
+    "install:server": "npm install --prefix server"
+  }
+}

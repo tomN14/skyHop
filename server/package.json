@@ -1,0 +1,20 @@
+{
+  "name": "skyhop-race-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket race lobby for Sky Hop (multiplayer parallel runs).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "play": "node scripts/play.mjs"
+  },
+  "devDependencies": {
+    "kill-port": "^2.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.3",
+    "dotenv": "^17.4.2",
+    "ws": "^8.18.0"
+  }
+}

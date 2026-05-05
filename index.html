@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sky Hop — 50 Stages</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    #gameCanvas { touch-action: none; }
+  </style>
+</head>
+<body class="bg-slate-950 font-display text-slate-100 antialiased">
+  <div id="app" class="relative h-full w-full">
+    <canvas id="gameCanvas" class="block h-full w-full bg-gradient-to-b from-indigo-950 via-slate-900 to-slate-950"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="pointer-events-none absolute left-0 right-0 top-0 z-10 hidden p-4 md:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-indigo-300">Stage</span>
+            <span id="hudStage" class="ml-2 text-lg font-bold text-white">1 / 50</span>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-emerald-300">Deaths</span>
+            <span id="hudDeaths" class="ml-2 text-lg font-bold text-white">0</span>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-amber-300">Time</span>
+            <span id="hudTimer" class="ml-2 font-mono text-lg font-bold text-white">0:00</span>
+          </div>
+            <div id="hudBossHpWrap" class="hidden rounded-2xl border border-rose-500/25 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-rose-300">Your HP</span>
+            <span id="hudBossHpNums" class="ml-1 font-mono text-sm text-rose-100"></span>
+            <div class="mt-1.5 h-2.5 w-32 overflow-hidden rounded-full bg-slate-800/90">
+              <div id="hudBossHpFill" class="h-full rounded-full bg-gradient-to-r from-rose-400 to-amber-300 transition-[width] duration-300" style="width: 100%"></div>
+            </div>
+          </div>
+          <div id="hudEpicBossWrap" class="hidden rounded-2xl border border-teal-500/30 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-teal-300">Boss</span>
+            <span id="hudEpicBossNums" class="ml-2 font-mono text-sm text-teal-100"></span>
+            <div class="mt-1.5 h-2.5 w-48 overflow-hidden rounded-full bg-slate-800/90">
+              <div id="hudEpicBossFill" class="h-full rounded-full bg-gradient-to-r from-teal-500 to-cyan-400 transition-[width] duration-200" style="width: 100%"></div>
+            </div>
+          </div>
+          <div id="hudWeaponsWrap" class="hidden flex flex-wrap items-center gap-3 rounded-2xl border border-amber-500/20 bg-slate-900/85 px-3 py-2 shadow-lg backdrop-blur-md">
+            <div id="hudSwordBlock" class="hidden min-w-[7.5rem]">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-amber-200"><kbd class="rounded border border-amber-500/40 bg-slate-800 px-1.5 font-mono">S</kbd> Sword</span>
+                <span id="hudSwordTime" class="font-mono text-xs text-amber-100/90">—</span>
+              </div>
+              <div class="mt-1 h-2 w-28 overflow-hidden rounded-full bg-slate-800/90">
+                <div id="hudSwordFill" class="h-full rounded-full bg-gradient-to-r from-amber-600 to-amber-300" style="width: 100%"></div>
+              </div>
+            </div>
+            <div id="hudShieldBlock" class="hidden min-w-[7.5rem]">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-sky-200"><kbd class="rounded border border-sky-500/40 bg-slate-800 px-1.5 font-mono">B</kbd> Shield</span>
+                <span id="hudShieldTime" class="font-mono text-xs text-sky-100/90">—</span>
+              </div>
+              <div class="mt-1 h-2 w-28 overflow-hidden rounded-full bg-slate-800/90">
+                <div id="hudShieldFill" class="h-full rounded-full bg-gradient-to-r from-sky-600 to-cyan-400" style="width: 100%"></div>
+              </div>
+              <p id="hudShieldActive" class="mt-0.5 hidden text-center text-[10px] font-semibold uppercase tracking-wide text-cyan-300">Invincible</p>
+            </div>
+            <div id="hudHealDropBlock" class="min-w-[7.5rem]">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-bold text-emerald-200">Potion drop</span>
+                <span id="hudHealDropTime" class="font-mono text-xs text-emerald-100/90">—</span>
+              </div>
+              <div class="mt-1 h-2 w-28 overflow-hidden rounded-full bg-slate-800/90">
+                <div id="hudHealDropFill" class="h-full rounded-full bg-gradient-to-r from-emerald-600 to-lime-400" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button id="btnSkipStage" type="button" class="pointer-events-auto hidden rounded-2xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs font-semibold text-amber-200 shadow-lg backdrop-blur-md hover:bg-amber-900/80 focus:outline-none focus:ring-2 focus:ring-amber-400">
+          Skip stage
+        </button>
+        <button id="btnPauseHud" type="button" class="pointer-events-auto rounded-2xl border border-white/15 bg-slate-900/90 px-4 py-2 text-sm font-semibold text-slate-200 shadow-lg backdrop-blur-md hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+          Pause
+        </button>
+      </div>
+      <p id="hudHint" class="mt-3 hidden max-w-xl rounded-xl border border-white/5 bg-black/40 px-3 py-2 text-sm text-slate-300 backdrop-blur-sm"></p>
+    </div>
+
+    <!-- Title / menu -->
+    <div id="screenMenu" class="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto bg-slate-950/90 p-6 backdrop-blur-sm">
+      <div class="my-auto w-full max-w-xl rounded-3xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 to-indigo-950/80 p-8 shadow-2xl shadow-indigo-900/40">
+        <p class="text-center text-sm font-sem uppercase tracking-[0.2em] text-indigo-400">Platformer</p>
+        <h1 class="mt-2 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">Sky Hop</h1>
+        <p class="mt-4 text-center text-slate-400">Thirty-five stages — spikes, lava, moving ledges, gravity arrows, grapple, a boss, and more. Reach each goal (or defeat the boss).</p>
+        <p class="mt-3 text-center text-xs text-slate-500">Difficulty: Easy · Normal · Hard · Custom — 50 stages, two boss fights, weapons on stage 49.</p>
+        <p id="menuProgressHint" class="mt-2 hidden text-center text-sm text-indigo-200/90"></p>
+        <div class="mt-5 grid grid-cols-3 gap-2">
+          <button id="diffEasy" type="button" class="diff-btn rounded-xl border border-white/15 bg-slate-800/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700">Easy</button>
+          <button id="diffNormal" type="button" class="diff-btn rounded-xl border-2 border-indigo-400 bg-indigo-600/40 px-3 py-2.5 text-sm font-semibold text-white shadow-inner ring-2 ring-indigo-400/50">Normal</button>
+          <button id="diffHard" type="button" class="diff-btn rounded-xl border border-white/15 bg-slate-800/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700">Hard</button>
+        </div>
+        <button id="diffCustom" type="button" class="diff-btn mt-2 w-full rounded-xl border border-white/15 bg-slate-800/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700">Custom…</button>
+        <div id="customPanel" class="mt-4 hidden max-h-[50vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-left text-sm text-slate-300">
+          <p class="mb-3 font-sem text-indigo-300">Custom physics &amp; rules</p>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="block">Run / accel <span id="custRunVal" class="float-right font-mono text-white">1.00×</span><input id="custRunMul" type="range" min="0.35" max="2.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
+            <label class="block">Gravity <span id="custGravVal" class="float-right font-mono text-white">1.00×</span><input id="custGravMul" type="range" min="0.35" max="2.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
+            <label class="block">Friction (ground) <span id="custFricVal" class="float-right font-mono text-white">1.00×</span><input id="custFrictionMul" type="range" min="0.25" max="2.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
+            <label class="block">Jump strength <span id="custJumpVal" class="float-right font-mono text-white">1.00×</span><input id="custJumpMul" type="range" min="0.4" max="1.6" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
+            <label class="block">Air control <span id="custAirVal" class="float-right font-mono text-white">1.00×</span><input id="custAirControlMul" type="range" min="0.25" max="1.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
+            <label class="block">Stage 35 boss: hits to kill <em>you</em> (1–5) <span id="custBossHitsVal" class="float-right font-mono text-white">2</span><input id="custBossHits" type="range" min="1" max="5" step="1" value="2" class="mt-1 w-full accent-rose-500" /></label>
+            <label class="block">Monster chase speed (× your max run) <span id="custMonVal" class="float-right font-mono text-white">1.00×</span><input id="custMonsterSpd" type="range" min="0.5" max="2" step="0.05" value="1" class="mt-1 w-full accent-rose-500" /></label>
+            <label class="block">Stage 35 boss: move speed <span id="custBossMvVal" class="float-right font-mono text-white">1.00×</span><input id="custBossMoveSpd" type="range" min="0.5" max="2" step="0.05" value="1" class="mt-1 w-full accent-rose-500" /></label>
+            <label class="block">Stage 35 boss: HP (stomps to win, 1–20) <span id="custBossHpVal" class="float-right font-mono text-white">5</span><input id="custBossHp" type="range" min="1" max="20" step="1" value="5" class="mt-1 w-full accent-amber-500" /></label>
+            <label class="block sm:col-span-2">Projectile speed (fireballs &amp; stage 35 boss) <span id="custFireSpdVal" class="float-right font-mono text-white">1.00×</span><input id="custFireSpdMul" type="range" min="0.5" max="3" step="0.05" value="1" class="mt-1 w-full accent-orange-500" /></label>
+            <label class="block sm:col-span-2">Projectile frequency <span id="custProjFreqVal" class="float-right font-mono text-white">1.00×</span><input id="custProjFreqMul" type="range" min="0.35" max="3" step="0.05" value="1" class="mt-1 w-full accent-violet-500" /></label>
+            <label class="block sm:col-span-2">Projectile–stage cooldown <span id="custStageCdVal" class="float-right font-mono text-white">2.0s</span><input id="custStageCdSec" type="range" min="0" max="10" step="0.1" value="2" class="mt-1 w-full accent-cyan-500" /></label>
+            <label class="block sm:col-span-2">Projectile cooldown (time between waves / stage 35 boss shots) <span id="custLoopCdVal" class="float-right font-mono text-white">2.20s</span><input id="custLoopCdSec" type="range" min="0.1" max="5" step="0.05" value="2.2" class="mt-1 w-full accent-cyan-500" /></label>
+          </div>
+          <div class="mt-3 flex flex-col gap-2 border-t border-white/10 pt-3">
+            <p class="text-xs font-sem text-slate-500">Hazards &amp; stage 35 boss (custom only)</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <label class="flex cursor-pointer items-center gap-2"><input id="custFbChase" type="checkbox" class="rounded border-slate-600 text-indigo-500" /> Fireballs chase you</label>
+              <label class="flex cursor-pointer items-center gap-2"><input id="custMonChase" type="checkbox" class="rounded border-slate-600 text-indigo-500" checked /> Monsters chase you</label>
+              <label class="flex cursor-pointer items-center gap-2"><input id="custBossAtk" type="checkbox" class="rounded border-slate-600 text-indigo-500" checked /> Stage 35 boss: attacks (projectiles)</label>
+            </div>
+            <p class="text-xs font-sem text-slate-500">Other (custom only)</p>
+            <div class="flex flex-wrap gap-4">
+              <label class="flex cursor-pointer items-center gap-2"><input id="custSkip" type="checkbox" class="rounded border-slate-600 text-indigo-500" /> Allow skip stage (<kbd class="rounded bg-slate-800 px-1 font-mono text-indigo-200">N</kbd> or HUD button)</label>
+              <label class="flex cursor-pointer items-center gap-2"><input id="custNoFire" type="checkbox" class="rounded border-slate-600 text-indigo-500" /> Disable fireballs</label>
+              <label class="flex cursor-pointer items-center gap-2"><input id="custPotionDrops" type="checkbox" class="rounded border-slate-600 text-indigo-500" checked /> Enable potion airdrops (final boss, stage 50)</label>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-left text-sm text-slate-300">
+          <p class="font-sem text-indigo-200">Projectiles</p>
+          <p class="mt-1 text-xs text-slate-500">Applies on Easy, Normal, Hard, and Custom.</p>
+          <label class="mt-3 flex cursor-pointer items-start gap-2">
+            <input id="optProjDespawn" type="checkbox" class="mt-0.5 rounded border-slate-600 text-indigo-500" />
+            <span><strong class="text-slate-200">Despawn after 15s</strong> — stray shots time out unless they hit you, go off-screen<span id="optProjDespawnEnvHint" class="hidden text-slate-500">, or hit terrain</span>.</span>
+          </label>
+          <label class="mt-2 flex cursor-pointer items-start gap-2">
+            <input id="optProjEnv" type="checkbox" class="mt-0.5 rounded border-slate-600 text-indigo-500" />
+            <span><strong class="text-slate-200">Environment interaction</strong> — fireballs and boss shots collide with platforms; they vanish with a burst.</span>
+          </label>
+          <label class="mt-2 flex cursor-pointer items-start gap-2">
+            <input id="optProjFrequent" type="checkbox" class="mt-0.5 rounded border-slate-600 text-indigo-500" />
+            <span><strong class="text-slate-200">Frequent projectiles</strong> — <span id="optProjFrequentHint">2× waves &amp; boss shots on Easy, Normal, and Hard.</span></span>
+          </label>
+          <label class="mt-2 flex cursor-pointer items-start gap-2">
+            <input id="optProjStageCd" type="checkbox" class="mt-0.5 rounded border-slate-600 text-indigo-500" checked />
+            <span><strong class="text-slate-200">Projectile stage cooldown</strong> — <span id="optProjStageCdHint">short delay after entering a stage before hazards fire (Easy / Normal / Hard).</span></span>
+          </label>
+          <label class="mt-2 flex cursor-pointer items-start gap-2">
+            <input id="optProjFast" type="checkbox" class="mt-0.5 rounded border-slate-600 text-indigo-500" />
+            <span><strong class="text-slate-200">Fast projectiles</strong> — <span id="optProjFastHint">1.5× speed on Easy, Normal, and Hard.</span></span>
+          </label>
+        </div>
+        <div class="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+          <label for="sensSlider" class="flex items-center justify-between gap-3 text-sm text-slate-300">
+            <span class="font-sem text-indigo-200">Move sensitivity</span>
+            <span id="sensValue" class="font-mono text-white">1.00×</span>
+          </label>
+          <input id="sensSlider" type="range" min="0.35" max="2.5" step="0.05" value="1" class="mt-2 w-full accent-indigo-500" />
+        </div>
+        <div class="mt-6 flex flex-col gap-2 sm:flex-row">
+          <button id="btnPlay" type="button" class="w-full flex-1 rounded-2xl bg-indigo-500 px-6 py-4 text-lg font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+            Play
+          </button>
+          <button id="btnOpenRaceMenu" type="button" class="w-full flex-1 rounded-2xl border-2 border-amber-500/50 bg-amber-950/60 px-6 py-4 text-lg font-semibold text-amber-100 shadow-lg transition hover:bg-amber-900/80 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+            Racing
+          </button>
+        </div>
+        <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Account &amp; cloud stats
+        </button>
+      </div>
+    </div>
+
+    <!-- Pause -->
+    <div id="screenPause" class="absolute inset-0 z-30 hidden items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm">
+      <div class="w-full max-w-sm rounded-3xl border border-white/15 bg-slate-900/95 p-8 text-center shadow-2xl">
+        <p class="text-sm font-sem uppercase tracking-widest text-indigo-300">Paused</p>
+        <p class="mt-2 text-slate-400">Take a breath. Timer keeps counting.</p>
+        <button id="btnResume" type="button" class="mt-6 w-full rounded-2xl bg-indigo-500 px-6 py-3 font-semibold text-white hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Resume
+        </button>
+        <button id="btnExitToMenu" type="button" class="mt-3 w-full rounded-2xl border border-white/20 bg-transparent px-6 py-3 font-semibold text-slate-200 hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Exit to menu
+        </button>
+        <p class="mt-4 text-xs text-slate-500"><kbd class="rounded bg-slate-800 px-1 font-mono">Esc</kbd> also resumes</p>
+      </div>
+    </div>
+
+    <!-- Stage complete -->
+    <div id="screenStageClear" class="absolute inset-0 z-20 hidden items-center justify-center bg-emerald-950/85 p-6 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-slate-900/95 p-8 text-center shadow-2xl">
+        <p class="text-sm font-sem uppercase tracking-widest text-emerald-400">Stage clear</p>
+        <h2 id="stageClearTitle" class="mt-2 text-3xl font-bold text-white">Nice!</h2>
+        <p id="stageClearSub" class="mt-3 text-slate-400">Ready for the next climb?</p>
+        <button id="btnNextStage" type="button" class="mt-6 w-full rounded-2xl bg-emerald-500 px-6 py-3 font-semibold text-white hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Next stage
+        </button>
+      </div>
+    </div>
+
+    <!-- Game complete -->
+    <div id="screenWin" class="absolute inset-0 z-20 hidden items-center justify-center bg-indigo-950/90 p-6 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-3xl border border-amber-500/40 bg-slate-900/95 p-8 text-center shadow-2xl">
+        <p class="text-sm font-sem uppercase tracking-widest text-amber-400">You win</p>
+        <h2 class="mt-2 text-3xl font-bold text-white">All 50 stages cleared</h2>
+        <p class="mt-2 text-xs font-sem uppercase tracking-widest text-amber-400/80">Total time</p>
+        <p id="winTime" class="mt-1 font-mono text-4xl font-bold tabular-nums tracking-tight text-amber-200" aria-label="Total time">0:00</p>
+        <p class="mt-3 text-slate-400">Total deaths: <span id="winDeaths" class="font-bold text-amber-200">0</span></p>
+        <button id="btnPlayAgain" type="button" class="mt-6 w-full rounded-2xl bg-amber-500 px-6 py-3 font-semibold text-slate-900 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Play again from stage 1
+        </button>
+      </div>
+    </div>
+
+    <!-- Weapon / item intro (after pickup) -->
+    <div
+      id="screenWeapon"
+      class="absolute inset-0 z-40 hidden items-center justify-center bg-slate-950/90 p-6 backdrop-blur-md"
+    >
+      <div
+        class="w-full max-w-md rounded-3xl border border-amber-500/30 bg-slate-900/95 p-8 shadow-2xl"
+      >
+        <p id="weaponModalKicker" class="text-sm font-sem uppercase tracking-widest text-amber-400">New item</p>
+        <h2 id="weaponModalTitle" class="mt-2 text-2xl font-bold text-white">—</h2>
+        <div id="weaponModalBody" class="mt-4 space-y-2 text-left text-sm text-slate-300"></div>
+        <button
+          id="btnWeaponOk"
+          type="button"
+          class="mt-6 w-full rounded-2xl bg-amber-500 px-6 py-3 font-semibold text-slate-900 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+        >
+          OK
+        </button>
+      </div>
+    </div>
+
+    <!-- Account (server-backed stats; same machine as Racing WebSocket) -->
+    <div id="screenAccount" class="absolute inset-0 z-[26] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
+      <div class="my-auto w-full max-w-lg rounded-3xl border border-violet-500/35 bg-gradient-to-br from-slate-900 to-violet-950/50 p-6 shadow-2xl md:max-w-xl md:p-8">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-sm font-sem uppercase tracking-widest text-violet-400">Cloud profile</p>
+            <h2 class="mt-1 text-2xl font-bold text-white">Account</h2>
+            <p id="accServerHint" class="mt-1 text-[11px] text-slate-500">REST API: —</p>
+            <details class="mt-2 text-left">
+              <summary class="cursor-pointer text-[11px] text-slate-500 hover:text-slate-400">Advanced: different API host (optional)</summary>
+              <label class="mt-2 block text-[11px] text-slate-500">HTTPS API base</label>
+              <input id="accApiBase" type="url" placeholder="Node server only — not Supabase (e.g. http://127.0.0.1:3001)" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-white" autocomplete="off" />
+            </details>
+          </div>
+          <button id="btnAccountClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <p id="accError" class="mt-3 hidden rounded-lg border border-rose-500/40 bg-rose-950/50 px-3 py-2 text-sm text-rose-200"></p>
+
+        <div id="accGuestBlock" class="mt-4 space-y-4">
+          <p class="text-sm text-slate-400">Sign in on any device with the same username to see the same statistics. Uses the same host as the game (leave Racing server blank on a hosted link, or set it in Racing first).</p>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <p class="text-xs font-sem text-violet-300">Log in</p>
+            <label class="mt-2 block text-[11px] text-slate-500">Username</label>
+            <input id="accLoginUser" type="text" autocomplete="username" maxlength="24" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+            <label class="mt-2 block text-[11px] text-slate-500">Password</label>
+            <input id="accLoginPass" type="password" autocomplete="current-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+            <button id="accBtnLogin" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500">Log in</button>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+            <p class="text-xs font-sem text-violet-300">Register</p>
+            <label class="mt-2 block text-[11px] text-slate-500">Username (letters, numbers, _ · 2–24)</label>
+            <input id="accRegUser" type="text" autocomplete="off" maxlength="24" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+            <label class="mt-2 block text-[11px] text-slate-500">Password (min 6)</label>
+            <input id="accRegPass" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+            <button id="accBtnRegister" type="button" class="mt-3 w-full rounded-xl border border-violet-500/50 bg-violet-950/40 px-4 py-2.5 text-sm font-semibold text-violet-100 hover:bg-violet-900/50">Create account</button>
+          </div>
+        </div>
+
+        <div id="accLoggedBlock" class="mt-4 hidden space-y-4">
+          <p class="text-sm text-slate-300">Signed in as <span id="accUserLabel" class="font-semibold text-violet-200">—</span></p>
+          <button id="accBtnLogout" type="button" class="w-full rounded-xl border border-white/20 py-2 text-sm font-sem text-slate-300 hover:bg-white/5">Log out</button>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
+            <p class="text-xs font-sem text-violet-300">Statistics (all submitted full runs)</p>
+            <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-3">
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Runs</dt><dd id="accStatRuns" class="font-mono text-lg text-white">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Deaths (total)</dt><dd id="accStatDeathTotal" class="font-mono text-lg text-white">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Lowest deaths / run</dt><dd id="accStatDeathMin" class="font-mono text-lg text-emerald-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Highest deaths / run</dt><dd id="accStatDeathMax" class="font-mono text-lg text-rose-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Fastest run</dt><dd id="accStatTimeBest" class="font-mono text-lg text-amber-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Avg time / run</dt><dd id="accStatTimeAvg" class="font-mono text-lg text-amber-100/90">—</dd></div>
+              <div class="sm:col-span-2"><dt class="text-[10px] uppercase tracking-wide text-slate-500">Avg deaths / run</dt><dd id="accStatDeathAvg" class="font-mono text-lg text-slate-200">—</dd></div>
+            </dl>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
+            <p class="text-xs font-sem text-violet-300">Achievements</p>
+            <ul id="accAchList" class="mt-2 grid max-h-52 list-none gap-2 overflow-y-auto p-0 sm:max-h-64"></ul>
+          </div>
+          <p class="text-[11px] text-slate-500">Finishing all 50 stages (campaign or race) while logged in uploads that run. Progress mid-run is not saved until you win.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Racing: lobby (over main menu) -->
+    <div id="screenRaceMenu" class="absolute inset-0 z-[25] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-6 backdrop-blur-sm">
+      <div class="my-auto w-full max-w-md rounded-3xl border border-amber-500/30 bg-gradient-to-br from-slate-900 to-amber-950/40 p-6 shadow-2xl md:p-8">
+        <p class="text-center text-sm font-sem uppercase tracking-widest text-amber-400">Parallel run</p>
+        <h2 class="mt-1 text-center text-2xl font-bold text-white">Racing</h2>
+        <p class="mt-2 text-center text-sm text-slate-400">Race all 50 stages. Bots stay offline. Online: host creates a session, shares the 6-character ID, then starts when everyone has joined. If you use a <strong class="text-amber-100">hosted link</strong> to this game, leave the server box empty—everyone uses the same website automatically. For custom hosts, type a domain only (e.g. <code class="font-mono text-amber-200/80">myapp.fly.dev</code>) or a full <code class="font-mono text-amber-200/80">wss://</code> URL.</p>
+        <label class="mt-4 block text-left text-xs text-slate-500">Online server (blank = this website for all players)</label>
+        <input id="raceWsUrl" type="text" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-slate-200" placeholder="Leave blank on skyhop.yoursite.com" autocomplete="off" />
+        <p class="mt-1.5 text-left text-[11px] leading-relaxed text-amber-200/85"><strong class="text-amber-100">Local dev:</strong> run <span class="font-mono">npm start</span> in <span class="font-mono">server</span>, open <span class="font-mono">http://127.0.0.1:3001/</span> for the game, or put <span class="font-mono">127.0.0.1:3001</span> here if you open the files from disk. Raw Node is HTTP—use <span class="font-mono">http://…/health</span> to test. Production HTTPS is provided by your host (Fly, Render, etc.), not by Node alone.</p>
+        <label class="mt-3 block text-left text-xs text-slate-500">Display name</label>
+        <input id="raceName" type="text" maxlength="20" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-slate-200" placeholder="Racer" />
+        <div class="mt-4 grid gap-2 sm:grid-cols-1">
+          <button id="btnRaceVsBots" type="button" class="w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md hover:bg-emerald-500">Race vs bots (offline)</button>
+          <button id="btnRaceCreate" type="button" class="w-full rounded-2xl border border-amber-500/50 bg-amber-950/50 px-4 py-3 text-sm font-semibold text-amber-100 hover:bg-amber-900/60">Create online session (host)</button>
+          <button id="btnRaceJoin" type="button" class="w-full rounded-2xl border border-white/20 bg-slate-800/80 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-700">Join with session ID</button>
+        </div>
+        <div id="raceHostPanel" class="mt-4 hidden rounded-2xl border border-amber-500/20 bg-slate-950/60 p-4 text-left text-sm text-slate-300">
+          <p class="font-sem text-amber-200">Your session ID</p>
+          <p id="raceSessionIdText" class="mt-2 font-mono text-xl font-bold tracking-widest text-white">—</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="btnRaceCopyId" type="button" class="rounded-xl border border-white/20 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700">Copy ID</button>
+            <button id="btnRaceStartMp" type="button" class="hidden rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-amber-400">Start race</button>
+          </div>
+        </div>
+        <div id="raceJoinPanel" class="mt-4 hidden rounded-2xl border border-indigo-500/20 bg-slate-950/60 p-4 text-left text-sm text-slate-300">
+          <label class="text-xs text-slate-500">Session ID (from host)</label>
+          <div class="mt-1 flex gap-2">
+            <input id="raceRoomId" type="text" maxlength="8" class="min-w-0 flex-1 rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-sm uppercase text-white" placeholder="AB12CD" autocomplete="off" />
+            <button id="btnRaceJoinGo" type="button" class="shrink-0 rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-400">Join</button>
+          </div>
+        </div>
+        <p id="raceMpStatus" class="mt-3 hidden text-center text-sm text-rose-200"></p>
+        <button id="btnRaceBack" type="button" class="mt-5 w-full rounded-2xl border border-white/20 bg-transparent py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/5">Back to menu</button>
+      </div>
+    </div>
+
+    <!-- Racing: live leaderboard (in-run) -->
+    <div id="raceLeaderboard" class="pointer-events-none absolute bottom-0 right-0 z-[15] m-2 max-w-[14rem] rounded-2xl border border-amber-500/20 bg-slate-950/90 p-2 shadow-xl backdrop-blur-sm hidden sm:m-4">
+      <p class="border-b border-amber-500/20 px-1 pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-300/90">Leaders</p>
+      <ul id="raceLeaderboardList" class="max-h-40 list-none overflow-y-auto p-0 text-left"></ul>
+    </div>
+
+    <div id="screenRaceOver" class="absolute inset-0 z-[35] hidden items-center justify-center bg-slate-950/90 p-6 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-3xl border border-amber-500/30 bg-slate-900/95 p-8 text-center shadow-2xl">
+        <p class="text-sm font-sem uppercase tracking-widest text-amber-400/90">Racing</p>
+        <h3 id="raceOverTitle" class="mt-1 text-2xl font-bold text-white">—</h3>
+        <p id="raceOverTime" class="mt-2 hidden font-mono text-5xl font-bold tabular-nums text-amber-200">0:00</p>
+        <p id="raceOverTimeLabel" class="mt-0.5 hidden text-xs text-slate-500">Time</p>
+        <p id="raceOverBody" class="mt-4 text-left text-sm text-slate-400">—</p>
+        <button id="btnRaceOverOk" type="button" class="mt-6 w-full rounded-2xl bg-amber-500 px-6 py-3 font-semibold text-slate-900 hover:bg-amber-400">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script>window.SKYHOP_DEBUG_START_STAGE = 1;</script>
+  <script src="stages.js"></script>
+  <script src="stages-extra.js"></script>
+  <script src="stages-36-50.js"></script>
+  <script src="js/skyhop-options.js"></script>
+  <script src="js/skyhop-constants.js"></script>
+  <script src="js/skyhop-physics.js"></script>
+  <script src="js/skyhop-stage-prep.js"></script>
+  <script src="js/skyhop-game.js"></script>
+  <script src="js/skyhop-race.js"></script>
+  <script src="js/skyhop-account.js"></script>
+</body>
+</html>
