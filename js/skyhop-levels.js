@@ -40,6 +40,7 @@
     return {
       worldW: 1400,
       worldH: 720,
+      underhangDisabled: true,
       spawn: { x: 80, y: 520 },
       goal: { x: 1180, y: 460, w: 72, h: 96 },
       platforms: [
@@ -59,6 +60,7 @@
     if (!raw.lava) raw.lava = [];
     if (!raw.fireballEmitters) raw.fireballEmitters = [];
     if (!raw.platforms) raw.platforms = [];
+    raw.underhangDisabled = true;
     return raw;
   }
 
@@ -70,12 +72,13 @@
 
   function fitCam(canvas, worldW, worldH) {
     const pad = 0.9;
-    const cw = canvas.clientWidth || canvas.width;
-    const ch = canvas.clientHeight || canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+    const cw = canvas.clientWidth || (canvas.width && canvas.width / dpr) || 400;
+    const ch = canvas.clientHeight || (canvas.height && canvas.height / dpr) || 240;
     const s = Math.min((cw * pad) / worldW, (ch * pad) / worldH);
-    cam.s = s;
-    cam.ox = (cw - worldW * s) / 2;
-    cam.oy = (ch - worldH * s) / 2;
+    cam.s = s || 0.001;
+    cam.ox = (cw - worldW * cam.s) / 2;
+    cam.oy = (ch - worldH * cam.s) / 2;
   }
 
   function toScreen(wx, wy) {
@@ -159,10 +162,16 @@
   function drawEditor(canvas, ctx) {
     const d = editorState.data;
     if (!d) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.clientWidth || (canvas.width && canvas.width / dpr) || 400;
+    const cssH = canvas.clientHeight || (canvas.height && canvas.height / dpr) || 240;
+
     fitCam(canvas, d.worldW, d.worldH);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW + 1, cssH + 1);
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cssW, cssH);
 
     const p0 = toScreen(0, 0);
     const p1 = toScreen(d.worldW, d.worldH);
@@ -331,7 +340,7 @@
 
       editorSelection = null;
       if (editorTool === 'platform') {
-        d.platforms.push({ x: Math.round((w.x - 64) / 8) * 8, y: Math.round((w.y - 12) / 8) * 8, w: 128, h: 24 });
+        d.platforms.push({ x: Math.round((w.x - 24) / 8) * 8, y: Math.round((w.y - 12) / 8) * 8, w: 48, h: 24 });
         editorSelection = { kind: 'platform', index: d.platforms.length - 1 };
       } else if (editorTool === 'lava') {
         d.lava.push({
@@ -417,7 +426,10 @@
   function showEditorScreen(on) {
     if (!editorScreen) return;
     editorScreen.classList.toggle('hidden', !on);
-    if (on) scheduleEditorRedraw();
+    if (on) {
+      scheduleEditorRedraw();
+      requestAnimationFrame(() => scheduleEditorRedraw());
+    }
   }
 
   async function refreshMineList() {
@@ -473,6 +485,7 @@
       editorState.beatenOk = !!row.beatenVerified;
       editorState.readOnly = !!row.published;
       editorState.data = Object.assign(row.data || {}, {});
+      if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       document.getElementById('lvlEdTitle').value = editorState.title;
       showMine(false);
       showOnline(false);
