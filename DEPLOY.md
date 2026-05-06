@@ -20,6 +20,7 @@ Recommended: deploy the **Dockerfile** at the repo root to **Render**, **Fly.io*
 5. **Environment** (for Supabase accounts):
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - **`SKYHOP_OWNER_USERNAME`** — your game login name (owner inbox / bans). Not in git; set here like other secrets.
 6. Deploy. Render gives you `https://something.onrender.com`.
 7. Open that URL → play → Account works (same origin).
 
@@ -40,10 +41,10 @@ Health check (optional): path **`/health`**, expect `200` and JSON `{"ok":true}`
 
    Use the included `fly.toml`, pick a region, **don’t** deploy a tiny Postgres unless you want it for something else.
 
-3. Set secrets:
+3. Set secrets (include owner username — **Docker builds do not ship `.env.local`**):
 
    ```bash
-   fly secrets set SUPABASE_URL="https://xxxx.supabase.co" SUPABASE_SERVICE_ROLE_KEY="eyJ..."
+   fly secrets set SUPABASE_URL="https://xxxx.supabase.co" SUPABASE_SERVICE_ROLE_KEY="eyJ..." SKYHOP_OWNER_USERNAME="yourLoginName"
    ```
 
 4. Deploy:

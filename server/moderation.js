@@ -34,7 +34,7 @@ export function durationKeyToBanUntil(key) {
 
 export function effectiveRole(user) {
   if (!user) return 'player';
-  const low = user.usernameLower || String(user.username || '').toLowerCase();
+  const low = String(user.usernameLower || String(user.username || '').toLowerCase()).trim();
   const ownerEnv = (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase();
   if (ownerEnv && low === ownerEnv) return 'owner';
   if ((user.role || '') === 'moderator') return 'moderator';

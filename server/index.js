@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 
+import './env.js';
+
 const PORT = Number(process.env.SKYHOP_RACE_PORT || 3001);
 /** 0.0.0.0 = LAN + 127.0.0.1. Other PCs in the game must use ws://(host's Wi-Fi IP):port, not 127.0.0.1. */
 const HOST = process.env.SKYHOP_RACE_HOST || '0.0.0.0';
@@ -117,7 +119,15 @@ const server = http.createServer((req, res) => {
       }
       if (req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', ...CORS });
-        res.end(JSON.stringify({ ok: true, service: 'skyhop-race' }));
+        const ownerSet = !!String(process.env.SKYHOP_OWNER_USERNAME || '').trim();
+        res.end(
+          JSON.stringify({
+            ok: true,
+            service: 'skyhop-race',
+            /** True if SKYHOP_OWNER_USERNAME is non-empty (same process that runs /api). */
+            ownerEnvConfigured: ownerSet,
+          })
+        );
         return;
       }
     }
