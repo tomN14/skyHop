@@ -302,7 +302,8 @@
       return 0;
     });
 
-    el.list.innerHTML = rows
+    const top = rows.slice(0, 5);
+    el.list.innerHTML = top
       .map(
         (r, i) =>
           `<li class="flex items-center justify-between gap-2 border-b border-slate-700/50 py-0.5 text-[11px] ${

@@ -342,23 +342,62 @@
   function bindTouchControl(id, keyNames) {
     const el = document.getElementById(id);
     if (!el || !keyNames || !keyNames.length) return;
-    const down = (e) => {
-      e.preventDefault();
-      for (const k of keyNames) keys[k] = true;
+    const setKeys = (down) => {
+      for (const k of keyNames) keys[k] = down;
     };
-    const up = (e) => {
+    const onDown = (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
       e.preventDefault();
-      for (const k of keyNames) keys[k] = false;
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      setKeys(true);
     };
-    el.addEventListener('touchstart', down, { passive: false });
-    el.addEventListener('touchend', up, { passive: false });
-    el.addEventListener('touchcancel', up, { passive: false });
-    el.addEventListener('mousedown', (e) => {
-      if (e.button === 0) down(e);
-    });
-    el.addEventListener('mouseup', up);
-    el.addEventListener('mouseleave', up);
+    const onUp = (e) => {
+      e.preventDefault();
+      setKeys(false);
+    };
+    const peOpts = { passive: false };
+    if (window.PointerEvent) {
+      el.addEventListener('pointerdown', onDown, peOpts);
+      el.addEventListener('pointerup', onUp, peOpts);
+      el.addEventListener('pointercancel', onUp, peOpts);
+      el.addEventListener('lostpointercapture', () => setKeys(false));
+    } else {
+      el.addEventListener(
+        'touchstart',
+        (e) => {
+          e.preventDefault();
+          setKeys(true);
+        },
+        { passive: false }
+      );
+      el.addEventListener(
+        'touchend',
+        (e) => {
+          e.preventDefault();
+          setKeys(false);
+        },
+        { passive: false }
+      );
+      el.addEventListener('touchcancel', () => setKeys(false), { passive: false });
+      el.addEventListener('mousedown', (e) => {
+        if (e.button === 0) onDown(e);
+      });
+      el.addEventListener('mouseup', onUp);
+      el.addEventListener('mouseleave', () => setKeys(false));
+    }
   }
+
+  function initTouchControls() {
+    bindTouchControl('touchLeft', ['ArrowLeft']);
+    bindTouchControl('touchRight', ['ArrowRight']);
+    bindTouchControl('touchJump', [' ', 'ArrowUp', 'Space', 'Spacebar']);
+  }
+  if (document.getElementById('touchLeft')) initTouchControls();
+  else document.addEventListener('DOMContentLoaded', initTouchControls, { once: true });
 
   let lastJumpPress = -9999;
   let activeFireballs = [];
@@ -634,7 +673,25 @@
   function setTouchHudVisible(show) {
     const el = document.getElementById('touchControls');
     if (!el) return;
-    el.classList.toggle('hidden', !show);
+    let allow = false;
+    try {
+      if (window.matchMedia('(pointer: coarse)').matches) allow = true;
+      else if (window.matchMedia('(max-width: 1023px)').matches) allow = true;
+    } catch {
+      allow = true;
+    }
+    el.classList.toggle('hidden', !show || !allow);
+  }
+
+  function syncLevelsTopNav() {
+    const nav = document.getElementById('levelsTopNav');
+    if (!nav) return;
+    const hide =
+      gameState === 'playing' ||
+      gameState === 'paused' ||
+      gameState === 'weapon_modal' ||
+      inRace;
+    nav.classList.toggle('hidden', hide);
   }
 
   /** Higher = more frequent (shorter delays). */
@@ -1010,6 +1067,8 @@
     gameState = 'weapon_modal';
     screenWeapon.classList.remove('hidden');
     screenWeapon.classList.add('flex');
+    syncLevelsTopNav();
+    setTouchHudVisible(false);
   }
 
   function closeWeaponScreen() {
@@ -1018,6 +1077,8 @@
     screenWeapon.classList.remove('flex');
     if (gameState === 'weapon_modal') gameState = 'playing';
     saveRunProgress();
+    syncLevelsTopNav();
+    setTouchHudVisible(gameState === 'playing');
   }
 
   function tryUseWoodenSword() {
@@ -1171,12 +1232,10 @@
     saveRunProgress();
     updateSkipHud();
     {
-      const showTouch =
-        gameState === 'playing' &&
-        typeof window.matchMedia !== 'undefined' &&
-        window.matchMedia('(max-width: 900px)').matches;
+      const showTouch = gameState === 'playing';
       setTouchHudVisible(!!showTouch);
     }
+    syncLevelsTopNav();
   }
 
   function beginRacing() {
@@ -1935,6 +1994,7 @@
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         setTouchHudVisible(false);
+        syncLevelsTopNav();
         if (extBoss.mode === 'test' && typeof extBoss.onTestCleared === 'function') {
           try {
             extBoss.onTestCleared();
@@ -1971,6 +2031,8 @@
           }
           gameState = 'menu';
           hud.classList.add('hidden');
+          setTouchHudVisible(false);
+          syncLevelsTopNav();
           return;
         }
         clearRunProgress();
@@ -1987,6 +2049,8 @@
             /* */
           }
         }
+        setTouchHudVisible(false);
+        syncLevelsTopNav();
       } else {
         gameState = 'stage_clear';
         stageClearTitle.textContent = `Boss down!`;
@@ -1994,6 +2058,8 @@
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         saveRunProgress();
+        setTouchHudVisible(false);
+        syncLevelsTopNav();
       }
       return;
     }
@@ -2019,6 +2085,7 @@
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         setTouchHudVisible(false);
+        syncLevelsTopNav();
         return;
       }
       if (stageIndex >= stagesNow().length - 1) {
@@ -2048,6 +2115,8 @@
           }
           gameState = 'menu';
           hud.classList.add('hidden');
+          setTouchHudVisible(false);
+          syncLevelsTopNav();
           return;
         }
         clearRunProgress();
@@ -2064,6 +2133,8 @@
             /* */
           }
         }
+        setTouchHudVisible(false);
+        syncLevelsTopNav();
       } else {
         gameState = 'stage_clear';
         stageClearTitle.textContent = `Stage ${stageIndex + 1} complete`;
@@ -2072,6 +2143,8 @@
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         saveRunProgress();
+        setTouchHudVisible(false);
+        syncLevelsTopNav();
       }
     }
 
@@ -2676,11 +2749,8 @@
       screenPause.classList.remove('flex');
     }
     updateSkipHud();
-    setTouchHudVisible(
-      !on &&
-        typeof window.matchMedia !== 'undefined' &&
-        window.matchMedia('(max-width: 900px)').matches
-    );
+    setTouchHudVisible(gameState === 'playing');
+    syncLevelsTopNav();
   }
 
   function goToMenu() {
@@ -2698,6 +2768,7 @@
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
     setTouchHudVisible(false);
+    syncLevelsTopNav();
     if (screenPause) {
       screenPause.classList.add('hidden');
       screenPause.classList.remove('flex');
@@ -2736,6 +2807,8 @@
           /* */
         }
       }
+      setTouchHudVisible(false);
+      syncLevelsTopNav();
       return;
     }
     stageIndex++;

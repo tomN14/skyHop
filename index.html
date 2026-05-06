@@ -22,6 +22,7 @@
   <style>
     html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
     #gameCanvas { touch-action: none; }
+    #touchControls { touch-action: none; }
     #levelsTopNav { position: fixed; left: 0; right: 0; top: 0; z-index: 22; padding-top: max(0.75rem, env(safe-area-inset-top)); pointer-events: none; }
     #levelsTopNav button { pointer-events: auto; }
   </style>
@@ -112,14 +113,14 @@
       </button>
     </div>
 
-    <!-- Mobile movement (hidden on large screens via JS + max-width) -->
-    <div id="touchControls" class="pointer-events-auto fixed bottom-0 left-0 right-0 z-[18] hidden p-4 md:hidden">
-      <div class="mx-auto flex max-w-lg items-end justify-between gap-4">
+    <!-- Mobile controls: visibility from JS only (no md:hidden — that hid the bar on tablets ≥768px). -->
+    <div id="touchControls" class="pointer-events-auto fixed bottom-0 left-0 right-0 z-[24] hidden pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+      <div class="mx-auto flex max-w-lg items-end justify-between gap-4 px-4">
         <div class="flex gap-3">
-          <button id="touchLeft" type="button" class="h-14 w-14 select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">←</button>
-          <button id="touchRight" type="button" class="h-14 w-14 select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">→</button>
+          <button id="touchLeft" type="button" aria-label="Move left" class="h-14 w-14 touch-manipulation select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">←</button>
+          <button id="touchRight" type="button" aria-label="Move right" class="h-14 w-14 touch-manipulation select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">→</button>
         </div>
-        <button id="touchUp" type="button" class="h-16 w-16 select-none rounded-2xl border border-emerald-500/40 bg-emerald-950/90 text-xl font-bold text-emerald-100 shadow-xl active:scale-95">↑</button>
+        <button id="touchJump" type="button" aria-label="Jump" class="h-16 min-w-[4rem] touch-manipulation select-none rounded-2xl border border-emerald-500/40 bg-emerald-950/90 px-4 text-sm font-bold text-emerald-100 shadow-xl active:scale-95">Jump</button>
       </div>
     </div>
     <div id="screenMenu" class="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto overscroll-y-contain bg-slate-950/90 px-6 pb-6 pt-[4.5rem] backdrop-blur-sm max-[480px]:items-start max-[480px]:pt-[4.25rem]">
@@ -228,7 +229,7 @@
     </div>
 
     <!-- Stage complete -->
-    <div id="screenStageClear" class="absolute inset-0 z-20 hidden items-center justify-center bg-emerald-950/85 p-6 backdrop-blur-sm">
+    <div id="screenStageClear" class="absolute inset-0 z-[25] hidden items-center justify-center bg-emerald-950/85 p-6 backdrop-blur-sm">
       <div class="w-full max-w-md rounded-3xl border border-emerald-500/40 bg-slate-900/95 p-8 text-center shadow-2xl">
         <p class="text-sm font-sem uppercase tracking-widest text-emerald-400">Stage clear</p>
         <h2 id="stageClearTitle" class="mt-2 text-3xl font-bold text-white">Nice!</h2>
@@ -240,7 +241,7 @@
     </div>
 
     <!-- Game complete -->
-    <div id="screenWin" class="absolute inset-0 z-20 hidden items-center justify-center bg-indigo-950/90 p-6 backdrop-blur-sm">
+    <div id="screenWin" class="absolute inset-0 z-[25] hidden items-center justify-center bg-indigo-950/90 p-6 backdrop-blur-sm">
       <div class="w-full max-w-md rounded-3xl border border-amber-500/40 bg-slate-900/95 p-8 text-center shadow-2xl">
         <p class="text-sm font-sem uppercase tracking-widest text-amber-400">You win</p>
         <h2 class="mt-2 text-3xl font-bold text-white">All 50 stages cleared</h2>
@@ -428,10 +429,10 @@
       </div>
     </div>
 
-    <!-- Racing: live leaderboard (in-run) -->
-    <div id="raceLeaderboard" class="pointer-events-none absolute bottom-0 right-0 z-[15] m-2 max-w-[14rem] rounded-2xl border border-amber-500/20 bg-slate-950/90 p-2 shadow-xl backdrop-blur-sm hidden sm:m-4">
-      <p class="border-b border-amber-500/20 px-1 pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-300/90">Leaders</p>
-      <ul id="raceLeaderboardList" class="max-h-40 list-none overflow-y-auto p-0 text-left"></ul>
+    <!-- Racing: live leaderboard (in-run, top 5) -->
+    <div id="raceLeaderboard" class="pointer-events-none absolute bottom-32 left-0 z-[15] m-2 max-w-[17rem] rounded-2xl border border-amber-500/20 bg-slate-950/90 p-2 shadow-xl backdrop-blur-sm hidden sm:m-3 md:bottom-28">
+      <p class="border-b border-amber-500/20 px-1 pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-300/90">Top 5</p>
+      <ul id="raceLeaderboardList" class="max-h-36 list-none overflow-y-auto p-0 text-left"></ul>
     </div>
 
     <div id="screenRaceOver" class="absolute inset-0 z-[35] hidden items-center justify-center bg-slate-950/90 p-6 backdrop-blur-sm">
