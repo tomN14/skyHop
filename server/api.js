@@ -1,5 +1,6 @@
 import { ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
 import { store } from './store.js';
+import * as UserLevels from './user-levels.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -177,6 +178,169 @@ export async function handleApi(req, res) {
       200,
       ACHIEVEMENT_DEFS.map((d) => ({ id: d.id, title: d.title, desc: d.desc }))
     );
+    return true;
+  }
+
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (path === '/api/levels/mine' && req.method === 'GET') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const list = await UserLevels.levelsMine(uid);
+      json(res, 200, { levels: list });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/levels/save' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.id && uuidRe.test(String(body.id))) {
+        await UserLevels.levelsUpdateDraft(uid, String(body.id), body.title, body.data);
+        json(res, 200, { id: String(body.id) });
+      } else {
+        const out = await UserLevels.levelsCreate(uid, body.title, body.data);
+        json(res, 201, out);
+      }
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/beat$/.exec(path);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        await UserLevels.levelsMarkBeaten(uid, m[1]);
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/publish$/.exec(path);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        await UserLevels.levelsPublish(uid, m[1]);
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/play$/.exec(path);
+    if (m && req.method === 'POST') {
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        await UserLevels.levelsRecordPlay(m[1]);
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (path === '/api/levels/search' && req.method === 'GET') {
+    const q = u.searchParams.get('q') || '';
+    const page = Number(u.searchParams.get('page') || '1') || 1;
+    try {
+      const out = await UserLevels.levelsSearchName(q, page);
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/levels/lookup' && req.method === 'GET') {
+    const id = (u.searchParams.get('id') || '').trim();
+    try {
+      const item = await UserLevels.levelsPublishedMetaById(id);
+      json(res, 200, { item });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)$/.exec(path);
+    if (m && req.method === 'GET') {
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      const uid = (await bearerUserId(req)) || null;
+      const row = await UserLevels.levelsGetById(m[1], uid);
+      if (!row) {
+        json(res, 404, { error: 'Not found' });
+        return true;
+      }
+      json(res, 200, row);
+      return true;
+    }
+  }
+
+  if (path.startsWith('/api/levels/user/') && req.method === 'GET') {
+    const rest = path.slice('/api/levels/user/'.length);
+    const username = decodeURIComponent((rest.split('?')[0] || '').trim().toLowerCase());
+    const page = Number(u.searchParams.get('page') || '1') || 1;
+    if (!username) {
+      json(res, 400, { error: 'Username required' });
+      return true;
+    }
+    try {
+      const out = await UserLevels.levelsListByUsername(username, page);
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
     return true;
   }
 

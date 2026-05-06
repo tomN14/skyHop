@@ -99,7 +99,27 @@
       <p id="hudHint" class="mt-3 hidden max-w-xl rounded-xl border border-white/5 bg-black/40 px-3 py-2 text-sm text-slate-300 backdrop-blur-sm"></p>
     </div>
 
-    <!-- Title / menu -->
+    <!-- Levels nav (tooltips on hover) -->
+    <div class="pointer-events-none absolute left-0 right-0 top-0 z-[19] flex justify-between p-3 md:p-4">
+      <button id="btnNavOnlineLevels" type="button" title="Online Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
+        <span aria-hidden="true">🌐</span><span class="text-xs font-semibold text-cyan-100">Online</span>
+      </button>
+      <span class="flex-1 sm:flex-none"></span>
+      <button id="btnNavMyLevels" type="button" title="My Levels" class="pointer-events-auto hidden items-center gap-2 rounded-2xl border border-violet-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
+        <span aria-hidden="true">✏️</span><span class="text-xs font-semibold text-violet-100">My levels</span>
+      </button>
+    </div>
+
+    <!-- Mobile movement (hidden on large screens via JS + max-width) -->
+    <div id="touchControls" class="pointer-events-auto fixed bottom-0 left-0 right-0 z-[18] hidden p-4 md:hidden">
+      <div class="mx-auto flex max-w-lg items-end justify-between gap-4">
+        <div class="flex gap-3">
+          <button id="touchLeft" type="button" class="h-14 w-14 select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">←</button>
+          <button id="touchRight" type="button" class="h-14 w-14 select-none rounded-2xl border border-white/20 bg-slate-900/95 text-xl font-bold text-white shadow-xl active:scale-95">→</button>
+        </div>
+        <button id="touchUp" type="button" class="h-16 w-16 select-none rounded-2xl border border-emerald-500/40 bg-emerald-950/90 text-xl font-bold text-emerald-100 shadow-xl active:scale-95">↑</button>
+      </div>
+    </div>
     <div id="screenMenu" class="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto bg-slate-950/90 p-6 backdrop-blur-sm">
       <div class="my-auto w-full max-w-xl rounded-3xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 to-indigo-950/80 p-8 shadow-2xl shadow-indigo-900/40">
         <p class="text-center text-sm font-sem uppercase tracking-[0.2em] text-indigo-400">Platformer</p>
@@ -314,6 +334,62 @@
       </div>
     </div>
 
+    <!-- User levels: My levels -->
+    <div id="screenLevelsMine" class="absolute inset-0 z-[29] hidden flex flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
+      <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center justify-between gap-2 pb-3">
+        <button id="btnLevelsMineBack" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">← Back</button>
+        <h2 class="text-lg font-bold text-white">My Levels</h2>
+        <button id="btnLevelsNew" type="button" title="New level" class="rounded-xl bg-violet-600 px-3 py-2 text-xl font-bold leading-none text-white shadow-md hover:bg-violet-500">+</button>
+      </div>
+      <p id="levelsMineErr" class="mx-auto mb-2 hidden max-w-2xl text-center text-sm text-rose-300"></p>
+      <ul id="levelsMineList" class="mx-auto w-full max-w-2xl list-none space-y-2 overflow-y-auto p-0"></ul>
+    </div>
+
+    <!-- User levels: Online browse -->
+    <div id="screenLevelsOnline" class="absolute inset-0 z-[29] hidden flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
+      <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center gap-2 pb-3">
+        <button id="btnLevelsOnlineBack" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">← Back</button>
+        <h2 class="flex-1 text-center text-lg font-bold text-white">Online Levels</h2>
+        <span class="w-16"></span>
+      </div>
+      <div class="mx-auto w-full max-w-2xl space-y-3 overflow-y-auto pb-4">
+        <input id="lvlOnlineUserSearch" type="search" class="w-full rounded-xl border border-white/15 bg-slate-900/90 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter user name..." autocomplete="off" />
+        <div id="lvlOnlineUserPanel" class="hidden rounded-xl border border-white/10 bg-slate-900/60 p-3">
+          <p class="text-xs text-slate-400">Browsing <span id="lvlOnlineUserLabel" class="font-sem text-cyan-200"></span></p>
+          <input id="lvlOnlineTitleSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter level name..." autocomplete="off" />
+          <input id="lvlOnlineIdSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter ID..." autocomplete="off" />
+          <ul id="lvlOnlineList" class="mt-3 max-h-[40vh] list-none space-y-2 overflow-y-auto p-0 md:max-h-[50vh]"></ul>
+          <div id="lvlOnlinePager" class="mt-3 flex items-center justify-center gap-3 text-sm text-slate-300"></div>
+        </div>
+        <p id="lvlOnlineHint" class="text-center text-xs text-slate-500">Search a username to see their published levels (12 per page). Use the fields under their name to search by level title (most played first) or exact published level ID.</p>
+      </div>
+    </div>
+
+    <!-- User levels: Editor -->
+    <div id="screenLevelEditor" class="absolute inset-0 z-[30] hidden flex flex-col bg-slate-950 text-slate-100">
+      <div class="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900/95 px-3 py-2">
+        <button id="btnLvlEdExit" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:bg-white/10">Exit</button>
+        <input id="lvlEdTitle" type="text" maxlength="80" class="min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-950 px-2 py-1 text-sm" placeholder="Level name" />
+        <span class="text-[10px] text-slate-500">Tools:</span>
+        <button type="button" class="lvl-tool lvl-on rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="select">Select</button>
+        <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="platform">Block</button>
+        <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="lava">Lava</button>
+        <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="fireball">Fireball</button>
+        <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="spawn">Spawn</button>
+        <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="goal">Goal</button>
+        <button id="btnLvlEdRotate" type="button" class="rounded-lg border border-amber-500/40 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Rotate 90°</button>
+        <button id="btnLvlEdDelete" type="button" class="rounded-lg border border-rose-500/40 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-950/40">Delete</button>
+        <button id="btnLvlEdSave" type="button" class="rounded-lg bg-violet-600 px-2 py-1 text-xs font-semibold text-white hover:bg-violet-500">Save</button>
+        <button id="btnLvlEdTest" type="button" class="rounded-lg border border-cyan-500/50 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Test play</button>
+        <button id="btnLvlEdUpload" type="button" class="rounded-lg border border-emerald-500/50 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40">Upload</button>
+      </div>
+      <p id="lvlEdStatus" class="px-3 py-1 text-center text-xs text-slate-400"></p>
+      <div class="relative min-h-0 flex-1 overflow-hidden bg-slate-950 p-2">
+        <canvas id="lvlEditorCanvas" class="mx-auto block max-h-full max-w-full touch-none border border-white/10 bg-slate-900" width="800" height="440"></canvas>
+      </div>
+      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Click: place. Drag: move selection. Fireballs spawn from world edges. You must beat the level in Test play before Upload publishes it.</p>
+    </div>
+
     <!-- Racing: lobby (over main menu) -->
     <div id="screenRaceMenu" class="absolute inset-0 z-[25] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-6 backdrop-blur-sm">
       <div class="my-auto w-full max-w-md rounded-3xl border border-amber-500/30 bg-gradient-to-br from-slate-900 to-amber-950/40 p-6 shadow-2xl md:p-8">
@@ -379,5 +455,6 @@
   <script src="js/skyhop-game.js"></script>
   <script src="js/skyhop-race.js"></script>
   <script src="js/skyhop-account.js"></script>
+  <script src="js/skyhop-levels.js"></script>
 </body>
 </html>

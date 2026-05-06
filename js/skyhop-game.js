@@ -1,20 +1,25 @@
 (function () {
-  const STAGES = window.SKYHOP_STAGES;
+  const CAMPAIGN_STAGES = window.SKYHOP_STAGES;
   const C = window.SKYHOP_C;
   const PHY = window.SKYHOP_PHYSICS;
 
   if (window.SKYHOP_PREP_STAGES) window.SKYHOP_PREP_STAGES();
 
-  if (!STAGES || !STAGES.length) {
+  if (!CAMPAIGN_STAGES || !CAMPAIGN_STAGES.length) {
     console.error('Sky Hop: load stages (SKYHOP_STAGES) before skyhop-game.js');
     return;
   }
 
-  /** 0-based index of first stage that introduces grapple; every later stage keeps the ability. */
-  const GRAPPLE_INTRO_INDEX = (() => {
-    const i = STAGES.findIndex((s) => s && s.grapple);
-    return i >= 0 ? i : STAGES.length;
-  })();
+  function stagesNow() {
+    return window.SKYHOP_ACTIVE_STAGES != null ? window.SKYHOP_ACTIVE_STAGES : CAMPAIGN_STAGES;
+  }
+
+  /** 0-based index of first stage that introduces grapple in the active stage list. */
+  function grappleIntroIndex() {
+    const S = stagesNow();
+    const i = S.findIndex((s) => s && s.grapple);
+    return i >= 0 ? i : S.length;
+  }
 
   function debugStartStageIndex() {
     const raw = window.SKYHOP_DEBUG_START_STAGE;
@@ -22,7 +27,7 @@
     const n = Math.floor(Number(raw));
     if (!Number.isFinite(n)) return 0;
     const idx = n - 1;
-    return Math.max(0, Math.min(STAGES.length - 1, idx));
+    return Math.max(0, Math.min(CAMPAIGN_STAGES.length - 1, idx));
   }
 
   const RUN_PROGRESS_LS = 'SKYHOP_RUN_PROGRESS';
@@ -38,9 +43,9 @@
       const j = JSON.parse(localStorage.getItem(RUN_PROGRESS_LS) || 'null');
       if (!j || j.v !== 1) return null;
       const s0 = Math.floor(Number(j.s0));
-      if (!Number.isFinite(s0) || s0 < 0 || s0 >= STAGES.length) return null;
+      if (!Number.isFinite(s0) || s0 < 0 || s0 >= CAMPAIGN_STAGES.length) return null;
       return {
-        s0: Math.max(0, Math.min(STAGES.length - 1, s0)),
+        s0: Math.max(0, Math.min(CAMPAIGN_STAGES.length - 1, s0)),
         deaths: Math.max(0, Math.floor(Number(j.deaths) || 0)),
         sword: !!j.sword,
         shield: !!j.shield,
@@ -59,13 +64,15 @@
   }
 
   function progressStage0ForStorage() {
-    if (gameState === 'stage_clear' && stageIndex < STAGES.length - 1) {
-      return Math.min(stageIndex + 1, STAGES.length - 1);
+    if (window.SKYHOP_EXTERNAL_LEVEL) return stageIndex;
+    if (gameState === 'stage_clear' && stageIndex < CAMPAIGN_STAGES.length - 1) {
+      return Math.min(stageIndex + 1, CAMPAIGN_STAGES.length - 1);
     }
     return stageIndex;
   }
 
   function saveRunProgress() {
+    if (window.SKYHOP_EXTERNAL_LEVEL) return;
     if (inRace) return;
     if (isDebugStartStageActive()) return;
     if (gameState === 'menu' || gameState === 'win') return;
@@ -98,13 +105,13 @@
     if (p && (p.s0 > 0 || p.deaths > 0 || p.sword || p.shield)) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${STAGES.length} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
+        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${CAMPAIGN_STAGES.length} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
       }
       if (btnPlay) btnPlay.textContent = `Continue — stage ${p.s0 + 1}`;
     } else if (p) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage 1 / ${STAGES.length}`;
+        menuProgressHint.textContent = `Resume: stage 1 / ${CAMPAIGN_STAGES.length}`;
       }
       if (btnPlay) btnPlay.textContent = 'Continue — stage 1';
     } else {
@@ -322,7 +329,7 @@
   );
   let stageIndex = 0;
   function grappleUnlocked() {
-    return stageIndex >= GRAPPLE_INTRO_INDEX;
+    return stageIndex >= grappleIntroIndex();
   }
   let deaths = 0;
   let cameraX = 0;
@@ -331,6 +338,28 @@
   let stageStartedAt = 0;
 
   const keys = {};
+
+  function bindTouchControl(id, keyNames) {
+    const el = document.getElementById(id);
+    if (!el || !keyNames || !keyNames.length) return;
+    const down = (e) => {
+      e.preventDefault();
+      for (const k of keyNames) keys[k] = true;
+    };
+    const up = (e) => {
+      e.preventDefault();
+      for (const k of keyNames) keys[k] = false;
+    };
+    el.addEventListener('touchstart', down, { passive: false });
+    el.addEventListener('touchend', up, { passive: false });
+    el.addEventListener('touchcancel', up, { passive: false });
+    el.addEventListener('mousedown', (e) => {
+      if (e.button === 0) down(e);
+    });
+    el.addEventListener('mouseup', up);
+    el.addEventListener('mouseleave', up);
+  }
+
   let lastJumpPress = -9999;
   let activeFireballs = [];
   let fireballNextWaveAt = 0;
@@ -595,8 +624,17 @@
   function updateSkipHud() {
     if (!btnSkipStage) return;
     const show =
-      (gameState === 'playing' || gameState === 'paused') && runtimeOpts.allowSkip && !inRace;
+      (gameState === 'playing' || gameState === 'paused') &&
+      runtimeOpts.allowSkip &&
+      !inRace &&
+      !window.SKYHOP_EXTERNAL_LEVEL;
     btnSkipStage.classList.toggle('hidden', !show);
+  }
+
+  function setTouchHudVisible(show) {
+    const el = document.getElementById('touchControls');
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
   }
 
   /** Higher = more frequent (shorter delays). */
@@ -855,7 +893,7 @@
   function syncWeaponHud(now) {
     const t = now != null ? now : performance.now();
     if (!hudWeaponsWrap) return;
-    const st = STAGES[stageIndex];
+    const st = stagesNow()[stageIndex];
     if (!st || !st.epicBoss) {
       hudWeaponsWrap.classList.add('hidden');
       if (hudSwordBlock) hudSwordBlock.classList.add('hidden');
@@ -983,7 +1021,7 @@
   }
 
   function tryUseWoodenSword() {
-    const st = STAGES[stageIndex];
+    const st = stagesNow()[stageIndex];
     if (!hasWoodenSword || !st.bossStage || !bossState || !bossState.epic) return;
     const now = performance.now();
     if (now < woodenSwordReadyAt) return;
@@ -1032,7 +1070,7 @@
   }
 
   function loadStage(i) {
-    const s = STAGES[i];
+    const s = stagesNow()[i];
     player.x = s.spawn.x;
     player.y = s.spawn.y - player.h;
     player.vx = 0;
@@ -1104,7 +1142,12 @@
     cameraX = 0;
     cameraY = 0;
     stageStartedAt = performance.now();
-    hudStage.textContent = `${i + 1} / ${STAGES.length}`;
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    if (ext && ext.hudTitle) {
+      hudStage.textContent = ext.hudTitle;
+    } else {
+      hudStage.textContent = `${i + 1} / ${stagesNow().length}`;
+    }
     hudDeaths.textContent = String(deaths);
     if (s.bossStage) {
       currentBossPlayerMax = s.bossPlayerMax != null ? s.bossPlayerMax : runtimeOpts.bossPlayerMaxHp;
@@ -1126,6 +1169,14 @@
     syncHudHint(i);
     syncWeaponHud(performance.now());
     saveRunProgress();
+    updateSkipHud();
+    {
+      const showTouch =
+        gameState === 'playing' &&
+        typeof window.matchMedia !== 'undefined' &&
+        window.matchMedia('(max-width: 900px)').matches;
+      setTouchHudVisible(!!showTouch);
+    }
   }
 
   function beginRacing() {
@@ -1192,7 +1243,7 @@
   /** @returns {boolean} true if weapon modal opened (end frame) */
   function tryCollectItemPickups() {
     if (!itemPickups.length) return false;
-    const st = STAGES[stageIndex];
+    const st = stagesNow()[stageIndex];
     const body = { x: player.x, y: player.y, w: player.w, h: player.h };
     for (const p of itemPickups) {
       if (p.collected) continue;
@@ -1600,7 +1651,7 @@
 
   function update(dt) {
     if (gameState !== 'playing') return;
-    const stage = STAGES[stageIndex];
+    const stage = stagesNow()[stageIndex];
     const now = performance.now();
     const tSec = now * 0.001;
     const sens = getSensitivity();
@@ -1876,7 +1927,24 @@
     if (laserHit(stage)) die();
 
     if (stage.bossStage && bossDefeated()) {
-      if (stageIndex >= STAGES.length - 1) {
+      const extBoss = window.SKYHOP_EXTERNAL_LEVEL;
+      if (extBoss) {
+        gameState = 'stage_clear';
+        stageClearTitle.textContent = 'Level complete';
+        stageClearSub.textContent = '';
+        screenStageClear.classList.remove('hidden');
+        screenStageClear.classList.add('flex');
+        setTouchHudVisible(false);
+        if (extBoss.mode === 'test' && typeof extBoss.onTestCleared === 'function') {
+          try {
+            extBoss.onTestCleared();
+          } catch {
+            /* */
+          }
+        }
+        return;
+      }
+      if (stageIndex >= stagesNow().length - 1) {
         if (inRace) {
           const totalMs = performance.now() - runStartedAt;
           if (window.SkyHopRacingNotifyFinish) {
@@ -1931,7 +1999,29 @@
     }
 
     if (goalReached(stage)) {
-      if (stageIndex >= STAGES.length - 1) {
+      const extGoal = window.SKYHOP_EXTERNAL_LEVEL;
+      if (extGoal) {
+        gameState = 'stage_clear';
+        if (extGoal.mode === 'test') {
+          stageClearTitle.textContent = 'Test cleared';
+          stageClearSub.textContent = 'You can publish from the editor after saving.';
+          if (typeof extGoal.onTestCleared === 'function') {
+            try {
+              extGoal.onTestCleared();
+            } catch {
+              /* */
+            }
+          }
+        } else {
+          stageClearTitle.textContent = 'Level complete';
+          stageClearSub.textContent = extGoal.levelTitle ? `“${extGoal.levelTitle}”` : '';
+        }
+        screenStageClear.classList.remove('hidden');
+        screenStageClear.classList.add('flex');
+        setTouchHudVisible(false);
+        return;
+      }
+      if (stageIndex >= stagesNow().length - 1) {
         if (inRace) {
           const totalMs = performance.now() - runStartedAt;
           if (window.SkyHopRacingNotifyFinish) {
@@ -2535,7 +2625,7 @@
   }
 
   function draw() {
-    const stage = STAGES[stageIndex];
+    const stage = stagesNow()[stageIndex];
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     if ((gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') && stage.doubleJump) {
       const bg = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight);
@@ -2548,7 +2638,7 @@
     if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
       drawStage(stage);
     } else if (gameState === 'win') {
-      drawStage(STAGES[STAGES.length - 1]);
+      drawStage(CAMPAIGN_STAGES[CAMPAIGN_STAGES.length - 1]);
     }
 
     if (hudTimer && (gameState === 'playing' || gameState === 'paused')) {
@@ -2586,6 +2676,11 @@
       screenPause.classList.remove('flex');
     }
     updateSkipHud();
+    setTouchHudVisible(
+      !on &&
+        typeof window.matchMedia !== 'undefined' &&
+        window.matchMedia('(max-width: 900px)').matches
+    );
   }
 
   function goToMenu() {
@@ -2600,6 +2695,9 @@
     }
     closeWeaponScreen();
     gameState = 'menu';
+    window.SKYHOP_ACTIVE_STAGES = null;
+    window.SKYHOP_EXTERNAL_LEVEL = null;
+    setTouchHudVisible(false);
     if (screenPause) {
       screenPause.classList.add('hidden');
       screenPause.classList.remove('flex');
@@ -2622,7 +2720,7 @@
     if (!runtimeOpts.allowSkip) return;
     if (gameState === 'paused') setPaused(false);
     if (gameState !== 'playing') return;
-    if (stageIndex >= STAGES.length - 1) {
+    if (stageIndex >= stagesNow().length - 1) {
       clearRunProgress();
       gameState = 'win';
       hud.classList.add('hidden');
@@ -2722,7 +2820,68 @@
     updateSkipHud();
   });
 
+  function startUserLevel(stagesArr, meta) {
+    if (!stagesArr || !stagesArr.length) return;
+    refreshRuntimeOptsFromMenu();
+    closeWeaponScreen();
+    woodenSwordReadyAt = 0;
+    shieldItemReadyAt = 0;
+    shieldInvincibleUntil = 0;
+    swordSwingAnim = null;
+    shieldRingAnim = null;
+    window.SKYHOP_ACTIVE_STAGES = stagesArr;
+    window.SKYHOP_EXTERNAL_LEVEL = meta || { mode: 'play' };
+    if (btnNextStage) {
+      btnNextStage.textContent =
+        window.SKYHOP_EXTERNAL_LEVEL && window.SKYHOP_EXTERNAL_LEVEL.mode === 'test'
+          ? 'Back to editor'
+          : window.SKYHOP_EXTERNAL_LEVEL && window.SKYHOP_EXTERNAL_LEVEL.mode === 'play'
+            ? 'Back'
+            : 'Next stage';
+    }
+    stageIndex = 0;
+    deaths = 0;
+    hasWoodenSword = false;
+    hasShield = false;
+    gameState = 'playing';
+    if (screenMenu) {
+      screenMenu.classList.add('hidden');
+      screenMenu.classList.remove('flex');
+    }
+    screenStageClear.classList.add('hidden');
+    screenStageClear.classList.remove('flex');
+    screenWin.classList.add('hidden');
+    screenWin.classList.remove('flex');
+    if (screenPause) {
+      screenPause.classList.add('hidden');
+      screenPause.classList.remove('flex');
+    }
+    hud.classList.remove('hidden');
+    runStartedAt = performance.now();
+    loadStage(0);
+    syncWeaponHud(performance.now());
+    updateSkipHud();
+  }
+
   btnNextStage.addEventListener('click', () => {
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    if (ext && typeof ext.onContinue === 'function') {
+      const cb = ext.onContinue;
+      window.SKYHOP_ACTIVE_STAGES = null;
+      window.SKYHOP_EXTERNAL_LEVEL = null;
+      if (btnNextStage) btnNextStage.textContent = 'Next stage';
+      screenStageClear.classList.add('hidden');
+      screenStageClear.classList.remove('flex');
+      gameState = 'menu';
+      hud.classList.add('hidden');
+      setTouchHudVisible(false);
+      try {
+        cb();
+      } catch {
+        /* */
+      }
+      return;
+    }
     stageIndex++;
     screenStageClear.classList.add('hidden');
     screenStageClear.classList.remove('flex');
@@ -2775,6 +2934,7 @@
 
   window.SKYHOP = {
     beginRacing,
+    startUserLevel,
     isRacing: function () {
       return inRace;
     },
@@ -2795,6 +2955,7 @@
   };
 
   window.addEventListener('beforeunload', () => {
+    if (window.SKYHOP_EXTERNAL_LEVEL) return;
     if (isDebugStartStageActive()) return;
     if (gameState !== 'menu' && gameState !== 'win') {
       saveRunProgress();

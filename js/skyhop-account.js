@@ -193,6 +193,8 @@
     return data;
   }
 
+  window.SkyHopApiRequest = api;
+
   function getToken() {
     try {
       return localStorage.getItem(LS_TOKEN);
@@ -207,6 +209,11 @@
       else localStorage.removeItem(LS_TOKEN);
       if (username) localStorage.setItem(LS_USER, username);
       else localStorage.removeItem(LS_USER);
+    } catch {
+      /* */
+    }
+    try {
+      window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
     } catch {
       /* */
     }

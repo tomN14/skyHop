@@ -57,13 +57,20 @@
     }
   }
 
-  let didPrep = false;
+  const prepared = new WeakSet();
+  function prepStageList(stages) {
+    if (!stages || !stages.length) return;
+    if (prepared.has(stages)) return;
+    shrinkLavaPitHeights(stages);
+    for (const s of stages) appendStaticUnderhangSupports(s);
+    prepared.add(stages);
+  }
+
+  window.SKYHOP_PREP_STAGE_LIST = prepStageList;
+
   window.SKYHOP_PREP_STAGES = function () {
-    if (didPrep) return;
     const STAGES = window.SKYHOP_STAGES;
     if (!STAGES || !STAGES.length) return;
-    shrinkLavaPitHeights(STAGES);
-    for (const s of STAGES) appendStaticUnderhangSupports(s);
-    didPrep = true;
+    prepStageList(STAGES);
   };
 })();
