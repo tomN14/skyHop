@@ -64,6 +64,46 @@
     return raw;
   }
 
+  /** Coerce API/legacy payloads so the editor canvas can always render. Mutates `d`. */
+  function normalizeEditorLevelInPlace(d) {
+    if (!d || typeof d !== 'object') return;
+    const base = defaultLevelData();
+    let w = Number(d.worldW);
+    let h = Number(d.worldH);
+    if (!Number.isFinite(w) || w < 100) w = base.worldW;
+    if (!Number.isFinite(h) || h < 100) h = base.worldH;
+    d.worldW = Math.min(20000, Math.max(100, w));
+    d.worldH = Math.min(20000, Math.max(100, h));
+    if (!d.spawn || typeof d.spawn !== 'object') d.spawn = { x: base.spawn.x, y: base.spawn.y };
+    else {
+      let sx = Number(d.spawn.x);
+      let sy = Number(d.spawn.y);
+      if (!Number.isFinite(sx)) sx = base.spawn.x;
+      if (!Number.isFinite(sy)) sy = base.spawn.y;
+      d.spawn.x = sx;
+      d.spawn.y = sy;
+    }
+    if (!d.goal || typeof d.goal !== 'object') d.goal = { x: base.goal.x, y: base.goal.y, w: base.goal.w, h: base.goal.h };
+    else {
+      let gx = Number(d.goal.x);
+      let gy = Number(d.goal.y);
+      let gw = Number(d.goal.w);
+      let gh = Number(d.goal.h);
+      if (!Number.isFinite(gx)) gx = base.goal.x;
+      if (!Number.isFinite(gy)) gy = base.goal.y;
+      if (!Number.isFinite(gw) || gw < 8) gw = base.goal.w;
+      if (!Number.isFinite(gh) || gh < 8) gh = base.goal.h;
+      d.goal.x = gx;
+      d.goal.y = gy;
+      d.goal.w = gw;
+      d.goal.h = gh;
+    }
+    if (!Array.isArray(d.platforms)) d.platforms = [];
+    if (!Array.isArray(d.lava)) d.lava = [];
+    if (!Array.isArray(d.spikes)) d.spikes = [];
+    if (!Array.isArray(d.fireballEmitters)) d.fireballEmitters = [];
+  }
+
   /* ---------- Editor canvas ---------- */
   let editorTool = 'select';
   let editorSelection = null;
@@ -183,9 +223,20 @@
 
   function drawEditor(canvas, ctx) {
     const d = editorState.data;
-    if (!d) return;
-    if (!Number.isFinite(d.worldW) || !Number.isFinite(d.worldH) || d.worldW < 100 || d.worldH < 100)
+    if (!d) {
+      syncEditorCanvasLayout();
+      const cw0 = Math.max(1, canvas.width || 400);
+      const ch0 = Math.max(1, canvas.height || 240);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, cw0, ch0);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, cw0, ch0);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '14px sans-serif';
+      ctx.fillText('No level data', 12, 28);
       return;
+    }
+    normalizeEditorLevelInPlace(d);
 
     if (!canvas.width || !canvas.height || canvas.width < 32 || canvas.height < 32) {
       syncEditorCanvasLayout();
@@ -297,7 +348,6 @@
         ctx.strokeRect(a.x - 2, a.y - 2, L.w * cam.s + 4, L.h * cam.s + 4);
       }
     }
-    editorRedrawScheduled = false;
   }
 
   let editorRedrawScheduled = false;
@@ -307,7 +357,13 @@
     if (!canvas || !ctx) return;
     if (editorRedrawScheduled) return;
     editorRedrawScheduled = true;
-    requestAnimationFrame(() => drawEditor(canvas, ctx));
+    requestAnimationFrame(() => {
+      try {
+        drawEditor(canvas, ctx);
+      } finally {
+        editorRedrawScheduled = false;
+      }
+    });
   }
 
   function bindEditorCanvas() {
@@ -334,6 +390,7 @@
 
     function onDown(e) {
       if (!editorState.data) return;
+      normalizeEditorLevelInPlace(editorState.data);
       e.preventDefault();
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
@@ -515,8 +572,9 @@
       editorState.published = !!row.published;
       editorState.beatenOk = !!row.beatenVerified;
       editorState.readOnly = !!row.published;
-      editorState.data = Object.assign(row.data || {}, {});
+      editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
+      normalizeEditorLevelInPlace(editorState.data);
       document.getElementById('lvlEdTitle').value = editorState.title;
       showMine(false);
       showOnline(false);
