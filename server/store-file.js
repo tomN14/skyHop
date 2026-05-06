@@ -2,16 +2,26 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'accounts.json');
 
-/** @type {{ users: any[], sessions: any[], runs: any[], userAchievements: any[], nextUserId: number } | null} */
+/** @type {{ users: any[], sessions: any[], runs: any[], userAchievements: any[], reports: any[], nextUserId: number } | null} */
 let cache = null;
 
 function defaultStore() {
-  return { users: [], sessions: [], runs: [], userAchievements: [], nextUserId: 1 };
+  return { users: [], sessions: [], runs: [], userAchievements: [], reports: [], nextUserId: 1 };
+}
+
+function migrateUsersAndReports(s) {
+  if (!Array.isArray(s.reports)) s.reports = [];
+  for (const u of s.users) {
+    if (u.role == null) u.role = 'player';
+    if (!('banUntilMs' in u)) u.banUntilMs = null;
+    if (!('banReason' in u)) u.banReason = null;
+  }
 }
 
 function loadStore() {
@@ -33,6 +43,8 @@ function loadStore() {
   if (!Array.isArray(cache.runs)) cache.runs = [];
   if (!Array.isArray(cache.userAchievements)) cache.userAchievements = [];
   if (typeof cache.nextUserId !== 'number' || cache.nextUserId < 1) cache.nextUserId = 1;
+  migrateUsersAndReports(cache);
+  saveStore();
   return cache;
 }
 
@@ -47,6 +59,13 @@ function pruneSessionsSync() {
   const s = loadStore();
   const now = Date.now();
   s.sessions = s.sessions.filter((x) => x.expiresAt > now);
+}
+
+function initialRoleForUsername(name) {
+  const low = String(name || '').toLowerCase();
+  const own = ownerUsernameLower();
+  if (own && low === own) return 'owner';
+  return 'player';
 }
 
 export function createFileStore() {
@@ -78,6 +97,9 @@ export function createFileStore() {
         salt,
         hash,
         createdAt: Date.now(),
+        role: initialRoleForUsername(name),
+        banUntilMs: null,
+        banReason: null,
       };
       s.users.push(user);
       saveStore();
@@ -90,6 +112,45 @@ export function createFileStore() {
       const hashTry = crypto.scryptSync(password, Buffer.from(u.salt, 'hex'), 64).toString('hex');
       if (!crypto.timingSafeEqual(Buffer.from(hashTry, 'hex'), Buffer.from(u.hash, 'hex'))) return null;
       return u;
+    },
+
+    async clearExpiredBanIfAny(userId) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u || u.banUntilMs == null || u.banUntilMs === BAN_PERMANENT_MS) return;
+      const until = Number(u.banUntilMs);
+      if (Number.isFinite(until) && until <= Date.now()) {
+        u.banUntilMs = null;
+        u.banReason = null;
+        saveStore();
+      }
+    },
+
+    async applyBan(userId, banUntilMs, reason) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.banUntilMs = banUntilMs;
+      u.banReason = reason != null ? String(reason).slice(0, 500) : null;
+      saveStore();
+      s.sessions = s.sessions.filter((sess) => sess.userId !== userId);
+      saveStore();
+    },
+
+    async setModeratorRole(userId, isModerator) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      u.role = isModerator ? 'moderator' : 'player';
+      saveStore();
+    },
+
+    async revokeAllSessionsForUser(userId) {
+      const s = loadStore();
+      s.sessions = s.sessions.filter((sess) => sess.userId !== userId);
+      saveStore();
     },
 
     async createSession(userId) {
@@ -147,6 +208,55 @@ export function createFileStore() {
         s.userAchievements.push({ userId, achievementId: def.id, unlockedAt: now });
       }
       saveStore();
+    },
+
+    async createReport(reporterId, reportedUserId, reason) {
+      const s = loadStore();
+      const id = crypto.randomUUID();
+      const now = Date.now();
+      s.reports.push({
+        id,
+        reporterId,
+        reportedUserId,
+        reason: String(reason || '').slice(0, 4000),
+        status: 'pending',
+        moderatorNote: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      saveStore();
+      return id;
+    },
+
+    async countReportsByStatus(status) {
+      const s = loadStore();
+      return s.reports.filter((r) => r.status === status).length;
+    },
+
+    async listReportsByStatus(status) {
+      const s = loadStore();
+      return s.reports.filter((r) => r.status === status).sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async getReportById(reportId) {
+      const s = loadStore();
+      return s.reports.find((r) => r.id === reportId) || null;
+    },
+
+    async updateReportStatus(reportId, status, moderatorNote) {
+      const s = loadStore();
+      const r = s.reports.find((x) => x.id === reportId);
+      if (!r) return false;
+      r.status = status;
+      if (moderatorNote != null) r.moderatorNote = String(moderatorNote).slice(0, 2000);
+      r.updatedAt = Date.now();
+      saveStore();
+      return true;
+    },
+
+    async listModerators() {
+      const s = loadStore();
+      return s.users.filter((u) => u.role === 'moderator').map((u) => ({ id: u.id, username: u.username }));
     },
   };
 }

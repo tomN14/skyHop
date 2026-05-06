@@ -1,8 +1,16 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { BAN_PERMANENT_MS, ownerUsernameLower } from './moderation.js';
 
 const SESSION_DAYS = 60;
+
+function initialRoleForUsername(name) {
+  const low = String(name || '').toLowerCase();
+  const own = ownerUsernameLower();
+  if (own && low === own) return 'owner';
+  return 'player';
+}
 
 function mapUser(row) {
   if (!row) return null;
@@ -12,6 +20,9 @@ function mapUser(row) {
     usernameLower: row.username_lower,
     salt: row.salt,
     hash: row.hash,
+    role: row.role ?? 'player',
+    banUntilMs: row.ban_until_ms != null ? Number(row.ban_until_ms) : null,
+    banReason: row.ban_reason ?? null,
   };
 }
 
@@ -33,7 +44,6 @@ export function createSupabaseStore() {
   }
   const sb = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
-    // Node < 22 has no global WebSocket; supabase-js Realtime requires one (Render uses Node 20 in Docker).
     realtime: { transport: WebSocket },
   });
 
@@ -68,6 +78,7 @@ export function createSupabaseStore() {
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.scryptSync(password, Buffer.from(salt, 'hex'), 64).toString('hex');
       const createdAt = Date.now();
+      const role = initialRoleForUsername(name);
 
       const { data, error } = await sb
         .from('skyhop_users')
@@ -77,8 +88,11 @@ export function createSupabaseStore() {
           salt,
           hash,
           created_at: createdAt,
+          role,
+          ban_until_ms: null,
+          ban_reason: null,
         })
-        .select('id, username, username_lower, salt, hash')
+        .select('*')
         .single();
 
       if (error) {
@@ -94,6 +108,43 @@ export function createSupabaseStore() {
       const hashTry = crypto.scryptSync(password, Buffer.from(u.salt, 'hex'), 64).toString('hex');
       if (!crypto.timingSafeEqual(Buffer.from(hashTry, 'hex'), Buffer.from(u.hash, 'hex'))) return null;
       return u;
+    },
+
+    async clearExpiredBanIfAny(userId) {
+      const u = await this.findUserById(userId);
+      if (!u || u.banUntilMs == null || u.banUntilMs === BAN_PERMANENT_MS) return;
+      const until = Number(u.banUntilMs);
+      if (Number.isFinite(until) && until <= Date.now()) {
+        await sb.from('skyhop_users').update({ ban_until_ms: null, ban_reason: null }).eq('id', userId);
+      }
+    },
+
+    async applyBan(userId, banUntilMs, reason) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const { error } = await sb
+        .from('skyhop_users')
+        .update({
+          ban_until_ms: banUntilMs,
+          ban_reason: reason != null ? String(reason).slice(0, 500) : null,
+        })
+        .eq('id', userId);
+      if (error) throw new Error(error.message);
+      await sb.from('skyhop_sessions').delete().eq('user_id', userId);
+    },
+
+    async setModeratorRole(userId, isModerator) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      const role = isModerator ? 'moderator' : 'player';
+      const { error } = await sb.from('skyhop_users').update({ role }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async revokeAllSessionsForUser(userId) {
+      await sb.from('skyhop_sessions').delete().eq('user_id', userId);
     },
 
     async createSession(userId) {
@@ -158,6 +209,84 @@ export function createSupabaseStore() {
       }));
       const { error } = await sb.from('skyhop_user_achievements').insert(rows);
       if (error) throw new Error(error.message);
+    },
+
+    async createReport(reporterId, reportedUserId, reason) {
+      const now = Date.now();
+      const { data, error } = await sb
+        .from('skyhop_reports')
+        .insert({
+          reporter_id: reporterId,
+          reported_user_id: reportedUserId,
+          reason: String(reason || '').slice(0, 4000),
+          status: 'pending',
+          moderator_note: null,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error(error.message);
+      return data.id;
+    },
+
+    async countReportsByStatus(status) {
+      const { count, error } = await sb
+        .from('skyhop_reports')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', status);
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+
+    async listReportsByStatus(status) {
+      const { data, error } = await sb.from('skyhop_reports').select('*').eq('status', status).order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data || []).map((row) => ({
+        id: row.id,
+        reporterId: row.reporter_id,
+        reportedUserId: row.reported_user_id,
+        reason: row.reason,
+        status: row.status,
+        moderatorNote: row.moderator_note,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    },
+
+    async getReportById(reportId) {
+      const { data, error } = await sb.from('skyhop_reports').select('*').eq('id', reportId).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return null;
+      return {
+        id: data.id,
+        reporterId: data.reporter_id,
+        reportedUserId: data.reported_user_id,
+        reason: data.reason,
+        status: data.status,
+        moderatorNote: data.moderator_note,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+      };
+    },
+
+    async updateReportStatus(reportId, status, moderatorNote) {
+      const now = Date.now();
+      const patch = { status, updated_at: now };
+      if (moderatorNote != null) patch.moderator_note = String(moderatorNote).slice(0, 2000);
+      const { error, data } = await sb.from('skyhop_reports').update(patch).eq('id', reportId).select('id');
+      if (error) throw new Error(error.message);
+      return !!(data && data.length);
+    },
+
+    async listModerators() {
+      const { data, error } = await sb
+        .from('skyhop_users')
+        .select('id, username')
+        .eq('role', 'moderator')
+        .order('username');
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({ id: r.id, username: r.username }));
     },
   };
 }

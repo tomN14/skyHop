@@ -772,9 +772,21 @@
           '?page=' +
           encodeURIComponent(String(onlineCtx.page));
         const out = await api(q, { noAuth: true });
+        const lbl = document.getElementById('lvlOnlineUserLabel');
+        if (lbl) {
+          lbl.textContent = onlineCtx.username;
+          lbl.className = out.author_is_moderator
+            ? 'font-sem text-rose-400'
+            : 'font-sem text-cyan-200';
+        }
         renderOnlinePager(out.total || 0, out.page || 1);
         for (const it of out.items || []) {
-          onlineList.appendChild(rowOnlineItem(it.title, it.id, it.play_count));
+          onlineList.appendChild(
+            rowOnlineItem(it.title, it.id, it.play_count, {
+              author: onlineCtx.username,
+              authorIsModerator: !!out.author_is_moderator,
+            })
+          );
         }
         return;
       }
@@ -787,15 +799,26 @@
         const out = await api(q, { noAuth: true });
         renderOnlinePager(out.total || 0, out.page || 1);
         for (const it of out.items || []) {
-          const author = it.author_username || '—';
-          onlineList.appendChild(rowOnlineItem(it.title + ' · ' + author, it.id, it.play_count));
+          onlineList.appendChild(
+            rowOnlineItem(it.title, it.id, it.play_count, {
+              author: it.author_username || '—',
+              authorIsModerator: !!it.author_is_moderator,
+            })
+          );
         }
         return;
       }
       if (onlineCtx.mode === 'id' && onlineCtx.idQ) {
         const out = await api('/api/levels/lookup?id=' + encodeURIComponent(onlineCtx.idQ.trim()), { noAuth: true });
         renderOnlinePager(out.item ? 1 : 0, 1);
-        if (out.item) onlineList.appendChild(rowOnlineItem(out.item.title, out.item.id, out.item.play_count));
+        if (out.item) {
+          onlineList.appendChild(
+            rowOnlineItem(out.item.title, out.item.id, out.item.play_count, {
+              author: out.item.author_username || '—',
+              authorIsModerator: !!out.item.author_is_moderator,
+            })
+          );
+        }
         return;
       }
       renderOnlinePager(0, 1);
@@ -807,13 +830,28 @@
     }
   }
 
-  function rowOnlineItem(title, id, plays) {
+  function rowOnlineItem(titleLine, id, plays, extra) {
+    extra = extra || {};
+    const author = extra.author;
+    const authorMod = !!extra.authorIsModerator;
+    var titleHtml;
+    if (author != null && author !== '') {
+      var ac = authorMod ? 'text-rose-400 font-semibold' : 'text-slate-400';
+      titleHtml =
+        '<div class="text-sm"><span class="font-sem text-white">' +
+        escapeHtml(titleLine) +
+        '</span> <span class="' +
+        ac +
+        '">· ' +
+        escapeHtml(author) +
+        '</span></div>';
+    } else {
+      titleHtml = '<div class="text-sm font-sem text-white">' + escapeHtml(titleLine) + '</div>';
+    }
     const li = document.createElement('li');
     li.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-3';
     li.innerHTML =
-      '<div class="text-sm font-sem text-white">' +
-      escapeHtml(title) +
-      '</div>' +
+      titleHtml +
       '<div class="mt-1 font-mono text-[10px] text-slate-500">' +
       escapeHtml(id) +
       ' · ' +

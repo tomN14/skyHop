@@ -1,4 +1,5 @@
 import { ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
+import { banStatusForUser, durationKeyToBanUntil, effectiveRole } from './moderation.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
 
@@ -28,17 +29,56 @@ function readBody(req) {
   });
 }
 
-async function bearerUserId(req) {
+async function getActiveSessionUser(req) {
   const h = req.headers.authorization;
   if (!h || typeof h !== 'string') return null;
   const m = /^Bearer\s+(.+)$/i.exec(h.trim());
   if (!m) return null;
-  return store.sessionUserId(m[1].trim());
+  const tok = m[1].trim();
+  const uid = await store.sessionUserId(tok);
+  if (!uid) return null;
+  if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(uid);
+  const user = await store.findUserById(uid);
+  if (!user) return null;
+  const bs = banStatusForUser(user);
+  if (bs.banned) {
+    if (typeof store.revokeSession === 'function') await store.revokeSession(tok);
+    return null;
+  }
+  return { userId: uid, user, token: tok };
+}
+
+async function bearerUserId(req) {
+  const s = await getActiveSessionUser(req);
+  return s ? s.userId : null;
+}
+
+async function enrichReports(rows) {
+  const out = [];
+  for (const r of rows) {
+    const rep = await store.findUserById(r.reporterId);
+    const tgt = await store.findUserById(r.reportedUserId);
+    out.push({
+      id: r.id,
+      reporterId: r.reporterId,
+      reportedUserId: r.reportedUserId,
+      reporterUsername: rep?.username ?? 'unknown',
+      reportedUsername: tgt?.username ?? 'unknown',
+      reason: r.reason,
+      status: r.status,
+      moderatorNote: r.moderatorNote ?? null,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt ?? null,
+    });
+  }
+  return out;
 }
 
 async function buildMePayload(userId) {
+  if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(userId);
   const user = await store.findUserById(userId);
   if (!user) return null;
+  if (banStatusForUser(user).banned) return null;
   const runs = await store.getRunsForUser(userId);
   const achRows = await store.getAchievementsForUser(userId);
   const agg = aggregateRuns(runs);
@@ -50,8 +90,22 @@ async function buildMePayload(userId) {
     unlocked: uaMap.has(def.id),
     unlockedAt: uaMap.get(def.id) ?? null,
   }));
+  const role = effectiveRole(user);
+  let modInboxCount = 0;
+  let ownerInboxCount = 0;
+  if (typeof store.countReportsByStatus === 'function') {
+    try {
+      if (role === 'moderator') modInboxCount = await store.countReportsByStatus('pending');
+      if (role === 'owner') ownerInboxCount = await store.countReportsByStatus('escalated');
+    } catch {
+      /* */
+    }
+  }
   return {
     username: user.username,
+    role,
+    modInboxCount,
+    ownerInboxCount,
     stats: {
       runCount: agg.runCount,
       totalDeaths: agg.totalDeaths,
@@ -62,6 +116,19 @@ async function buildMePayload(userId) {
       avgDeaths: agg.avgDeaths,
     },
     achievements,
+  };
+}
+
+function loginBanJson(bs) {
+  const msg = bs.permanent
+    ? 'This account is permanently suspended.'
+    : 'This account is suspended until the ban expires.';
+  return {
+    error: msg,
+    banned: true,
+    permanent: !!bs.permanent,
+    untilMs: bs.untilMs,
+    reason: bs.reason,
   };
 }
 
@@ -105,6 +172,13 @@ export async function handleApi(req, res) {
     const user = await store.verifyUser(body.username, body.password);
     if (!user) {
       json(res, 401, { error: 'Invalid username or password' });
+      return true;
+    }
+    if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(user.id);
+    const fresh = await store.findUserById(user.id);
+    const bs = banStatusForUser(fresh);
+    if (bs.banned) {
+      json(res, 403, loginBanJson(bs));
       return true;
     }
     const { token } = await store.createSession(user.id);
@@ -178,6 +252,308 @@ export async function handleApi(req, res) {
       200,
       ACHIEVEMENT_DEFS.map((d) => ({ id: d.id, title: d.title, desc: d.desc }))
     );
+    return true;
+  }
+
+  if (path === '/api/reports' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const reportedUsername = String(body.reportedUsername || '').trim();
+    const reason = String(body.reason || '').trim();
+   
+    if (reason.length < 3) {
+      json(res, 400, { error: 'Please enter a reason (at least 3 characters).' });
+      return true;
+    }
+    if (reason.length > 4000) {
+      json(res, 400, { error: 'Reason is too long.' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(reportedUsername);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      if (target.id === sess.userId) {
+        json(res, 400, { error: 'You cannot report yourself.' });
+        return true;
+      }
+      if (typeof store.createReport !== 'function') {
+        json(res, 501, { error: 'Reports are not configured on this server (upgrade server + run DB migration).' });
+        return true;
+      }
+      const id = await store.createReport(sess.userId, target.id, reason);
+      json(res, 201, { ok: true, id });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/mod/reports' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    const role = effectiveRole(sess.user);
+    if (role !== 'moderator' && role !== 'owner') {
+      json(res, 403, { error: 'Not allowed' });
+      return true;
+    }
+    if (typeof store.listReportsByStatus !== 'function') {
+      json(res, 501, { error: 'Reports not configured.' });
+      return true;
+    }
+    try {
+      if (role === 'moderator') {
+        const rows = await store.listReportsByStatus('pending');
+        json(res, 200, { scope: 'pending', reports: await enrichReports(rows) });
+      } else {
+        const rows = await store.listReportsByStatus('escalated');
+        json(res, 200, { scope: 'escalated', reports: await enrichReports(rows) });
+      }
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/mod\/reports\/([^/]+)\/reject$/.exec(path);
+    if (m && req.method === 'POST') {
+      const reportId = m[1];
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (effectiveRole(sess.user) !== 'moderator') {
+        json(res, 403, { error: 'Only moderators can reject from the main queue.' });
+        return true;
+      }
+      let body = {};
+      try {
+        const raw = await readBody(req);
+        if (raw) body = JSON.parse(raw);
+      } catch {
+        body = {};
+      }
+      try {
+        const r = await store.getReportById(reportId);
+        if (!r || r.status !== 'pending') {
+          json(res, 400, { error: 'Report not pending.' });
+          return true;
+        }
+        const ok = await store.updateReportStatus(reportId, 'rejected', body.note || null);
+        if (!ok) {
+          json(res, 404, { error: 'Report not found.' });
+          return true;
+        }
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/mod\/reports\/([^/]+)\/escalate$/.exec(path);
+    if (m && req.method === 'POST') {
+      const reportId = m[1];
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (effectiveRole(sess.user) !== 'moderator') {
+        json(res, 403, { error: 'Only moderators can escalate.' });
+        return true;
+      }
+      let body = {};
+      try {
+        const raw = await readBody(req);
+        if (raw) body = JSON.parse(raw);
+      } catch {
+        body = {};
+      }
+      try {
+        const r = await store.getReportById(reportId);
+        if (!r || r.status !== 'pending') {
+          json(res, 400, { error: 'Report not pending.' });
+          return true;
+        }
+        const ok = await store.updateReportStatus(reportId, 'escalated', body.note || null);
+        if (!ok) {
+          json(res, 404, { error: 'Report not found.' });
+          return true;
+        }
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (path === '/api/owner/ban' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const userVictimId = Math.floor(Number(body.userId));
+    const durationKey = String(body.duration || body.durationKey || '');
+    const until = durationKeyToBanUntil(durationKey);
+    if (!userVictimId || userVictimId < 1) {
+      json(res, 400, { error: 'Invalid userId' });
+      return true;
+    }
+    if (until == null) {
+      json(res, 400, { error: 'Invalid duration (use 1w, 2w, 1m, or perm).' });
+      return true;
+    }
+    try {
+      const victim = await store.findUserById(userVictimId);
+      if (!victim) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      const own = effectiveRole(victim);
+      if (own === 'owner') {
+        json(res, 400, { error: 'Cannot ban the site owner account.' });
+        return true;
+      }
+      const reason = body.reason != null ? String(body.reason).slice(0, 500) : null;
+      await store.applyBan(userVictimId, until, reason || 'Moderation action');
+      const reportId = body.reportId ? String(body.reportId) : null;
+      if (reportId && store.getReportById && store.updateReportStatus) {
+        const rep = await store.getReportById(reportId);
+        if (rep && rep.status === 'escalated') await store.updateReportStatus(reportId, 'resolved', body.note || null);
+      }
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/owner/dismiss-report' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const reportId = String(body.reportId || '');
+    if (!reportId) {
+      json(res, 400, { error: 'reportId required' });
+      return true;
+    }
+    try {
+      const r = await store.getReportById(reportId);
+      if (!r || r.status !== 'escalated') {
+        json(res, 400, { error: 'Report not in escalated queue.' });
+        return true;
+      }
+      await store.updateReportStatus(reportId, 'resolved', body.note || 'Dismissed');
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/owner/moderators' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      if (typeof store.listModerators !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      const moderators = await store.listModerators();
+      json(res, 200, { moderators });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/owner/set-moderator' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const promote = !!body.promote;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(un);
+      if (!u) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      await store.setModeratorRole(u.id, promote);
+      json(res, 200, { ok: true, username: u.username, moderator: promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
     return true;
   }
 

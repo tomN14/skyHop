@@ -167,7 +167,9 @@
 
     if (!r.ok) {
       if (data && typeof data.error === 'string' && data.error) {
-        throw new Error(data.error);
+        const err = new Error(data.error);
+        err.skyhop = Object.assign({ status: r.status }, data);
+        throw err;
       }
       if (r.status === 404) {
         throw new Error(explainApi404(url));
@@ -184,7 +186,9 @@
             '/health'
         );
       }
-      throw new Error(String(r.status));
+      const err = new Error(String(r.status));
+      err.skyhop = Object.assign({ status: r.status }, data && typeof data === 'object' ? data : {});
+      throw err;
     }
 
     if (data === null) {
@@ -326,6 +330,237 @@
       if (accStatDeathAvg) accStatDeathAvg.textContent = fmtAvgDeaths(st.avgDeaths);
     }
 
+    function updateModFab(me) {
+      const fab = document.getElementById('btnModInbox');
+      const badge = document.getElementById('modInboxBadge');
+      if (!fab || !badge) return;
+      const role = me && me.role ? me.role : 'player';
+      const n =
+        role === 'owner'
+          ? me.ownerInboxCount || 0
+          : role === 'moderator'
+            ? me.modInboxCount || 0
+            : 0;
+      const show = role === 'moderator' || role === 'owner';
+      fab.classList.toggle('hidden', !show);
+      if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function showBanScreen(sh) {
+      const el = document.getElementById('screenBan');
+      const perm = document.getElementById('banBodyPermanent');
+      const temp = document.getElementById('banBodyTemp');
+      const untilL = document.getElementById('banUntilLabel');
+      const reasonWrap = document.getElementById('banReasonWrap');
+      const reasonLabel = document.getElementById('banReasonLabel');
+      if (!el) return;
+      if (sh && sh.permanent) {
+        if (perm) perm.classList.remove('hidden');
+        if (temp) temp.classList.add('hidden');
+        if (untilL) untilL.classList.add('hidden');
+      } else {
+        if (perm) perm.classList.add('hidden');
+        if (temp) temp.classList.remove('hidden');
+        if (untilL) {
+          untilL.classList.remove('hidden');
+          untilL.textContent =
+            sh && sh.untilMs != null && Number.isFinite(Number(sh.untilMs))
+              ? new Date(Number(sh.untilMs)).toLocaleString()
+              : '—';
+        }
+      }
+      if (sh && sh.reason) {
+        if (reasonWrap) reasonWrap.classList.remove('hidden');
+        if (reasonLabel) reasonLabel.textContent = String(sh.reason);
+      } else {
+        if (reasonWrap) reasonWrap.classList.add('hidden');
+      }
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+    }
+
+    function hideBanScreen() {
+      const el = document.getElementById('screenBan');
+      if (!el) return;
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+    }
+
+    async function refreshOwnerModList() {
+      const ul = document.getElementById('ownerModList');
+      const tok = getToken();
+      if (!ul || !tok) return;
+      try {
+        const data = await api('/api/owner/moderators', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        const list = data.moderators || [];
+        if (!list.length) {
+          ul.innerHTML = '<li class="list-none text-slate-500">(none)</li>';
+          return;
+        }
+        ul.innerHTML = list
+          .map(function (m) {
+            return (
+              '<li class="list-none rounded bg-slate-900/40 px-2 py-0.5">' + escapeHtml(m.username) + '</li>'
+            );
+          })
+          .join('');
+      } catch {
+        ul.innerHTML = '<li class="list-none text-slate-500">Could not load moderators</li>';
+      }
+    }
+
+    function setModErr(t) {
+      const x = document.getElementById('modInboxErr');
+      if (!x) return;
+      x.textContent = t || '';
+      x.classList.toggle('hidden', !t);
+    }
+
+    async function loadModInboxList() {
+      const tok = getToken();
+      const listEl = document.getElementById('modInboxList');
+      const kicker = document.getElementById('modInboxKicker');
+      const hint = document.getElementById('modInboxHint');
+      if (!tok || !listEl) return;
+      setModErr('');
+      const me = window.__skyhopLastMe || {};
+      const role = me.role || 'player';
+      if (role === 'owner') void refreshOwnerModList();
+      if (kicker) kicker.textContent = role === 'owner' ? 'Owner queue' : 'Moderator queue';
+      if (hint) {
+        hint.textContent =
+          role === 'owner'
+            ? 'Escalated reports. Ban the reported user or dismiss without action.'
+            : 'New reports. Reject if invalid, or escalate to the site owner.';
+      }
+      try {
+        const data = await api('/api/mod/reports', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        const reports = data.reports || [];
+        if (!reports.length) {
+          listEl.innerHTML =
+            '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-500">No items.</li>';
+          return;
+        }
+        listEl.innerHTML = reports
+          .map(function (r) {
+            var safe = function (s) {
+              return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/"/g, '&quot;');
+            };
+            var actions = '';
+            if (data.scope === 'pending') {
+              actions =
+                '<div class="mt-2 flex flex-wrap gap-2">' +
+                '<button type="button" data-act="rej" data-id="' +
+                safe(r.id) +
+                '" class="rounded-lg border border-rose-500/50 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40">Reject</button>' +
+                '<button type="button" data-act="esc" data-id="' +
+                safe(r.id) +
+                '" class="rounded-lg bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-500">Escalate to owner</button>' +
+                '</div>';
+            } else {
+              actions =
+                '<div class="mt-2 flex flex-wrap items-center gap-2">' +
+                '<select data-ban-dur="' +
+                safe(r.id) +
+                '" class="rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-[11px] text-white">' +
+                '<option value="1w">1 week</option><option value="2w">2 weeks</option><option value="1m">1 month</option><option value="perm">Permanent</option></select>' +
+                '<button type="button" data-act="ban" data-id="' +
+                safe(r.id) +
+                '" data-user="' +
+                r.reportedUserId +
+                '" class="rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-500">Ban user</button>' +
+                '<button type="button" data-act="dismiss" data-id="' +
+                safe(r.id) +
+                '" class="rounded-lg border border-white/20 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10">Dismiss</button>' +
+                '</div>';
+            }
+            return (
+              '<li class="rounded-xl border border-white/10 bg-slate-950/60 p-3 text-left text-sm">' +
+              '<p class="text-[11px] text-slate-500">Report <span class="font-mono text-slate-300">' +
+              safe(r.id).slice(0, 8) +
+              '…</span></p>' +
+              '<p class="mt-1 text-slate-200"><span class="text-slate-500">Reporter:</span> ' +
+              safe(r.reporterUsername) +
+              ' · <span class="text-slate-500">Reported:</span> <strong>' +
+              safe(r.reportedUsername) +
+              '</strong></p>' +
+              '<p class="mt-2 whitespace-pre-wrap text-xs text-slate-300">' +
+              safe(r.reason) +
+              '</p>' +
+              actions +
+              '</li>'
+            );
+          })
+          .join('');
+
+        listEl.querySelectorAll('button[data-act]').forEach(function (btn) {
+          btn.addEventListener('click', async function () {
+            var act = btn.getAttribute('data-act');
+            var id = btn.getAttribute('data-id');
+            var userId = btn.getAttribute('data-user');
+            var note = window.prompt('Optional note (for moderators):') || '';
+            try {
+              if (act === 'rej') {
+                await api('/api/mod/reports/' + encodeURIComponent(id) + '/reject', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ note: note || undefined }),
+                });
+              } else if (act === 'esc') {
+                await api('/api/mod/reports/' + encodeURIComponent(id) + '/escalate', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ note: note || undefined }),
+                });
+              } else if (act === 'dismiss') {
+                await api('/api/owner/dismiss-report', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ reportId: id, note: note || undefined }),
+                });
+              } else if (act === 'ban') {
+                var sel = listEl.querySelector('select[data-ban-dur="' + id + '"]');
+                var dur = sel ? sel.value : '1w';
+                var banReason =
+                  window.prompt('Ban reason (shown to user):', 'Terms violation') || 'Terms violation';
+                await api('/api/owner/ban', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userId: Number(userId),
+                    duration: dur,
+                    reportId: id,
+                    reason: banReason,
+                    note: note || undefined,
+                  }),
+                });
+              }
+              await refreshPanel();
+              await loadModInboxList();
+            } catch (err) {
+              setModErr(String(err.message || err));
+            }
+          });
+        });
+      } catch (e) {
+        setModErr(String(e.message || e));
+      }
+    }
+
     async function refreshPanel() {
       setErr('');
       if (inpApiBase) {
@@ -344,9 +579,12 @@
       }
       if (accServerHint) accServerHint.textContent = serverHintText();
       const tok = getToken();
+      const fab = document.getElementById('btnModInbox');
       if (!tok) {
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
+        if (fab) fab.classList.add('hidden');
+        window.__skyhopLastMe = null;
         return;
       }
       try {
@@ -354,16 +592,29 @@
           method: 'GET',
           headers: { Authorization: 'Bearer ' + tok },
         });
+        window.__skyhopLastMe = me;
         if (accGuest) accGuest.classList.add('hidden');
         if (accLogged) accLogged.classList.remove('hidden');
-        if (accUserLabel) accUserLabel.textContent = me.username || '';
+        if (accUserLabel) {
+          accUserLabel.textContent = me.username || '';
+          if (me.role === 'moderator') {
+            accUserLabel.className = 'font-semibold text-rose-400';
+          } else {
+            accUserLabel.className = 'font-semibold text-violet-200';
+          }
+        }
         setAuth(tok, me.username);
         renderStats(me.stats);
         renderAchievements(me.achievements);
+        updateModFab(me);
+        const ownerTools = document.getElementById('ownerTools');
+        if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
       } catch (e) {
         setAuth(null, null);
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
+        if (fab) fab.classList.add('hidden');
+        window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
     }
@@ -395,6 +646,10 @@
           if (inpLoginPass) inpLoginPass.value = '';
           await refreshPanel();
         } catch (e) {
+          if (e.skyhop && e.skyhop.banned) {
+            showBanScreen(e.skyhop);
+            return;
+          }
           setErr(String(e.message || e));
         }
       });
@@ -439,6 +694,116 @@
       });
     }
 
+    var screenModInbox = document.getElementById('screenModInbox');
+    var btnModInbox = document.getElementById('btnModInbox');
+    var btnModInboxClose = document.getElementById('btnModInboxClose');
+    if (btnModInbox && screenModInbox) {
+      btnModInbox.addEventListener('click', function () {
+        screenModInbox.classList.remove('hidden');
+        screenModInbox.classList.add('flex');
+        void loadModInboxList();
+      });
+    }
+    if (btnModInboxClose && screenModInbox) {
+      btnModInboxClose.addEventListener('click', function () {
+        screenModInbox.classList.add('hidden');
+        screenModInbox.classList.remove('flex');
+      });
+    }
+
+    var btnBanOk = document.getElementById('btnBanOk');
+    if (btnBanOk) btnBanOk.addEventListener('click', hideBanScreen);
+
+    var accBtnSubmitReport = document.getElementById('accBtnSubmitReport');
+    var accReportUser = document.getElementById('accReportUser');
+    var accReportReason = document.getElementById('accReportReason');
+    var accReportMsg = document.getElementById('accReportMsg');
+    if (accBtnSubmitReport) {
+      accBtnSubmitReport.addEventListener('click', async function () {
+        if (accReportMsg) {
+          accReportMsg.textContent = '';
+          accReportMsg.classList.add('hidden');
+        }
+        var tok = getToken();
+        if (!tok) return;
+        try {
+          await api('/api/reports', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              reportedUsername: (accReportUser && accReportUser.value) || '',
+              reason: (accReportReason && accReportReason.value) || '',
+            }),
+          });
+          if (accReportUser) accReportUser.value = '';
+          if (accReportReason) accReportReason.value = '';
+          if (accReportMsg) {
+            accReportMsg.textContent = 'Report submitted. Thank you.';
+            accReportMsg.classList.remove('hidden');
+          }
+        } catch (e) {
+          if (accReportMsg) {
+            accReportMsg.textContent = String(e.message || e);
+            accReportMsg.classList.remove('hidden');
+          }
+        }
+      });
+    }
+
+    var ownerBtnModOn = document.getElementById('ownerBtnModOn');
+    var ownerBtnModOff = document.getElementById('ownerBtnModOff');
+    var ownerModUsername = document.getElementById('ownerModUsername');
+    var ownerModMsg = document.getElementById('ownerModMsg');
+    function setOwnerModMsg(t, isErr) {
+      if (!ownerModMsg) return;
+      ownerModMsg.textContent = t || '';
+      ownerModMsg.classList.toggle('hidden', !t);
+      ownerModMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerModMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    if (ownerBtnModOn) {
+      ownerBtnModOn.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setOwnerModMsg('', false);
+        try {
+          await api('/api/owner/set-moderator', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: (ownerModUsername && ownerModUsername.value) || '',
+              promote: true,
+            }),
+          });
+          setOwnerModMsg('Updated.', false);
+          void refreshOwnerModList();
+        } catch (e) {
+          setOwnerModMsg(String(e.message || e), true);
+        }
+      });
+    }
+    if (ownerBtnModOff) {
+      ownerBtnModOff.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setOwnerModMsg('', false);
+        try {
+          await api('/api/owner/set-moderator', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: (ownerModUsername && ownerModUsername.value) || '',
+              promote: false,
+            }),
+          });
+          setOwnerModMsg('Updated.', false);
+          void refreshOwnerModList();
+        } catch (e) {
+          setOwnerModMsg(String(e.message || e), true);
+        }
+      });
+    }
+
     if (inpApiBase) {
       inpApiBase.addEventListener('change', function () {
         setErr('');
@@ -463,6 +828,8 @@
         if (accServerHint) accServerHint.textContent = serverHintText();
       });
     }
+
+    if (getToken()) void refreshPanel();
   }
 
   if (document.readyState === 'loading') {

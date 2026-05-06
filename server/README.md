@@ -51,6 +51,8 @@ The Racing **server** field: **leave blank** for same-site play, or enter a **ho
 
 Restart **`npm start`**. If both variables are set, the app uses Supabase; otherwise it keeps using `accounts.json`.
 
+**Moderation (reports / bans):** Run **`server/supabase/moderation.sql`** in the SQL Editor if you already created tables from an older `schema.sql`. New installs: `schema.sql` already includes `role`, `ban_until_ms`, `ban_reason` on `skyhop_users` and the `skyhop_reports` table. Set **`SKYHOP_OWNER_USERNAME`** in `server/.env.local` to your username (letters match login; case-insensitive). That account is always treated as **owner** (ban users, dismiss escalations, promote moderators). **Moderators** are normal accounts with `role = moderator` in the DB; the owner grants that from the reports inbox (“Make mod” / “Remove mod”).
+
 If **Account** shows **non-JSON** errors, the browser is usually hitting a URL that returns HTML (wrong host, 404 page, or crash text)—fix the API base / same-origin setup first.
 
 **Docker / cloud:** inject the same two variables as environment variables instead of a file.
@@ -66,6 +68,13 @@ HTTP REST on the **same port** as racing (use `http://HOST:PORT/...`; CORS allow
 | `POST` | `/api/logout` | Header `Authorization: Bearer <token>` |
 | `GET` | `/api/me` | Bearer → `{ username, stats, achievements }` |
 | `POST` | `/api/runs` | Bearer, body `{ timeMs, deaths, source?: "campaign" \| "race" }` |
+| `POST` | `/api/reports` | Bearer, body `{ reportedUsername, reason }` |
+| `GET` | `/api/mod/reports` | Bearer; moderators get `pending`, owner gets `escalated` |
+| `POST` | `/api/mod/reports/:id/reject` | Moderator only |
+| `POST` | `/api/mod/reports/:id/escalate` | Moderator only |
+| `POST` | `/api/owner/ban` | Owner only; body `{ userId, duration: "1w"\|"2w"\|"1m"\|"perm", reportId?, reason? }` |
+| `POST` | `/api/owner/dismiss-report` | Owner only; body `{ reportId, note? }` |
+| `POST` | `/api/owner/set-moderator` | Owner only; body `{ username, promote: boolean }` |
 
 The game’s **Account & cloud stats** panel uses that API. A run is uploaded when you **clear all 50 stages** while logged in (campaign or race). The HTTP base URL is derived from the **Racing** WebSocket URL (`ws:` → `http:`, `wss:` → `https:`).
 

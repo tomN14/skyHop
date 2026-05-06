@@ -316,6 +316,16 @@
         <div id="accLoggedBlock" class="mt-4 hidden space-y-4">
           <p class="text-sm text-slate-300">Signed in as <span id="accUserLabel" class="font-semibold text-violet-200">—</span></p>
           <button id="accBtnLogout" type="button" class="w-full rounded-xl border border-white/20 py-2 text-sm font-sem text-slate-300 hover:bg-white/5">Log out</button>
+          <div class="rounded-2xl border border-amber-500/25 bg-slate-950/60 p-4 text-left">
+            <p class="text-xs font-sem text-amber-200/90">Report a player</p>
+            <p class="mt-1 text-[11px] text-slate-500">Players and moderators can report cheating, harassment, or other issues. Reports go to moderators first; serious cases can be escalated to the site owner.</p>
+            <label class="mt-2 block text-[11px] text-slate-500">Their username</label>
+            <input id="accReportUser" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
+            <label class="mt-2 block text-[11px] text-slate-500">What happened?</label>
+            <textarea id="accReportReason" rows="3" maxlength="4000" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Brief, factual summary (min 3 characters)"></textarea>
+            <button id="accBtnSubmitReport" type="button" class="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/50 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Submit report</button>
+            <p id="accReportMsg" class="mt-2 hidden text-xs text-slate-400"></p>
+          </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
             <p class="text-xs font-sem text-violet-300">Statistics (all submitted full runs)</p>
             <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-3">
@@ -336,6 +346,52 @@
         </div>
       </div>
     </div>
+
+    <!-- Account suspension (failed login while banned) -->
+    <div id="screenBan" class="pointer-events-auto fixed inset-0 z-[41] hidden flex items-center justify-center bg-slate-950/95 p-6 backdrop-blur-sm">
+      <div class="max-w-md rounded-3xl border border-rose-500/40 bg-slate-900/95 p-8 text-center shadow-2xl">
+        <p class="text-sm font-sem uppercase tracking-widest text-rose-400">Account suspended</p>
+        <h3 class="mt-2 text-xl font-bold text-white">You cannot sign in right now</h3>
+        <p id="banBodyPermanent" class="mt-4 hidden text-sm text-slate-300">This account is permanently suspended.</p>
+        <p id="banBodyTemp" class="mt-4 hidden text-sm text-slate-300">Your suspension lasts until:</p>
+        <p id="banUntilLabel" class="mt-1 hidden font-mono text-lg text-amber-200">—</p>
+        <p id="banReasonWrap" class="mt-4 hidden text-left text-sm text-slate-400"><span class="text-slate-500">Reason:</span> <span id="banReasonLabel" class="text-slate-200"></span></p>
+        <button id="btnBanOk" type="button" class="mt-6 w-full rounded-2xl border border-white/20 py-3 text-sm font-semibold text-slate-200 hover:bg-white/10">OK</button>
+      </div>
+    </div>
+
+    <!-- Moderator / owner report inbox -->
+    <div id="screenModInbox" class="pointer-events-auto fixed inset-0 z-[36] hidden flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
+      <div class="my-auto w-full max-w-2xl rounded-3xl border border-indigo-500/35 bg-gradient-to-br from-slate-900 to-indigo-950/60 p-6 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p id="modInboxKicker" class="text-xs font-sem uppercase tracking-widest text-indigo-400">Reports</p>
+            <h3 class="mt-1 text-xl font-bold text-white">Inbox</h3>
+            <p id="modInboxHint" class="mt-1 text-[11px] text-slate-500"></p>
+          </div>
+          <button id="btnModInboxClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <div id="ownerTools" class="mt-4 hidden rounded-xl border border-white/10 bg-slate-950/50 p-3 text-left">
+          <p class="text-xs font-sem text-emerald-200">Owner: moderators</p>
+          <p class="mt-1 text-[11px] text-slate-500">Promote any <strong class="text-slate-400">player</strong> to moderator (persists until you remove mod). Demote a moderator to <strong class="text-slate-400">player</strong> — they lose the inbox button and red name after refresh.</p>
+          <p class="mt-2 text-[11px] font-sem text-rose-300/90">Current moderators</p>
+          <ul id="ownerModList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-rose-200"></ul>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <input id="ownerModUsername" type="text" maxlength="24" placeholder="username" class="min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" autocomplete="off" />
+            <button id="ownerBtnModOn" type="button" class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500">Make mod</button>
+            <button id="ownerBtnModOff" type="button" class="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove mod</button>
+          </div>
+          <p id="ownerModMsg" class="mt-2 hidden text-xs text-slate-400"></p>
+        </div>
+        <p id="modInboxErr" class="mt-3 hidden rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"></p>
+        <ul id="modInboxList" class="mt-4 max-h-[55vh] list-none space-y-3 overflow-y-auto p-0"></ul>
+      </div>
+    </div>
+
+    <button id="btnModInbox" type="button" title="Reports inbox" class="pointer-events-auto relative flex fixed bottom-28 left-4 z-[27] hidden h-12 w-12 items-center justify-center rounded-2xl border border-indigo-500/40 bg-slate-900/95 text-xl shadow-xl hover:bg-slate-800 md:bottom-6">
+      <span aria-hidden="true">📧</span>
+      <span id="modInboxBadge" class="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white hidden">0</span>
+    </button>
 
     <!-- User levels: My levels -->
     <div id="screenLevelsMine" class="absolute inset-0 z-[29] hidden flex flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
