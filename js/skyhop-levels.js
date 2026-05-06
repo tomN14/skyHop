@@ -70,13 +70,35 @@
   let drag = null;
   let cam = { s: 1, ox: 0, oy: 0 };
 
+  function syncEditorCanvasLayout() {
+    const canvas = document.getElementById('lvlEditorCanvas');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 640;
+    let cssW = 640;
+    let cssH = Math.max(260, Math.floor(vh * 0.42));
+    if (wrap) {
+      const r = wrap.getBoundingClientRect();
+      const w = Math.floor(r.width);
+      const h = Math.floor(r.height);
+      if (w >= 200) cssW = Math.min(960, w);
+      if (h >= 180) cssH = Math.min(620, h);
+    }
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.style.maxWidth = '100%';
+    canvas.width = cssW;
+    canvas.height = cssH;
+    const ctx = canvas.getContext('2d');
+    if (ctx) ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
   function fitCam(canvas, worldW, worldH) {
-    const pad = 0.9;
-    const dpr = window.devicePixelRatio || 1;
-    const cw = canvas.clientWidth || (canvas.width && canvas.width / dpr) || 400;
-    const ch = canvas.clientHeight || (canvas.height && canvas.height / dpr) || 240;
+    const pad = 0.92;
+    const cw = Math.max(1, canvas.width || canvas.clientWidth || 400);
+    const ch = Math.max(1, canvas.height || canvas.clientHeight || 240);
     const s = Math.min((cw * pad) / worldW, (ch * pad) / worldH);
-    cam.s = s || 0.001;
+    cam.s = s > 0 && Number.isFinite(s) ? s : 0.001;
     cam.ox = (cw - worldW * cam.s) / 2;
     cam.oy = (ch - worldH * cam.s) / 2;
   }
@@ -162,16 +184,22 @@
   function drawEditor(canvas, ctx) {
     const d = editorState.data;
     if (!d) return;
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = canvas.clientWidth || (canvas.width && canvas.width / dpr) || 400;
-    const cssH = canvas.clientHeight || (canvas.height && canvas.height / dpr) || 240;
+    if (!Number.isFinite(d.worldW) || !Number.isFinite(d.worldH) || d.worldW < 100 || d.worldH < 100)
+      return;
+
+    if (!canvas.width || !canvas.height || canvas.width < 32 || canvas.height < 32) {
+      syncEditorCanvasLayout();
+    }
+
+    const cw = Math.max(1, canvas.width || canvas.clientWidth || 1);
+    const ch = Math.max(1, canvas.height || canvas.clientHeight || 1);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, cw, ch);
 
     fitCam(canvas, d.worldW, d.worldH);
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW + 1, cssH + 1);
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, cssW, cssH);
 
     const p0 = toScreen(0, 0);
     const p1 = toScreen(d.worldW, d.worldH);
@@ -287,19 +315,12 @@
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    function resizeCanvas() {
-      const wrap = canvas.parentElement;
-      const w = Math.max(320, Math.min(920, (wrap && wrap.clientWidth) || 800));
-      const h = Math.max(240, Math.min(520, window.innerHeight * 0.46));
-      canvas.style.width = w + 'px';
-      canvas.style.height = h + 'px';
-      canvas.width = w * (window.devicePixelRatio || 1);
-      canvas.height = h * (window.devicePixelRatio || 1);
-      ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+    function onResize() {
+      syncEditorCanvasLayout();
       scheduleEditorRedraw();
     }
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    onResize();
+    window.addEventListener('resize', onResize);
 
     function localXY(ev) {
       const r = canvas.getBoundingClientRect();
@@ -427,8 +448,18 @@
     if (!editorScreen) return;
     editorScreen.classList.toggle('hidden', !on);
     if (on) {
+      syncEditorCanvasLayout();
       scheduleEditorRedraw();
-      requestAnimationFrame(() => scheduleEditorRedraw());
+      requestAnimationFrame(() => {
+        syncEditorCanvasLayout();
+        scheduleEditorRedraw();
+      });
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          syncEditorCanvasLayout();
+          scheduleEditorRedraw();
+        });
+      });
     }
   }
 
