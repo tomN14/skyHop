@@ -240,11 +240,16 @@
       body: JSON.stringify(payload),
     })
       .then(function (data) {
-        if (data && data.coins != null && window.__skyhopLastMe) {
-          window.__skyhopLastMe.coins = data.coins;
+        if (data && window.__skyhopLastMe) {
+          if (data.coins != null) window.__skyhopLastMe.coins = data.coins;
+          if (data.coinsInfinite != null) window.__skyhopLastMe.coinsInfinite = !!data.coinsInfinite;
           try {
             const el = document.getElementById('accStatCoins');
-            if (el) el.textContent = String(data.coins);
+            if (el) {
+              el.textContent = window.__skyhopLastMe.coinsInfinite
+                ? '∞'
+                : String(data.coins != null ? data.coins : window.__skyhopLastMe.coins);
+            }
           } catch {
             /* */
           }
@@ -339,9 +344,10 @@
 
     function renderStats(st) {
       if (!st) return;
-      const coins =
-        window.__skyhopLastMe && window.__skyhopLastMe.coins != null ? window.__skyhopLastMe.coins : 0;
-      if (accStatCoins) accStatCoins.textContent = String(coins);
+      const me = window.__skyhopLastMe;
+      const coins = me && me.coins != null ? me.coins : 0;
+      const inf = me && me.coinsInfinite;
+      if (accStatCoins) accStatCoins.textContent = inf ? '∞' : String(coins);
       if (accStatRuns) accStatRuns.textContent = String(st.runCount != null ? st.runCount : 0);
       if (accStatDeathTotal) accStatDeathTotal.textContent = String(st.totalDeaths != null ? st.totalDeaths : 0);
       if (accStatDeathMin) accStatDeathMin.textContent = st.minDeaths != null ? String(st.minDeaths) : '—';
@@ -364,6 +370,25 @@
             : 0;
       const show = role === 'moderator' || role === 'owner';
       fab.classList.toggle('hidden', !show);
+      if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function updateFriendsFab(me) {
+      const fab = document.getElementById('btnFriendsFab');
+      const badge = document.getElementById('friendsFabBadge');
+      if (!fab || !badge) return;
+      const tok = getToken();
+      if (!tok) {
+        fab.classList.add('hidden');
+        return;
+      }
+      fab.classList.remove('hidden');
+      const n = me && me.friendIncomingCount != null ? Number(me.friendIncomingCount) : 0;
       if (n > 0) {
         badge.textContent = n > 99 ? '99+' : String(n);
         badge.classList.remove('hidden');
@@ -593,6 +618,168 @@
       }
     }
 
+    async function renderCoinShop(me) {
+      const ul = document.getElementById('accCoinShopList');
+      const shopMsg = document.getElementById('accCoinShopMsg');
+      if (!ul) return;
+      ul.innerHTML = '';
+      if (shopMsg) {
+        shopMsg.textContent = '';
+        shopMsg.classList.add('hidden');
+        shopMsg.classList.remove('text-rose-300', 'text-emerald-200');
+      }
+      try {
+        const data = await api('/api/shop/items');
+        const items = data.items || [];
+        const unlocked = new Set((me && me.unlockedTextures) || []);
+        const tok = getToken();
+        if (!items.length) {
+          ul.innerHTML =
+            '<li class="text-xs text-slate-500">No items — add PNG/WebP skins under <span class="font-mono">textures/</span> and list them in <span class="font-mono">server/shop-catalog.js</span>.</li>';
+          return;
+        }
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const owned = unlocked.has(it.texture);
+          const li = document.createElement('li');
+          li.className =
+            'flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-900/50 px-2 py-2';
+          const priceLabel = infinite ? '—' : String(it.price);
+          const left = document.createElement('span');
+          left.className = 'text-slate-200';
+          left.textContent = it.label || it.texture;
+          const price = document.createElement('span');
+          price.className = 'font-mono text-amber-200/90';
+          price.textContent = priceLabel + ' coins';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className =
+            'rounded-lg px-2 py-1 text-xs font-semibold ' +
+            (owned ? 'cursor-default border border-white/10 text-slate-500' : 'bg-amber-600 text-white hover:bg-amber-500');
+          btn.textContent = owned ? 'Owned' : 'Buy';
+          btn.disabled = owned;
+          if (!owned && tok) {
+            btn.addEventListener('click', async function () {
+              if (shopMsg) shopMsg.classList.add('hidden');
+              try {
+                const out = await api('/api/shop/buy', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ itemId: it.id }),
+                });
+                if (window.__skyhopLastMe) {
+                  window.__skyhopLastMe.unlockedTextures = out.unlockedTextures;
+                  window.__skyhopLastMe.coins = out.coins;
+                  window.__skyhopLastMe.coinsInfinite = out.coinsInfinite;
+                }
+                const elc = document.getElementById('accStatCoins');
+                if (elc && window.__skyhopLastMe) {
+                  elc.textContent = window.__skyhopLastMe.coinsInfinite
+                    ? '∞'
+                    : String(window.__skyhopLastMe.coins);
+                }
+                await refreshSkinUi(window.__skyhopLastMe);
+                await renderCoinShop(window.__skyhopLastMe);
+                if (shopMsg) {
+                  shopMsg.textContent = 'Purchased ' + (it.label || it.texture) + '.';
+                  shopMsg.classList.remove('hidden');
+                  shopMsg.classList.add('text-emerald-200');
+                }
+              } catch (e) {
+                if (shopMsg) {
+                  shopMsg.textContent = String(e.message || e);
+                  shopMsg.classList.remove('hidden');
+                  shopMsg.classList.add('text-rose-300');
+                }
+              }
+            });
+          }
+          const row = document.createElement('div');
+          row.className = 'flex min-w-0 flex-1 flex-wrap items-center gap-2';
+          row.appendChild(left);
+          row.appendChild(price);
+          li.appendChild(row);
+          li.appendChild(btn);
+          ul.appendChild(li);
+        }
+      } catch {
+        ul.innerHTML = '<li class="text-xs text-rose-300">Could not load shop.</li>';
+      }
+    }
+
+    function setFriendsErr(t, ok) {
+      const x = document.getElementById('friendsPanelErr');
+      if (!x) return;
+      x.textContent = t || '';
+      x.classList.toggle('hidden', !t);
+      x.classList.toggle('text-rose-300', !!t && !ok);
+      x.classList.toggle('text-emerald-200', !!t && !!ok);
+    }
+
+    function renderFriendsBundle(bundle) {
+      const inc = document.getElementById('friendsIncomingList');
+      const out = document.getElementById('friendsOutgoingList');
+      const fr = document.getElementById('friendsListEl');
+      if (fr) {
+        var friends = bundle.friends || [];
+        fr.innerHTML = friends.length
+          ? friends
+              .map(function (f) {
+                return '<li class="rounded bg-slate-900/40 px-2 py-0.5">' + escapeHtml(f.username) + '</li>';
+              })
+              .join('')
+          : '<li class="text-xs text-slate-500">No friends yet.</li>';
+      }
+      if (out) {
+        var og = bundle.outgoing || [];
+        out.innerHTML = og.length
+          ? og
+              .map(function (r) {
+                return '<li class="text-slate-400">Pending → ' + escapeHtml(r.toUsername) + '</li>';
+              })
+              .join('')
+          : '<li class="text-slate-600">None.</li>';
+      }
+      if (inc) {
+        var incoming = bundle.incoming || [];
+        inc.innerHTML = incoming.length
+          ? incoming
+              .map(function (r) {
+                return (
+                  '<li class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-900/60 px-2 py-2">' +
+                  '<span class="text-slate-200">' +
+                  escapeHtml(r.fromUsername) +
+                  '</span>' +
+                  '<span class="flex gap-1">' +
+                  '<button type="button" data-fr-accept="' +
+                  escapeHtml(r.id) +
+                  '" class="rounded bg-teal-600 px-2 py-0.5 text-[11px] text-white hover:bg-teal-500">Accept</button>' +
+                  '<button type="button" data-fr-decline="' +
+                  escapeHtml(r.id) +
+                  '" class="rounded border border-white/20 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-white/10">Decline</button>' +
+                  '</span></li>'
+                );
+              })
+              .join('')
+          : '<li class="text-xs text-slate-500">None.</li>';
+      }
+    }
+
+    async function loadFriendsPanel() {
+      const tok = getToken();
+      if (!tok) return;
+      setFriendsErr('', false);
+      try {
+        const bundle = await api('/api/friends', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        renderFriendsBundle(bundle);
+      } catch (e) {
+        setFriendsErr(String(e.message || e), false);
+      }
+    }
+
     async function refreshPanel() {
       setErr('');
       if (inpApiBase) {
@@ -616,6 +803,8 @@
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
+        var ffabOut = document.getElementById('btnFriendsFab');
+        if (ffabOut) ffabOut.classList.add('hidden');
         window.__skyhopLastMe = null;
         return;
       }
@@ -641,7 +830,9 @@
         renderStats(me.stats);
         renderAchievements(me.achievements);
         void refreshSkinUi(me);
+        void renderCoinShop(me);
         updateModFab(me);
+        updateFriendsFab(me);
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
       } catch (e) {
@@ -649,6 +840,8 @@
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
+        var ffabErr = document.getElementById('btnFriendsFab');
+        if (ffabErr) ffabErr.classList.add('hidden');
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -659,17 +852,26 @@
       const msg = document.getElementById('accSkinMsg');
       if (!sel) return;
       sel.innerHTML = '<option value="">Default look</option>';
-      try {
-        const t = await api('/api/textures', { noAuth: true });
-        for (var fi = 0; fi < (t.textures || []).length; fi++) {
-          var f = t.textures[fi];
-          var o = document.createElement('option');
-          o.value = f;
-          o.textContent = f;
-          sel.appendChild(o);
+      var list = [];
+      if (me && me.role === 'owner') {
+        try {
+          const tok = getToken();
+          const t = await api('/api/textures', {
+            headers: tok ? { Authorization: 'Bearer ' + tok } : {},
+          });
+          list = t.textures || [];
+        } catch {
+          list = [];
         }
-      } catch {
-        /* */
+      } else {
+        list = (me && me.unlockedTextures) || [];
+      }
+      for (var fi = 0; fi < list.length; fi++) {
+        var f = list[fi];
+        var o = document.createElement('option');
+        o.value = f;
+        o.textContent = f;
+        sel.appendChild(o);
       }
       if (me && me.skinTexture) sel.value = me.skinTexture;
       else sel.value = '';
@@ -932,6 +1134,205 @@
           void refreshOwnerModList();
         } catch (e) {
           setOwnerModMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var ownerGiftUsername = document.getElementById('ownerGiftUsername');
+    var ownerGiftAmount = document.getElementById('ownerGiftAmount');
+    var ownerBtnGiftCoins = document.getElementById('ownerBtnGiftCoins');
+    var ownerGiftMsg = document.getElementById('ownerGiftMsg');
+    function setOwnerGiftMsg(t, isErr) {
+      if (!ownerGiftMsg) return;
+      ownerGiftMsg.textContent = t || '';
+      ownerGiftMsg.classList.toggle('hidden', !t);
+      ownerGiftMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerGiftMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    if (ownerBtnGiftCoins) {
+      ownerBtnGiftCoins.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setOwnerGiftMsg('', false);
+        var un = (ownerGiftUsername && ownerGiftUsername.value) || '';
+        var amt = ownerGiftAmount ? Number(ownerGiftAmount.value) : NaN;
+        if (!String(un).trim()) {
+          setOwnerGiftMsg('Enter a username.', true);
+          return;
+        }
+        if (!Number.isFinite(amt) || amt < 1 || amt > 1000000 || Math.floor(amt) !== amt) {
+          setOwnerGiftMsg('Amount must be a whole number from 1 to 1,000,000.', true);
+          return;
+        }
+        try {
+          var data = await api('/api/owner/gift-coins', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: String(un).trim(), amount: Math.floor(amt) }),
+          });
+          setOwnerGiftMsg(
+            'Sent ' + String(Math.floor(amt)) + ' to ' + data.username + '. New balance: ' + String(data.coins) + '.',
+            false
+          );
+        } catch (e) {
+          setFriendsErr(String(e.message || e), false);
+        }
+      });
+    }
+
+    var ownerGiftTexUser = document.getElementById('ownerGiftTexUser');
+    var ownerGiftTexFile = document.getElementById('ownerGiftTexFile');
+    var ownerBtnGiftTex = document.getElementById('ownerBtnGiftTex');
+    var ownerGiftTexMsg = document.getElementById('ownerGiftTexMsg');
+    function setOwnerGiftTexMsg(t, isErr) {
+      if (!ownerGiftTexMsg) return;
+      ownerGiftTexMsg.textContent = t || '';
+      ownerGiftTexMsg.classList.toggle('hidden', !t);
+      ownerGiftTexMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerGiftTexMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    if (ownerBtnGiftTex) {
+      ownerBtnGiftTex.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setOwnerGiftTexMsg('', false);
+        var un = (ownerGiftTexUser && ownerGiftTexUser.value) || '';
+        var tex = (ownerGiftTexFile && ownerGiftTexFile.value) || '';
+        if (!String(un).trim() || !String(tex).trim()) {
+          setOwnerGiftTexMsg('Username and texture filename required.', true);
+          return;
+        }
+        try {
+          var data = await api('/api/owner/gift-texture', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: String(un).trim(), texture: String(tex).trim() }),
+          });
+          setOwnerGiftTexMsg(
+            (data.wasNew ? 'Granted ' : 'Already had ') + data.texture + ' for ' + data.username + '.',
+            false
+          );
+        } catch (e) {
+          setOwnerGiftTexMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var screenFriends = document.getElementById('screenFriends');
+    var btnFriendsFab = document.getElementById('btnFriendsFab');
+    var btnFriendsClose = document.getElementById('btnFriendsClose');
+    if (btnFriendsFab && screenFriends) {
+      btnFriendsFab.addEventListener('click', function () {
+        screenFriends.classList.remove('hidden');
+        screenFriends.classList.add('flex');
+        void loadFriendsPanel();
+      });
+    }
+    if (btnFriendsClose && screenFriends) {
+      btnFriendsClose.addEventListener('click', function () {
+        screenFriends.classList.add('hidden');
+        screenFriends.classList.remove('flex');
+      });
+    }
+    if (screenFriends && !screenFriends.dataset.skyhopFrDel) {
+      screenFriends.dataset.skyhopFrDel = '1';
+      screenFriends.addEventListener('click', async function (ev) {
+        var t = ev.target;
+        if (!t || !t.getAttribute) return;
+        var acc = t.getAttribute('data-fr-accept');
+        var dec = t.getAttribute('data-fr-decline');
+        if (!acc && !dec) return;
+        var tok2 = getToken();
+        if (!tok2) return;
+        setFriendsErr('', false);
+        try {
+          var pathFr = acc ? '/api/friends/accept' : '/api/friends/decline';
+          var data = await api(pathFr, {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok2, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestId: acc || dec }),
+          });
+          renderFriendsBundle(data);
+          if (window.__skyhopLastMe) {
+            window.__skyhopLastMe.friendIncomingCount = (data.incoming || []).length;
+            updateFriendsFab(window.__skyhopLastMe);
+          }
+        } catch (e) {
+          setFriendsErr(String(e.message || e), false);
+        }
+      });
+    }
+
+    var friendBtnSendReq = document.getElementById('friendBtnSendReq');
+    var friendReqUsername = document.getElementById('friendReqUsername');
+    if (friendBtnSendReq) {
+      friendBtnSendReq.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setFriendsErr('', false);
+        var un = (friendReqUsername && friendReqUsername.value) || '';
+        if (!String(un).trim()) {
+          setFriendsErr('Enter a username.', false);
+          return;
+        }
+        try {
+          await api('/api/friends/request', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: String(un).trim() }),
+          });
+          if (friendReqUsername) friendReqUsername.value = '';
+          await loadFriendsPanel();
+        } catch (e) {
+          setFriendsErr(String(e.message || e), false);
+        }
+      });
+    }
+
+    var friendBtnGiftCoins = document.getElementById('friendBtnGiftCoins');
+    var friendGiftUser = document.getElementById('friendGiftUser');
+    var friendGiftAmt = document.getElementById('friendGiftAmt');
+    if (friendBtnGiftCoins) {
+      friendBtnGiftCoins.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setFriendsErr('', false);
+        var un = (friendGiftUser && friendGiftUser.value) || '';
+        var amt = friendGiftAmt ? Number(friendGiftAmt.value) : NaN;
+        if (!String(un).trim()) {
+          setFriendsErr('Enter your friend\'s username.', false);
+          return;
+        }
+        if (!Number.isFinite(amt) || amt < 1 || amt > 100000 || Math.floor(amt) !== amt) {
+          setFriendsErr('Amount must be a whole number from 1 to 100,000.', false);
+          return;
+        }
+        try {
+          var data = await api('/api/friends/gift-coins', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: String(un).trim(), amount: Math.floor(amt) }),
+          });
+          if (window.__skyhopLastMe) {
+            window.__skyhopLastMe.coins = data.yourCoins;
+            window.__skyhopLastMe.coinsInfinite = data.coinsInfinite;
+          }
+          var elc = document.getElementById('accStatCoins');
+          if (elc && window.__skyhopLastMe) {
+            elc.textContent = window.__skyhopLastMe.coinsInfinite ? '∞' : String(window.__skyhopLastMe.coins);
+          }
+          setFriendsErr(
+            'Sent ' +
+              String(Math.floor(amt)) +
+              ' coins to ' +
+              data.recipientUsername +
+              ' (they now have ' +
+              String(data.recipientCoins) +
+              ').',
+            true
+          );
+        } catch (e) {
+          setFriendsErr(String(e.message || e), false);
         }
       });
     }

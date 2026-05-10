@@ -1,5 +1,6 @@
 import { ACHIEVEMENT_COIN_REWARD, ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
 import { banStatusForUser, effectiveRole, parseBanDuration } from './moderation.js';
+import { getShopItemById, SHOP_ITEMS } from './shop-catalog.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
 import fs from 'fs';
@@ -21,6 +22,18 @@ async function listTextureFilenames() {
     /* */
   }
   return set;
+}
+
+const PEER_COIN_GIFT_MAX = 100_000;
+
+async function userMayEquipTexture(uid, user, fname) {
+  if (!fname) return true;
+  const base = path.basename(fname);
+  const allowed = await listTextureFilenames();
+  if (!allowed.has(base)) return false;
+  if (effectiveRole(user) === 'owner') return true;
+  if (typeof store.userHasTextureGrant !== 'function') return false;
+  return store.userHasTextureGrant(uid, base);
 }
 
 const CORS = {
@@ -121,11 +134,23 @@ async function buildMePayload(userId) {
       /* */
     }
   }
+  const coinsInfinite = role === 'owner';
+  let unlockedTextures = [];
+  if (typeof store.listTextureGrantsForUser === 'function') {
+    unlockedTextures = await store.listTextureGrantsForUser(userId);
+  }
+  let friendIncomingCount = 0;
+  if (typeof store.countIncomingPendingFriendRequests === 'function') {
+    friendIncomingCount = await store.countIncomingPendingFriendRequests(userId);
+  }
   return {
     username: user.username,
     role,
+    coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
     skinTexture: user.skinTexture ?? user.skin_texture ?? null,
+    unlockedTextures,
+    friendIncomingCount,
     modInboxCount,
     ownerInboxCount,
     stats: {
@@ -263,6 +288,16 @@ export async function handleApi(req, res) {
           json(res, 400, { error: 'Unknown texture. Add the file under textures/ on the server.' });
           return true;
         }
+        const u = await store.findUserById(uid);
+        if (!u) {
+          json(res, 400, { error: 'User not found' });
+          return true;
+        }
+        const may = await userMayEquipTexture(uid, u, fname);
+        if (!may) {
+          json(res, 400, { error: 'You have not unlocked this skin (coin shop or gift).' });
+          return true;
+        }
       }
       await store.setUserSkinTexture(uid, fname);
       const me = await buildMePayload(uid);
@@ -326,7 +361,10 @@ export async function handleApi(req, res) {
       }
 
       if (coinDelta > 0 && typeof store.incrementUserCoins === 'function') {
-        await store.incrementUserCoins(uid, coinDelta);
+        const creditUser = await store.findUserById(uid);
+        if (creditUser && effectiveRole(creditUser) !== 'owner') {
+          await store.incrementUserCoins(uid, coinDelta);
+        }
       }
 
       const me = await buildMePayload(uid);
@@ -335,7 +373,8 @@ export async function handleApi(req, res) {
         newAchievements: newAch.map((a) => ({ id: a.id, title: a.title, desc: a.desc })),
         stats: me.stats,
         coins: me.coins,
-        coinsEarnedThisSubmit: coinDelta,
+        coinsInfinite: !!me.coinsInfinite,
+        coinsEarnedThisSubmit: me.coinsInfinite ? 0 : coinDelta,
       });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
@@ -354,10 +393,267 @@ export async function handleApi(req, res) {
 
   if (path === '/api/textures' && req.method === 'GET') {
     try {
-      const set = await listTextureFilenames();
-      json(res, 200, { textures: [...set].sort() });
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 200, { textures: [] });
+        return true;
+      }
+      if (effectiveRole(sess.user) === 'owner') {
+        const set = await listTextureFilenames();
+        json(res, 200, { textures: [...set].sort() });
+        return true;
+      }
+      if (typeof store.listTextureGrantsForUser !== 'function') {
+        json(res, 200, { textures: [] });
+        return true;
+      }
+      const list = await store.listTextureGrantsForUser(sess.userId);
+      json(res, 200, { textures: list });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/shop/items' && req.method === 'GET') {
+    try {
+      const disk = await listTextureFilenames();
+      const items = SHOP_ITEMS.filter((x) => disk.has(x.texture)).map((x) => ({
+        id: x.id,
+        texture: x.texture,
+        price: x.price,
+        label: x.label || x.texture,
+      }));
+      json(res, 200, { items });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/shop/buy' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const item = getShopItemById(String(body.itemId || ''));
+    if (!item) {
+      json(res, 400, { error: 'Unknown shop item.' });
+      return true;
+    }
+    try {
+      const disk = await listTextureFilenames();
+      if (!disk.has(item.texture)) {
+        json(res, 400, { error: 'That item is not available on this server.' });
+        return true;
+      }
+      if (typeof store.userHasTextureGrant !== 'function' || typeof store.addTextureGrant !== 'function') {
+        json(res, 501, { error: 'Shop not configured.' });
+        return true;
+      }
+      if (await store.userHasTextureGrant(sess.userId, item.texture)) {
+        json(res, 400, { error: 'You already own this skin.' });
+        return true;
+      }
+      const infinite = effectiveRole(sess.user) === 'owner';
+      if (!infinite) {
+        const u = await store.findUserById(sess.userId);
+        if (!u) throw new Error('User not found');
+        const bal = u.coins != null ? Number(u.coins) : 0;
+        if (bal < item.price) {
+          json(res, 400, { error: 'Not enough coins.' });
+          return true;
+        }
+        await store.incrementUserCoins(sess.userId, -item.price);
+      }
+      await store.addTextureGrant(sess.userId, item.texture);
+      const me = await buildMePayload(sess.userId);
+      json(res, 200, {
+        ok: true,
+        unlockedTextures: me.unlockedTextures,
+        coins: me.coins,
+        coinsInfinite: !!me.coinsInfinite,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/friends' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (typeof store.listFriendsBundle !== 'function') {
+      json(res, 501, { error: 'Friends not configured.' });
+      return true;
+    }
+    try {
+      const bundle = await store.listFriendsBundle(sess.userId);
+      json(res, 200, bundle);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/friends/request' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (typeof store.createFriendRequest !== 'function') {
+      json(res, 501, { error: 'Friends not configured.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(un);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      await store.createFriendRequest(sess.userId, target.id);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/friends/accept' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const requestId = String(body.requestId || '');
+    if (!requestId) {
+      json(res, 400, { error: 'requestId required' });
+      return true;
+    }
+    try {
+      await store.acceptFriendRequest(requestId, sess.userId);
+      const bundle = await store.listFriendsBundle(sess.userId);
+      json(res, 200, { ok: true, ...bundle });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/friends/decline' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const requestId = String(body.requestId || '');
+    if (!requestId) {
+      json(res, 400, { error: 'requestId required' });
+      return true;
+    }
+    try {
+      await store.declineFriendRequest(requestId, sess.userId);
+      const bundle = await store.listFriendsBundle(sess.userId);
+      json(res, 200, { ok: true, ...bundle });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/friends/gift-coins' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (typeof store.areFriends !== 'function' || typeof store.transferCoins !== 'function') {
+      json(res, 501, { error: 'Not configured' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const amount = Math.floor(Number(body.amount));
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (!Number.isFinite(amount) || amount < 1 || amount > PEER_COIN_GIFT_MAX) {
+      json(res, 400, { error: `Amount must be 1–${PEER_COIN_GIFT_MAX.toLocaleString()}.` });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      if (target.id === sess.userId) {
+        json(res, 400, { error: 'Pick a friend to receive the gift.' });
+        return true;
+      }
+      const friends = await store.areFriends(sess.userId, target.id);
+      if (!friends) {
+        json(res, 400, { error: 'You can only gift coins to accepted friends.' });
+        return true;
+      }
+      const skipDebit = effectiveRole(sess.user) === 'owner';
+      await store.transferCoins(sess.userId, target.id, amount, { skipSenderDebit: skipDebit });
+      const recipient = await store.findUserById(target.id);
+      const me = await buildMePayload(sess.userId);
+      json(res, 200, {
+        ok: true,
+        recipientUsername: recipient.username,
+        recipientCoins: recipient.coins != null ? Number(recipient.coins) : 0,
+        yourCoins: me.coins,
+        coinsInfinite: !!me.coinsInfinite,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
     }
     return true;
   }
@@ -666,6 +962,120 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (path === '/api/owner/gift-coins' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const amount = Math.floor(Number(body.amount));
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) {
+      json(res, 400, { error: 'Amount must be between 1 and 1,000,000.' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      if (effectiveRole(target) === 'owner') {
+        json(res, 400, { error: 'That account is the site owner (infinite coins).' });
+        return true;
+      }
+      if (target.id === sess.userId) {
+        json(res, 400, { error: 'You already have unlimited coins as owner.' });
+        return true;
+      }
+      await store.incrementUserCoins(target.id, amount);
+      const fresh = await store.findUserById(target.id);
+      if (!fresh) {
+        json(res, 500, { error: 'Could not read user after update.' });
+        return true;
+      }
+      json(res, 200, {
+        ok: true,
+        username: fresh.username,
+        coins: fresh.coins != null ? Number(fresh.coins) : 0,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/owner/gift-texture' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const rawTex = body.texture != null ? String(body.texture) : body.textureFilename != null ? String(body.textureFilename) : '';
+    const fname = rawTex ? path.basename(rawTex.trim()) : '';
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (!fname || !/\.(png|webp|gif|jpg|jpeg)$/i.test(fname)) {
+      json(res, 400, { error: 'texture must be a filename like frog.png' });
+      return true;
+    }
+    if (typeof store.addTextureGrant !== 'function') {
+      json(res, 501, { error: 'Not configured' });
+      return true;
+    }
+    try {
+      const disk = await listTextureFilenames();
+      if (!disk.has(fname)) {
+        json(res, 400, { error: 'That file is not on the server (add it under textures/).' });
+        return true;
+      }
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      const added = await store.addTextureGrant(target.id, fname);
+      json(res, 200, {
+        ok: true,
+        username: target.username,
+        texture: fname,
+        wasNew: added,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (path === '/api/owner/moderators' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
@@ -787,9 +1197,12 @@ export async function handleApi(req, res) {
           json(res, 200, { ok: false, already: true });
           return true;
         }
-        await store.incrementUserCoins(uid, 5);
+        const collector = await store.findUserById(uid);
+        if (!collector || effectiveRole(collector) !== 'owner') {
+          await store.incrementUserCoins(uid, 5);
+        }
         const me = await buildMePayload(uid);
-        json(res, 200, { ok: true, coins: me.coins });
+        json(res, 200, { ok: true, coins: me.coins, coinsInfinite: !!me.coinsInfinite });
       } catch (e) {
         json(res, 400, { error: String(e.message || e) });
       }

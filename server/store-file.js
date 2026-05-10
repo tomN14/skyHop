@@ -8,21 +8,39 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'accounts.json');
 
-/** @type {{ users: any[], sessions: any[], runs: any[], userAchievements: any[], reports: any[], nextUserId: number } | null} */
+/** @type {{ users: any[], sessions: any[], runs: any[], userAchievements: any[], reports: any[], textureGrants: any[], friendRequests: any[], nextUserId: number } | null} */
 let cache = null;
 
 function defaultStore() {
-  return { users: [], sessions: [], runs: [], userAchievements: [], reports: [], nextUserId: 1 };
+  return {
+    users: [],
+    sessions: [],
+    runs: [],
+    userAchievements: [],
+    reports: [],
+    textureGrants: [],
+    friendRequests: [],
+    nextUserId: 1,
+  };
 }
 
 function migrateUsersAndReports(s) {
   if (!Array.isArray(s.reports)) s.reports = [];
+  if (!Array.isArray(s.textureGrants)) s.textureGrants = [];
+  if (!Array.isArray(s.friendRequests)) s.friendRequests = [];
   for (const u of s.users) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
     if (!('banReason' in u)) u.banReason = null;
     if (u.coins == null || !Number.isFinite(Number(u.coins))) u.coins = 0;
     if (!('skinTexture' in u)) u.skinTexture = null;
+    const st = u.skinTexture;
+    if (st && typeof st === 'string') {
+      const fn = path.basename(st);
+      if (fn && /\.(png|webp|gif|jpg|jpeg)$/i.test(fn) && !s.textureGrants.some((g) => g.userId === u.id && g.filename === fn)) {
+        s.textureGrants.push({ userId: u.id, filename: fn, at: Date.now() });
+      }
+    }
   }
 }
 
@@ -333,6 +351,140 @@ export function createFileStore() {
       j.claims.push({ userId, levelId, coinIndex: idx, at: Date.now() });
       fs.writeFileSync(p, JSON.stringify(j), 'utf8');
       return true;
+    },
+
+    async listTextureGrantsForUser(userId) {
+      const s = loadStore();
+      const names = new Set();
+      for (const g of s.textureGrants) {
+        if (g.userId === userId) names.add(g.filename);
+      }
+      return [...names].sort();
+    },
+
+    async userHasTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn) return false;
+      const s = loadStore();
+      return s.textureGrants.some((g) => g.userId === userId && g.filename === fn);
+    },
+
+    async addTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn || !/\.(png|webp|gif|jpg|jpeg)$/i.test(fn)) throw new Error('Invalid texture filename.');
+      const s = loadStore();
+      if (s.textureGrants.some((g) => g.userId === userId && g.filename === fn)) return false;
+      s.textureGrants.push({ userId, filename: fn, at: Date.now() });
+      saveStore();
+      return true;
+    },
+
+    async transferCoins(fromUserId, toUserId, amount, opts) {
+      const amt = Math.floor(Number(amount));
+      if (!Number.isFinite(amt) || amt < 1) throw new Error('Invalid amount.');
+      const s = loadStore();
+      const from = s.users.find((x) => x.id === fromUserId);
+      const to = s.users.find((x) => x.id === toUserId);
+      if (!from || !to) throw new Error('User not found.');
+      if (opts && opts.skipSenderDebit) {
+        to.coins = Math.max(0, Math.floor((to.coins || 0) + amt));
+        saveStore();
+        return;
+      }
+      const bal = Math.floor(from.coins || 0);
+      if (bal < amt) throw new Error('Insufficient coins.');
+      from.coins = bal - amt;
+      to.coins = Math.max(0, Math.floor((to.coins || 0) + amt));
+      saveStore();
+    },
+
+    async createFriendRequest(fromUserId, toUserId) {
+      if (fromUserId === toUserId) throw new Error('Cannot send a friend request to yourself.');
+      const s = loadStore();
+      const pendingAB = (a, b) =>
+        s.friendRequests.some((r) => r.status === 'pending' && r.fromUserId === a && r.toUserId === b);
+      const acceptedPair = (a, b) =>
+        s.friendRequests.some(
+          (r) =>
+            r.status === 'accepted' &&
+            ((r.fromUserId === a && r.toUserId === b) || (r.fromUserId === b && r.toUserId === a))
+        );
+      if (acceptedPair(fromUserId, toUserId)) throw new Error('Already friends.');
+      if (pendingAB(fromUserId, toUserId)) throw new Error('Friend request already sent.');
+      if (pendingAB(toUserId, fromUserId)) throw new Error('This user already sent you a request — open Friends to accept.');
+      const row = {
+        id: crypto.randomUUID(),
+        fromUserId,
+        toUserId,
+        status: 'pending',
+        createdAt: Date.now(),
+      };
+      s.friendRequests.push(row);
+      saveStore();
+      return row.id;
+    },
+
+    async acceptFriendRequest(requestId, userId) {
+      const s = loadStore();
+      const r = s.friendRequests.find((x) => x.id === requestId);
+      if (!r || r.status !== 'pending') throw new Error('Request not found.');
+      if (r.toUserId !== userId) throw new Error('You cannot accept this request.');
+      r.status = 'accepted';
+      saveStore();
+    },
+
+    async declineFriendRequest(requestId, userId) {
+      const s = loadStore();
+      const i = s.friendRequests.findIndex(
+        (x) => x.id === requestId && x.toUserId === userId && x.status === 'pending'
+      );
+      if (i < 0) throw new Error('Request not found.');
+      s.friendRequests.splice(i, 1);
+      saveStore();
+    },
+
+    async areFriends(userIdA, userIdB) {
+      if (userIdA === userIdB) return false;
+      const s = loadStore();
+      return s.friendRequests.some(
+        (r) =>
+          r.status === 'accepted' &&
+          ((r.fromUserId === userIdA && r.toUserId === userIdB) ||
+            (r.fromUserId === userIdB && r.toUserId === userIdA))
+      );
+    },
+
+    async listFriendsBundle(userId) {
+      const s = loadStore();
+      const friends = [];
+      const incoming = [];
+      const outgoing = [];
+      for (const r of s.friendRequests) {
+        if (r.status === 'accepted') {
+          if (r.fromUserId === userId) {
+            const u = s.users.find((x) => x.id === r.toUserId);
+            if (u) friends.push({ userId: u.id, username: u.username });
+          } else if (r.toUserId === userId) {
+            const u = s.users.find((x) => x.id === r.fromUserId);
+            if (u) friends.push({ userId: u.id, username: u.username });
+          }
+        } else if (r.status === 'pending') {
+          if (r.toUserId === userId) {
+            const u = s.users.find((x) => x.id === r.fromUserId);
+            if (u) incoming.push({ id: r.id, fromUserId: u.id, fromUsername: u.username, createdAt: r.createdAt });
+          } else if (r.fromUserId === userId) {
+            const u = s.users.find((x) => x.id === r.toUserId);
+            if (u) outgoing.push({ id: r.id, toUserId: u.id, toUsername: u.username, createdAt: r.createdAt });
+          }
+        }
+      }
+      friends.sort((a, b) => a.username.localeCompare(b.username));
+      return { friends, incoming, outgoing };
+    },
+
+    async countIncomingPendingFriendRequests(userId) {
+      const s = loadStore();
+      return s.friendRequests.filter((r) => r.status === 'pending' && r.toUserId === userId).length;
     },
   };
 }

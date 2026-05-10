@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { BAN_PERMANENT_MS, ownerUsernameLower } from './moderation.js';
@@ -350,6 +351,195 @@ export function createSupabaseStore() {
         throw new Error(error.message);
       }
       return true;
+    },
+
+    async listTextureGrantsForUser(userId) {
+      const { data, error } = await sb
+        .from('skyhop_user_texture_grants')
+        .select('texture_filename')
+        .eq('user_id', userId)
+        .order('texture_filename');
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => r.texture_filename);
+    },
+
+    async userHasTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn) return false;
+      const { data, error } = await sb
+        .from('skyhop_user_texture_grants')
+        .select('user_id')
+        .eq('user_id', userId)
+        .eq('texture_filename', fn)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return !!data;
+    },
+
+    async addTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn || !/\.(png|webp|gif|jpg|jpeg)$/i.test(fn)) throw new Error('Invalid texture filename.');
+      const now = Date.now();
+      const { error } = await sb.from('skyhop_user_texture_grants').insert({
+        user_id: userId,
+        texture_filename: fn,
+        created_at: now,
+      });
+      if (error) {
+        if (error.code === '23505') return false;
+        throw new Error(error.message);
+      }
+      return true;
+    },
+
+    async transferCoins(fromUserId, toUserId, amount, opts) {
+      const amt = Math.floor(Number(amount));
+      if (!Number.isFinite(amt) || amt < 1) throw new Error('Invalid amount.');
+      const from = await this.findUserById(fromUserId);
+      const to = await this.findUserById(toUserId);
+      if (!from || !to) throw new Error('User not found.');
+      if (opts && opts.skipSenderDebit) {
+        const nextTo = Math.max(0, (to.coins != null ? Number(to.coins) : 0) + amt);
+        const { error: e2 } = await sb.from('skyhop_users').update({ coins: nextTo }).eq('id', toUserId);
+        if (e2) throw new Error(e2.message);
+        return;
+      }
+      const fromBal = from.coins != null ? Number(from.coins) : 0;
+      if (fromBal < amt) throw new Error('Insufficient coins.');
+      const nextFrom = fromBal - amt;
+      const nextTo = Math.max(0, (to.coins != null ? Number(to.coins) : 0) + amt);
+      const { error: e1 } = await sb.from('skyhop_users').update({ coins: nextFrom }).eq('id', fromUserId);
+      if (e1) throw new Error(e1.message);
+      const { error: e2 } = await sb.from('skyhop_users').update({ coins: nextTo }).eq('id', toUserId);
+      if (e2) throw new Error(e2.message);
+    },
+
+    async createFriendRequest(fromUserId, toUserId) {
+      if (fromUserId === toUserId) throw new Error('Cannot send a friend request to yourself.');
+      const now = Date.now();
+      const { error } = await sb.from('skyhop_friend_requests').insert({
+        from_user_id: fromUserId,
+        to_user_id: toUserId,
+        status: 'pending',
+        created_at: now,
+      });
+      if (error) {
+        if (error.code === '23505') throw new Error('Friend request already sent.');
+        if (error.message && /skyhop_friend_one_party|duplicate|unique/i.test(error.message))
+          throw new Error('Friend request already sent.');
+        throw new Error(error.message);
+      }
+    },
+
+    async acceptFriendRequest(requestId, userId) {
+      const { data: row, error: fErr } = await sb
+        .from('skyhop_friend_requests')
+        .select('id, status, to_user_id')
+        .eq('id', requestId)
+        .maybeSingle();
+      if (fErr) throw new Error(fErr.message);
+      if (!row || row.status !== 'pending' || Number(row.to_user_id) !== Number(userId)) {
+        throw new Error('Request not found.');
+      }
+      const { error } = await sb
+        .from('skyhop_friend_requests')
+        .update({ status: 'accepted' })
+        .eq('id', requestId)
+        .eq('to_user_id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async declineFriendRequest(requestId, userId) {
+      const { error } = await sb
+        .from('skyhop_friend_requests')
+        .delete()
+        .eq('id', requestId)
+        .eq('to_user_id', userId)
+        .eq('status', 'pending');
+      if (error) throw new Error(error.message);
+    },
+
+    async areFriends(userIdA, userIdB) {
+      if (userIdA === userIdB) return false;
+      const a = Number(userIdA);
+      const b = Number(userIdB);
+      const { data: d1, error: e1 } = await sb
+        .from('skyhop_friend_requests')
+        .select('id')
+        .eq('status', 'accepted')
+        .eq('from_user_id', a)
+        .eq('to_user_id', b)
+        .limit(1);
+      if (e1) throw new Error(e1.message);
+      if (d1 && d1.length) return true;
+      const { data: d2, error: e2 } = await sb
+        .from('skyhop_friend_requests')
+        .select('id')
+        .eq('status', 'accepted')
+        .eq('from_user_id', b)
+        .eq('to_user_id', a)
+        .limit(1);
+      if (e2) throw new Error(e2.message);
+      return !!(d2 && d2.length);
+    },
+
+    async listFriendsBundle(userId) {
+      const uid = Number(userId);
+      const { data: rows, error } = await sb
+        .from('skyhop_friend_requests')
+        .select('id, from_user_id, to_user_id, status, created_at')
+        .or(`from_user_id.eq.${uid},to_user_id.eq.${uid}`);
+      if (error) throw new Error(error.message);
+      const incoming = [];
+      const outgoing = [];
+      const needIds = new Set();
+      for (const r of rows || []) {
+        const fromId = Number(r.from_user_id);
+        const toId = Number(r.to_user_id);
+        if (r.status === 'pending') {
+          if (toId === uid) {
+            needIds.add(fromId);
+            incoming.push({ id: r.id, fromUserId: fromId, fromUsername: '', createdAt: r.created_at });
+          } else if (fromId === uid) {
+            needIds.add(toId);
+            outgoing.push({ id: r.id, toUserId: toId, toUsername: '', createdAt: r.created_at });
+          }
+        } else if (r.status === 'accepted') {
+          needIds.add(fromId === uid ? toId : fromId);
+        }
+      }
+      const ids = [...needIds];
+      const nameMap = new Map();
+      if (ids.length) {
+        const { data: users, error: uErr } = await sb.from('skyhop_users').select('id, username').in('id', ids);
+        if (uErr) throw new Error(uErr.message);
+        for (const u of users || []) nameMap.set(Number(u.id), u.username);
+      }
+      const friendsOut = [];
+      const seen = new Set();
+      for (const r of rows || []) {
+        if (r.status !== 'accepted') continue;
+        const fromId = Number(r.from_user_id);
+        const toId = Number(r.to_user_id);
+        const other = fromId === uid ? toId : fromId;
+        if (seen.has(other)) continue;
+        seen.add(other);
+        friendsOut.push({ userId: other, username: nameMap.get(other) || 'unknown' });
+      }
+      friendsOut.sort((a, b) => a.username.localeCompare(b.username));
+      for (const x of incoming) x.fromUsername = nameMap.get(x.fromUserId) || 'unknown';
+      for (const x of outgoing) x.toUsername = nameMap.get(x.toUserId) || 'unknown';
+      return { friends: friendsOut, incoming, outgoing };
+    },
+
+    async countIncomingPendingFriendRequests(userId) {
+      const { count, error } = await sb
+        .from('skyhop_friend_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('to_user_id', userId)
+        .eq('status', 'pending');
+      if (error) throw new Error(error.message);
+      return count != null ? Number(count) : 0;
     },
   };
 }
