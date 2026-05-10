@@ -223,20 +223,37 @@
     }
   }
 
-  window.SkyHopSubmitRun = function (timeMs, deaths, source) {
+  window.SkyHopSubmitRun = function (timeMs, deaths, source, extra) {
     const tok = getToken();
     if (!tok) return Promise.resolve();
+    const payload = {
+      timeMs: Math.round(timeMs != null ? timeMs : 0),
+      deaths: deaths != null ? deaths : 0,
+      source: source === 'race' ? 'race' : 'campaign',
+    };
+    if (extra && typeof extra === 'object' && source !== 'race') {
+      payload.campaignCoinMeta = extra;
+    }
     return api('/api/runs', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + tok },
-      body: JSON.stringify({
-        timeMs: Math.round(timeMs != null ? timeMs : 0),
-        deaths: deaths != null ? deaths : 0,
-        source: source === 'race' ? 'race' : 'campaign',
-      }),
-    }).catch(function (e) {
-      console.warn('Sky Hop: could not save run to account', e);
-    });
+      body: JSON.stringify(payload),
+    })
+      .then(function (data) {
+        if (data && data.coins != null && window.__skyhopLastMe) {
+          window.__skyhopLastMe.coins = data.coins;
+          try {
+            const el = document.getElementById('accStatCoins');
+            if (el) el.textContent = String(data.coins);
+          } catch {
+            /* */
+          }
+        }
+        return data;
+      })
+      .catch(function (e) {
+        console.warn('Sky Hop: could not save run to account', e);
+      });
   };
 
   function bind() {
@@ -248,6 +265,7 @@
     const accGuest = document.getElementById('accGuestBlock');
     const accUserLabel = document.getElementById('accUserLabel');
     const accStatRuns = document.getElementById('accStatRuns');
+    const accStatCoins = document.getElementById('accStatCoins');
     const accStatDeathTotal = document.getElementById('accStatDeathTotal');
     const accStatDeathMin = document.getElementById('accStatDeathMin');
     const accStatDeathMax = document.getElementById('accStatDeathMax');
@@ -321,6 +339,9 @@
 
     function renderStats(st) {
       if (!st) return;
+      const coins =
+        window.__skyhopLastMe && window.__skyhopLastMe.coins != null ? window.__skyhopLastMe.coins : 0;
+      if (accStatCoins) accStatCoins.textContent = String(coins);
       if (accStatRuns) accStatRuns.textContent = String(st.runCount != null ? st.runCount : 0);
       if (accStatDeathTotal) accStatDeathTotal.textContent = String(st.totalDeaths != null ? st.totalDeaths : 0);
       if (accStatDeathMin) accStatDeathMin.textContent = st.minDeaths != null ? String(st.minDeaths) : '—';
@@ -477,7 +498,7 @@
                 '<select data-ban-dur="' +
                 safe(r.id) +
                 '" class="rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-[11px] text-white">' +
-                '<option value="1w">1 week</option><option value="2w">2 weeks</option><option value="1m">1 month</option><option value="perm">Permanent</option></select>' +
+                '<option value="1w">1 week</option><option value="2w">2 weeks</option><option value="1m">1 month</option><option value="perm">Permanent</option><option value="custom">Custom…</option></select>' +
                 '<button type="button" data-act="ban" data-id="' +
                 safe(r.id) +
                 '" data-user="' +
@@ -537,16 +558,27 @@
                 var dur = sel ? sel.value : '1w';
                 var banReason =
                   window.prompt('Ban reason (shown to user):', 'Terms violation') || 'Terms violation';
+                var banPayload = {
+                  userId: Number(userId),
+                  duration: dur,
+                  reportId: id,
+                  reason: banReason,
+                  note: note || undefined,
+                };
+                if (dur === 'custom') {
+                  delete banPayload.duration;
+                  banPayload.customDuration = {
+                    weeks: parseInt(window.prompt('Weeks', '0') || '0', 10) || 0,
+                    days: parseInt(window.prompt('Days', '0') || '0', 10) || 0,
+                    hours: parseInt(window.prompt('Hours', '0') || '0', 10) || 0,
+                    minutes: parseInt(window.prompt('Minutes', '0') || '0', 10) || 0,
+                    seconds: parseInt(window.prompt('Seconds', '0') || '0', 10) || 0,
+                  };
+                }
                 await api('/api/owner/ban', {
                   method: 'POST',
                   headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userId: Number(userId),
-                    duration: dur,
-                    reportId: id,
-                    reason: banReason,
-                    note: note || undefined,
-                  }),
+                  body: JSON.stringify(banPayload),
                 });
               }
               await refreshPanel();
@@ -597,7 +629,9 @@
         if (accLogged) accLogged.classList.remove('hidden');
         if (accUserLabel) {
           accUserLabel.textContent = me.username || '';
-          if (me.role === 'moderator') {
+          if (me.role === 'owner') {
+            accUserLabel.className = 'font-semibold text-amber-300';
+          } else if (me.role === 'moderator') {
             accUserLabel.className = 'font-semibold text-rose-400';
           } else {
             accUserLabel.className = 'font-semibold text-violet-200';
@@ -606,6 +640,7 @@
         setAuth(tok, me.username);
         renderStats(me.stats);
         renderAchievements(me.achievements);
+        void refreshSkinUi(me);
         updateModFab(me);
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
@@ -619,7 +654,104 @@
       }
     }
 
-    btnOpen.addEventListener('click', function () {
+    async function refreshSkinUi(me) {
+      const sel = document.getElementById('accSkinSelect');
+      const msg = document.getElementById('accSkinMsg');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Default look</option>';
+      try {
+        const t = await api('/api/textures', { noAuth: true });
+        for (var fi = 0; fi < (t.textures || []).length; fi++) {
+          var f = t.textures[fi];
+          var o = document.createElement('option');
+          o.value = f;
+          o.textContent = f;
+          sel.appendChild(o);
+        }
+      } catch {
+        /* */
+      }
+      if (me && me.skinTexture) sel.value = me.skinTexture;
+      else sel.value = '';
+      if (msg) {
+        msg.classList.add('hidden');
+        msg.textContent = '';
+      }
+    }
+
+    function openOwnerBanAnyDialog() {
+      var tok = getToken();
+      if (!tok) return;
+      var un = window.prompt('Username to ban (exact match):');
+      if (!un || !String(un).trim()) return;
+      var preset = window.prompt('Preset duration: 1w, 2w, 1m, perm, or custom', '1w');
+      if (preset == null) return;
+      var reason = window.prompt('Ban reason (shown to user):', 'Terms violation') || 'Terms violation';
+      var body = { username: String(un).trim(), reason: reason };
+      var p = String(preset).trim().toLowerCase();
+      if (p === 'custom') {
+        body.customDuration = {
+          weeks: parseInt(window.prompt('Weeks', '0') || '0', 10) || 0,
+          days: parseInt(window.prompt('Days', '0') || '0', 10) || 0,
+          hours: parseInt(window.prompt('Hours', '0') || '0', 10) || 0,
+          minutes: parseInt(window.prompt('Minutes', '0') || '0', 10) || 0,
+          seconds: parseInt(window.prompt('Seconds', '0') || '0', 10) || 0,
+        };
+      } else {
+        body.duration = p;
+      }
+      api('/api/owner/ban', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + tok },
+        body: JSON.stringify(body),
+      })
+        .then(function () {
+          window.alert('Ban applied.');
+        })
+        .catch(function (e) {
+          window.alert(String(e.message || e));
+        });
+    }
+
+    if (document.getElementById('btnOwnerBanUser')) {
+      document.getElementById('btnOwnerBanUser').addEventListener('click', function () {
+        openOwnerBanAnyDialog();
+      });
+    }
+
+    const accSkinSave = document.getElementById('accSkinSave');
+    if (accSkinSave) {
+      accSkinSave.addEventListener('click', async function () {
+        const tok = getToken();
+        const sel = document.getElementById('accSkinSelect');
+        const msg = document.getElementById('accSkinMsg');
+        if (!tok || !sel) return;
+        try {
+          const data = await api('/api/me/skin', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok },
+            body: JSON.stringify({ skinTexture: sel.value || null }),
+          });
+          if (window.__skyhopLastMe) window.__skyhopLastMe.skinTexture = data.skinTexture;
+          if (msg) {
+            msg.textContent = 'Skin saved. Updates in-game after reload or when the canvas refreshes.';
+            msg.classList.remove('hidden');
+          }
+          try {
+            window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
+          } catch {
+            /* */
+          }
+        } catch (e) {
+          if (msg) {
+            msg.textContent = String(e.message || e);
+            msg.classList.remove('hidden');
+          }
+        }
+      });
+    }
+
+    if (btnOpen) btnOpen.addEventListener('click', function () {
       screen.classList.remove('hidden');
       screen.classList.add('flex');
       void refreshPanel();

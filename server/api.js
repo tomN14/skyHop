@@ -1,7 +1,27 @@
-import { ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
-import { banStatusForUser, durationKeyToBanUntil, effectiveRole } from './moderation.js';
+import { ACHIEVEMENT_COIN_REWARD, ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
+import { banStatusForUser, effectiveRole, parseBanDuration } from './moderation.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirnameApi = path.dirname(fileURLToPath(import.meta.url));
+
+/** @returns {Promise<Set<string>>} */
+async function listTextureFilenames() {
+  const dir = path.join(__dirnameApi, '..', 'textures');
+  const set = new Set();
+  try {
+    if (!fs.existsSync(dir)) return set;
+    for (const f of fs.readdirSync(dir)) {
+      if (/\.(png|webp|gif|jpg|jpeg)$/i.test(f)) set.add(f);
+    }
+  } catch {
+    /* */
+  }
+  return set;
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -104,6 +124,8 @@ async function buildMePayload(userId) {
   return {
     username: user.username,
     role,
+    coins: user.coins != null ? Number(user.coins) : 0,
+    skinTexture: user.skinTexture ?? user.skin_texture ?? null,
     modInboxCount,
     ownerInboxCount,
     stats: {
@@ -211,6 +233,46 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (path === '/api/me/skin' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const raw = body.skinTexture != null ? String(body.skinTexture).trim() : '';
+    const fname = raw === '' || raw === 'default' ? null : path.basename(raw);
+    if (fname && !/\.(png|webp|gif|jpg|jpeg)$/i.test(fname)) {
+      json(res, 400, { error: 'Skin must be an image filename (e.g. myskin.png)' });
+      return true;
+    }
+    if (fname && typeof store.setUserSkinTexture !== 'function') {
+      json(res, 501, { error: 'Skin storage not available' });
+      return true;
+    }
+    try {
+      if (fname) {
+        const allowed = await listTextureFilenames();
+        if (!allowed.has(fname)) {
+          json(res, 400, { error: 'Unknown texture. Add the file under textures/ on the server.' });
+          return true;
+        }
+      }
+      await store.setUserSkinTexture(uid, fname);
+      const me = await buildMePayload(uid);
+      json(res, 200, { ok: true, skinTexture: me.skinTexture, coins: me.coins });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (path === '/api/runs' && req.method === 'POST') {
     const uid = await bearerUserId(req);
     if (!uid) {
@@ -225,7 +287,17 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      await store.addRun(uid, body.timeMs, body.deaths, body.source);
+      const timeMs = Math.max(0, Math.min(Number(body.timeMs) || 0, 48 * 60 * 60 * 1000));
+      const deaths = Math.max(0, Math.min(Math.floor(Number(body.deaths) || 0), 1_000_000));
+      const source = body.source === 'race' ? 'race' : 'campaign';
+
+      const runsBefore = await store.getRunsForUser(uid);
+      const campaignBefore = runsBefore.filter((r) => r.source === 'campaign');
+      const prevCampaignBest =
+        campaignBefore.length > 0 ? Math.min(...campaignBefore.map((r) => r.timeMs)) : null;
+
+      await store.addRun(uid, timeMs, deaths, source);
+
       const runs = await store.getRunsForUser(uid);
       const achRows = await store.getAchievementsForUser(uid);
       const unlockedIds = achRows.map((a) => a.achievementId);
@@ -234,11 +306,36 @@ export async function handleApi(req, res) {
         unlockedIds
       );
       if (newAch.length) await store.insertUserAchievements(uid, newAch);
+
+      let coinDelta = newAch.length * ACHIEVEMENT_COIN_REWARD;
+
+      if (source === 'campaign' && body.campaignCoinMeta && typeof body.campaignCoinMeta === 'object') {
+        const m = body.campaignCoinMeta;
+        const sec = Math.floor(timeMs / 1000);
+        if (m.completedFullRun) {
+          const ceilPart = Math.ceil((1800 - sec) / 10);
+          coinDelta += Math.max(0, ceilPart) + 5;
+        }
+        const pickups = Math.max(0, Math.min(5000, Math.floor(Number(m.stageCoinsCollected) || 0)));
+        coinDelta += pickups;
+        const isNewPB = prevCampaignBest == null || timeMs < prevCampaignBest;
+        const improvement = prevCampaignBest != null ? prevCampaignBest - timeMs : 0;
+        if (m.pbBonusEligible && isNewPB && prevCampaignBest != null && improvement >= 5000) {
+          coinDelta += 75;
+        }
+      }
+
+      if (coinDelta > 0 && typeof store.incrementUserCoins === 'function') {
+        await store.incrementUserCoins(uid, coinDelta);
+      }
+
       const me = await buildMePayload(uid);
       json(res, 200, {
         ok: true,
         newAchievements: newAch.map((a) => ({ id: a.id, title: a.title, desc: a.desc })),
         stats: me.stats,
+        coins: me.coins,
+        coinsEarnedThisSubmit: coinDelta,
       });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
@@ -252,6 +349,70 @@ export async function handleApi(req, res) {
       200,
       ACHIEVEMENT_DEFS.map((d) => ({ id: d.id, title: d.title, desc: d.desc }))
     );
+    return true;
+  }
+
+  if (path === '/api/textures' && req.method === 'GET') {
+    try {
+      const set = await listTextureFilenames();
+      json(res, 200, { textures: [...set].sort() });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/builtin-stages' && req.method === 'GET') {
+    try {
+      if (typeof store.getBuiltinCampaignStages !== 'function') {
+        json(res, 200, { stages: null });
+        return true;
+      }
+      const stages = await store.getBuiltinCampaignStages();
+      json(res, 200, { stages: stages && stages.length ? stages : null });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (path === '/api/owner/builtin-stages' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    if (typeof store.setBuiltinCampaignStages !== 'function') {
+      json(res, 501, { error: 'Not configured' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const stages = body.stages;
+    if (!Array.isArray(stages) || stages.length < 1) {
+      json(res, 400, { error: 'stages array required' });
+      return true;
+    }
+    const raw = JSON.stringify(stages);
+    if (raw.length > 4_000_000) {
+      json(res, 400, { error: 'Campaign data too large' });
+      return true;
+    }
+    try {
+      await store.setBuiltinCampaignStages(stages);
+      json(res, 200, { ok: true, count: stages.length });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
     return true;
   }
 
@@ -425,15 +586,23 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'Invalid JSON' });
       return true;
     }
-    const userVictimId = Math.floor(Number(body.userId));
-    const durationKey = String(body.duration || body.durationKey || '');
-    const until = durationKeyToBanUntil(durationKey);
+    let userVictimId = Math.floor(Number(body.userId));
     if (!userVictimId || userVictimId < 1) {
-      json(res, 400, { error: 'Invalid userId' });
+      const un = String(body.username || '').trim();
+      if (un) {
+        const u = await store.findUserByUsername(un);
+        userVictimId = u?.id;
+      }
+    }
+    const until = parseBanDuration(body);
+    if (!userVictimId || userVictimId < 1) {
+      json(res, 400, { error: 'Invalid userId or username' });
       return true;
     }
     if (until == null) {
-      json(res, 400, { error: 'Invalid duration (use 1w, 2w, 1m, or perm).' });
+      json(res, 400, {
+        error: 'Invalid duration: use 1w, 2w, 1m, perm, customDuration{weeks,days,hours,minutes,seconds}, or banUntilMs.',
+      });
       return true;
     }
     try {
@@ -558,6 +727,75 @@ export async function handleApi(req, res) {
   }
 
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/coin-state$/.exec(path);
+    if (m && req.method === 'GET') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      if (typeof store.listOnlineCoinClaimIndices !== 'function') {
+        json(res, 200, { collected: [] });
+        return true;
+      }
+      try {
+        const s = await store.listOnlineCoinClaimIndices(uid, m[1]);
+        json(res, 200, { collected: [...s].sort((a, b) => a - b) });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/collect-coin$/.exec(path);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        body = {};
+      }
+      const idx = Math.floor(Number(body.coinIndex));
+      if (idx < 0 || idx > 4096) {
+        json(res, 400, { error: 'coinIndex required' });
+        return true;
+      }
+      if (typeof store.claimOnlineCoin !== 'function' || typeof store.incrementUserCoins !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      try {
+        const ok = await store.claimOnlineCoin(uid, m[1], idx);
+        if (!ok) {
+          json(res, 200, { ok: false, already: true });
+          return true;
+        }
+        await store.incrementUserCoins(uid, 5);
+        const me = await buildMePayload(uid);
+        json(res, 200, { ok: true, coins: me.coins });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
 
   if (path === '/api/levels/mine' && req.method === 'GET') {
     const uid = await bearerUserId(req);

@@ -1,17 +1,19 @@
 (function () {
-  const CAMPAIGN_STAGES = window.SKYHOP_STAGES;
+  function builtinCampaign() {
+    return window.SKYHOP_STAGES || [];
+  }
   const C = window.SKYHOP_C;
   const PHY = window.SKYHOP_PHYSICS;
 
   if (window.SKYHOP_PREP_STAGES) window.SKYHOP_PREP_STAGES();
 
-  if (!CAMPAIGN_STAGES || !CAMPAIGN_STAGES.length) {
+  if (!builtinCampaign().length) {
     console.error('Sky Hop: load stages (SKYHOP_STAGES) before skyhop-game.js');
     return;
   }
 
   function stagesNow() {
-    return window.SKYHOP_ACTIVE_STAGES != null ? window.SKYHOP_ACTIVE_STAGES : CAMPAIGN_STAGES;
+    return window.SKYHOP_ACTIVE_STAGES != null ? window.SKYHOP_ACTIVE_STAGES : builtinCampaign();
   }
 
   /** 0-based index of first stage that introduces grapple in the active stage list. */
@@ -27,7 +29,7 @@
     const n = Math.floor(Number(raw));
     if (!Number.isFinite(n)) return 0;
     const idx = n - 1;
-    return Math.max(0, Math.min(CAMPAIGN_STAGES.length - 1, idx));
+    return Math.max(0, Math.min(builtinCampaign().length - 1, idx));
   }
 
   const RUN_PROGRESS_LS = 'SKYHOP_RUN_PROGRESS';
@@ -43,9 +45,9 @@
       const j = JSON.parse(localStorage.getItem(RUN_PROGRESS_LS) || 'null');
       if (!j || j.v !== 1) return null;
       const s0 = Math.floor(Number(j.s0));
-      if (!Number.isFinite(s0) || s0 < 0 || s0 >= CAMPAIGN_STAGES.length) return null;
+      if (!Number.isFinite(s0) || s0 < 0 || s0 >= builtinCampaign().length) return null;
       return {
-        s0: Math.max(0, Math.min(CAMPAIGN_STAGES.length - 1, s0)),
+        s0: Math.max(0, Math.min(builtinCampaign().length - 1, s0)),
         deaths: Math.max(0, Math.floor(Number(j.deaths) || 0)),
         sword: !!j.sword,
         shield: !!j.shield,
@@ -65,8 +67,8 @@
 
   function progressStage0ForStorage() {
     if (window.SKYHOP_EXTERNAL_LEVEL) return stageIndex;
-    if (gameState === 'stage_clear' && stageIndex < CAMPAIGN_STAGES.length - 1) {
-      return Math.min(stageIndex + 1, CAMPAIGN_STAGES.length - 1);
+    if (gameState === 'stage_clear' && stageIndex < builtinCampaign().length - 1) {
+      return Math.min(stageIndex + 1, builtinCampaign().length - 1);
     }
     return stageIndex;
   }
@@ -105,13 +107,13 @@
     if (p && (p.s0 > 0 || p.deaths > 0 || p.sword || p.shield)) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${CAMPAIGN_STAGES.length} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
+        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${builtinCampaign().length} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
       }
       if (btnPlay) btnPlay.textContent = `Continue — stage ${p.s0 + 1}`;
     } else if (p) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage 1 / ${CAMPAIGN_STAGES.length}`;
+        menuProgressHint.textContent = `Resume: stage 1 / ${builtinCampaign().length}`;
       }
       if (btnPlay) btnPlay.textContent = 'Continue — stage 1';
     } else {
@@ -335,6 +337,134 @@
   let cameraX = 0;
   let cameraY = 0;
   let runStartedAt = 0;
+  let runFrozenMs = 0;
+  let runSegmentStart = 0;
+  function resetRunClock() {
+    runFrozenMs = 0;
+    runSegmentStart = performance.now();
+    runStartedAt = runSegmentStart;
+    campaignCoinsThisRun = 0;
+    pbInit();
+    try {
+      window.__skyhopRunStartBestMs =
+        window.__skyhopLastMe && window.__skyhopLastMe.stats != null
+          ? window.__skyhopLastMe.stats.bestTimeMs
+          : null;
+    } catch {
+      window.__skyhopRunStartBestMs = null;
+    }
+  }
+  function getRunElapsedMs() {
+    const live =
+      gameState === 'playing' || gameState === 'stage_clear' || gameState === 'weapon_modal';
+    if (live) return runFrozenMs + (performance.now() - runSegmentStart);
+    return runFrozenMs;
+  }
+  function sealRunClockSegment() {
+    runFrozenMs += performance.now() - runSegmentStart;
+    runSegmentStart = performance.now();
+  }
+  let campaignCoinsThisRun = 0;
+  let stageCoinStates = [];
+  let pbAntiFarm = null;
+
+  function pbInit() {
+    pbAntiFarm = {
+      activeMs: 0,
+      tenVel: [],
+      path30: new Map(),
+      start30: new Map(),
+      closedEnd: new Map(),
+      lastPx: player.x,
+      lastPy: player.y,
+      lastSi30: 0,
+    };
+  }
+  function pbStep(dtSec) {
+    if (!pbAntiFarm || window.SKYHOP_EXTERNAL_LEVEL || inRace) return;
+    const dtMs = Math.max(0, dtSec * 1000);
+    pbAntiFarm.activeMs += dtMs;
+    const a = pbAntiFarm;
+    const si10 = Math.floor(a.activeMs / 10000);
+    while (a.tenVel.length <= si10) a.tenVel.push(false);
+    if (Math.abs(player.vx) > 12 || Math.abs(player.vy) > 12) a.tenVel[si10] = true;
+    const si30 = Math.floor(a.activeMs / 30000);
+    if (si30 > a.lastSi30) {
+      for (let k = a.lastSi30; k < si30; k++) {
+        a.closedEnd.set(k, { x: player.x, y: player.y });
+      }
+      a.lastSi30 = si30;
+    }
+    if (!a.start30.has(si30)) {
+      a.start30.set(si30, { x: player.x, y: player.y });
+      a.path30.set(si30, 0);
+    }
+    const dx = player.x - a.lastPx;
+    const dy = player.y - a.lastPy;
+    a.path30.set(si30, (a.path30.get(si30) || 0) + Math.hypot(dx, dy));
+    a.lastPx = player.x;
+    a.lastPy = player.y;
+  }
+  function pbBonusEligibleAtSubmit(prevBestMs, finalMs) {
+    if (!pbAntiFarm || window.SKYHOP_EXTERNAL_LEVEL || inRace) return false;
+    if (prevBestMs == null || !Number.isFinite(prevBestMs) || finalMs > prevBestMs - 5000) return false;
+    const total = pbAntiFarm.activeMs;
+    const n10 = Math.floor(total / 10000);
+    for (let i = 0; i < n10; i++) {
+      if (!pbAntiFarm.tenVel[i]) return false;
+    }
+    const n30 = Math.floor(total / 30000);
+    for (let i = 0; i < n30; i++) {
+      const p0 = pbAntiFarm.start30.get(i);
+      const p1 = pbAntiFarm.closedEnd.get(i);
+      if (!p0 || !p1) return false;
+      const net = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      if (net < 200) return false;
+      const pathLen = pbAntiFarm.path30.get(i) || 0;
+      if (pathLen < 1) return false;
+      if (net / pathLen < 0.8) return false;
+    }
+    return true;
+  }
+
+  function initStageCoins(stage) {
+    stageCoinStates = [];
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    const claimed = ext && ext.onlineCoinsCollected instanceof Set ? ext.onlineCoinsCollected : null;
+    const list = stage.coins;
+    if (!list || !list.length) return;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      const already = claimed && claimed.has(i);
+      stageCoinStates.push({
+        i,
+        x: Number(c.x),
+        y: Number(c.y),
+        r: Number.isFinite(Number(c.r)) && Number(c.r) > 0 ? Number(c.r) : 14,
+        collected: false,
+        dim: !!already,
+      });
+    }
+  }
+
+  function tryCollectStageCoins() {
+    if (!stageCoinStates.length) return;
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    const px = player.x + player.w / 2;
+    const py = player.y + player.h / 2;
+    const pr = Math.max(player.w, player.h) * 0.35;
+    for (const c of stageCoinStates) {
+      if (c.collected || c.dim) continue;
+      if (Math.hypot(px - c.x, py - c.y) < pr + c.r) {
+        c.collected = true;
+        campaignCoinsThisRun += 1;
+        if (ext && ext.levelUuid && ext.mode === 'play' && typeof ext.onCoinCollected === 'function') {
+          ext.onCoinCollected(c.i);
+        }
+      }
+    }
+  }
+
   let stageStartedAt = 0;
 
   const keys = {};
@@ -389,6 +519,21 @@
       el.addEventListener('mouseup', onUp);
       el.addEventListener('mouseleave', () => setKeys(false));
     }
+  }
+
+  function submitCampaignRunIfNeeded() {
+    if (!window.SkyHopSubmitRun) return;
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    const t = getRunElapsedMs();
+    const meta =
+      !ext && !inRace
+        ? {
+            completedFullRun: true,
+            stageCoinsCollected: campaignCoinsThisRun,
+            pbBonusEligible: pbBonusEligibleAtSubmit(window.__skyhopRunStartBestMs, t),
+          }
+        : undefined;
+    void window.SkyHopSubmitRun(t, deaths, 'campaign', meta);
   }
 
   function initTouchControls() {
@@ -465,6 +610,32 @@
     hazardIFrameUntil: 0,
     grappleZipUntil: 0,
   };
+
+  let skinImg = /** @type {HTMLImageElement|null} */ (null);
+  let skinImgSrc = '';
+  function syncSkinImg() {
+    let tex = '';
+    try {
+      tex = (window.__skyhopLastMe && window.__skyhopLastMe.skinTexture) || '';
+    } catch {
+      tex = '';
+    }
+    const url = tex ? 'textures/' + encodeURIComponent(tex) : '';
+    if (url === skinImgSrc) return;
+    skinImgSrc = url;
+    skinImg = null;
+    if (!tex) return;
+    const im = new Image();
+    im.onload = () => {
+      skinImg = im;
+    };
+    im.src = url;
+  }
+  try {
+    window.addEventListener('skyhop-auth-changed', syncSkinImg);
+  } catch {
+    /* */
+  }
 
   function syncSensUI() {
     const s = getSensitivity();
@@ -1227,6 +1398,11 @@
         hudEpicBossWrap.classList.add('hidden');
       }
     }
+    if (pbAntiFarm) {
+      pbAntiFarm.lastPx = player.x;
+      pbAntiFarm.lastPy = player.y;
+    }
+    initStageCoins(s);
     syncHudHint(i);
     syncWeaponHud(performance.now());
     saveRunProgress();
@@ -1252,7 +1428,7 @@
     gameState = 'playing';
     stageIndex = 0;
     deaths = 0;
-    runStartedAt = performance.now();
+    resetRunClock();
     if (screenMenu) {
       screenMenu.classList.add('hidden');
       screenMenu.classList.remove('flex');
@@ -1976,6 +2152,9 @@
     const potionLandRects = buildEpicPotionDropLandRects(stage, tSec);
     updateEpicHealDrops(dt, potionLandRects, stage);
 
+    pbStep(dt);
+    tryCollectStageCoins();
+
     if (tryCollectItemPickups()) return;
 
     if (keys.KeyS) tryUseWoodenSword();
@@ -2006,7 +2185,7 @@
       }
       if (stageIndex >= stagesNow().length - 1) {
         if (inRace) {
-          const totalMs = performance.now() - runStartedAt;
+          const totalMs = getRunElapsedMs();
           if (window.SkyHopRacingNotifyFinish) {
             try {
               window.SkyHopRacingNotifyFinish(totalMs, deaths);
@@ -2036,15 +2215,16 @@
           return;
         }
         clearRunProgress();
+        sealRunClockSegment();
         gameState = 'win';
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
         screenWin.classList.add('flex');
         winDeaths.textContent = String(deaths);
-        if (winTime) winTime.textContent = formatTotalRunTime(performance.now() - runStartedAt);
+        if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
         if (window.SkyHopSubmitRun) {
           try {
-            void window.SkyHopSubmitRun(performance.now() - runStartedAt, deaths, 'campaign');
+            void submitCampaignRunIfNeeded();
           } catch {
             /* */
           }
@@ -2090,7 +2270,7 @@
       }
       if (stageIndex >= stagesNow().length - 1) {
         if (inRace) {
-          const totalMs = performance.now() - runStartedAt;
+          const totalMs = getRunElapsedMs();
           if (window.SkyHopRacingNotifyFinish) {
             try {
               window.SkyHopRacingNotifyFinish(totalMs, deaths);
@@ -2120,15 +2300,16 @@
           return;
         }
         clearRunProgress();
+        sealRunClockSegment();
         gameState = 'win';
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
         screenWin.classList.add('flex');
         winDeaths.textContent = String(deaths);
-        if (winTime) winTime.textContent = formatTotalRunTime(performance.now() - runStartedAt);
+        if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
         if (window.SkyHopSubmitRun) {
           try {
-            void window.SkyHopSubmitRun(performance.now() - runStartedAt, deaths, 'campaign');
+            void submitCampaignRunIfNeeded();
           } catch {
             /* */
           }
@@ -2530,6 +2711,26 @@
       ctx.restore();
     }
 
+    for (const c of stageCoinStates) {
+      if (c.collected) continue;
+      const dim = c.dim;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      ctx.fillStyle = dim ? 'rgba(100,116,139,0.45)' : 'rgba(251, 191, 36, 0.92)';
+      ctx.fill();
+      ctx.strokeStyle = dim ? 'rgba(148,163,184,0.5)' : 'rgba(245, 158, 11, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      if (dim) {
+        ctx.strokeStyle = 'rgba(148,163,184,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(c.x - c.r * 0.5, c.y - c.r * 0.5);
+        ctx.lineTo(c.x + c.r * 0.5, c.y + c.r * 0.5);
+        ctx.stroke();
+      }
+    }
+
     if (!stage.bossStage) {
       const g = stage.goal;
       const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
@@ -2588,23 +2789,47 @@
       ctx.restore();
     }
 
-    ctx.fillStyle = '#fbbf24';
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 2;
     const r = 6;
     const px = player.x;
     const py = player.y;
     const pw = player.w;
     const ph = player.h;
-    ctx.beginPath();
-    ctx.moveTo(px + r, py);
-    ctx.arcTo(px + pw, py, px + pw, py + ph, r);
-    ctx.arcTo(px + pw, py + ph, px, py + ph, r);
-    ctx.arcTo(px, py + ph, px, py, r);
-    ctx.arcTo(px, py, px + pw, py, r);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    if (skinImg && skinImg.complete && skinImg.naturalWidth > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(px + r, py);
+      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+      ctx.arcTo(px, py + ph, px, py, r);
+      ctx.arcTo(px, py, px + pw, py, r);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(skinImg, px, py, pw, ph);
+      ctx.restore();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px + r, py);
+      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+      ctx.arcTo(px, py + ph, px, py, r);
+      ctx.arcTo(px, py, px + pw, py, r);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#fbbf24';
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px + r, py);
+      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+      ctx.arcTo(px, py + ph, px, py, r);
+      ctx.arcTo(px, py, px + pw, py, r);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.fillStyle = '#1e1b4b';
     ctx.fillRect(player.x + 8, player.y + 12, 5, 5);
     ctx.fillRect(player.x + 17, player.y + 12, 5, 5);
@@ -2711,11 +2936,12 @@
     if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
       drawStage(stage);
     } else if (gameState === 'win') {
-      drawStage(CAMPAIGN_STAGES[CAMPAIGN_STAGES.length - 1]);
+      const bc = builtinCampaign();
+      drawStage(bc[bc.length - 1]);
     }
 
     if (hudTimer && (gameState === 'playing' || gameState === 'paused')) {
-      const sec = Math.floor((performance.now() - runStartedAt) / 1000);
+      const sec = Math.floor(getRunElapsedMs() / 1000);
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       hudTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
@@ -2740,10 +2966,14 @@
   function setPaused(on) {
     if (!screenPause) return;
     if (on) {
+      if (gameState === 'playing') {
+        runFrozenMs += performance.now() - runSegmentStart;
+      }
       gameState = 'paused';
       screenPause.classList.remove('hidden');
       screenPause.classList.add('flex');
     } else {
+      runSegmentStart = performance.now();
       gameState = 'playing';
       screenPause.classList.add('hidden');
       screenPause.classList.remove('flex');
@@ -2793,16 +3023,17 @@
     if (gameState !== 'playing') return;
     if (stageIndex >= stagesNow().length - 1) {
       clearRunProgress();
+      sealRunClockSegment();
       gameState = 'win';
       hud.classList.add('hidden');
       if (btnSkipStage) btnSkipStage.classList.add('hidden');
       screenWin.classList.remove('hidden');
       screenWin.classList.add('flex');
       winDeaths.textContent = String(deaths);
-      if (winTime) winTime.textContent = formatTotalRunTime(performance.now() - runStartedAt);
+      if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
       if (window.SkyHopSubmitRun) {
         try {
-          void window.SkyHopSubmitRun(performance.now() - runStartedAt, deaths, 'campaign');
+          void submitCampaignRunIfNeeded();
         } catch {
           /* */
         }
@@ -2880,7 +3111,7 @@
         deaths = 0;
       }
     }
-    runStartedAt = performance.now();
+    resetRunClock();
     screenMenu.classList.add('hidden');
     screenMenu.classList.remove('flex');
     hud.classList.remove('hidden');
@@ -2930,7 +3161,7 @@
       screenPause.classList.remove('flex');
     }
     hud.classList.remove('hidden');
-    runStartedAt = performance.now();
+    resetRunClock();
     loadStage(0);
     syncWeaponHud(performance.now());
     updateSkipHud();
@@ -2979,7 +3210,7 @@
     gameState = 'playing';
     stageIndex = 0;
     deaths = 0;
-    runStartedAt = performance.now();
+    resetRunClock();
     loadStage(0);
     updateSkipHud();
   });
@@ -3021,7 +3252,7 @@
       return {
         stage0: stageIndex,
         finished: false,
-        tMs: performance.now() - runStartedAt,
+        tMs: getRunElapsedMs(),
         deaths: deaths,
       };
     },
@@ -3036,7 +3267,15 @@
   });
 
   window.addEventListener('resize', resize);
+  try {
+    window.addEventListener('skyhop-campaign-loaded', () => {
+      syncMenuProgressUI();
+    });
+  } catch {
+    /* */
+  }
   resize();
+  syncSkinImg();
   syncMenuProgressUI();
   requestAnimationFrame(frame);
 })();

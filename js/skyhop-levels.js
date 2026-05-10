@@ -36,6 +36,10 @@
     readOnly: false,
   };
 
+  /** When non-null, editor is editing built-in campaign slots (owner). */
+  let ownerBuiltinArr = null;
+  let ownerBuiltinIdx = 0;
+
   function defaultLevelData() {
     return {
       worldW: 1400,
@@ -50,7 +54,8 @@
       ],
       spikes: [],
       lava: [],
-      fireballEmitters: [],
+      coins: [],
+      movingPlatforms: [],
     };
   }
 
@@ -60,6 +65,8 @@
     if (!raw.lava) raw.lava = [];
     if (!raw.fireballEmitters) raw.fireballEmitters = [];
     if (!raw.platforms) raw.platforms = [];
+    if (!Array.isArray(raw.coins)) raw.coins = [];
+    if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
     raw.underhangDisabled = true;
     return raw;
   }
@@ -102,6 +109,8 @@
     if (!Array.isArray(d.lava)) d.lava = [];
     if (!Array.isArray(d.spikes)) d.spikes = [];
     if (!Array.isArray(d.fireballEmitters)) d.fireballEmitters = [];
+    if (!Array.isArray(d.coins)) d.coins = [];
+    if (!Array.isArray(d.movingPlatforms)) d.movingPlatforms = [];
   }
 
   /* ---------- Editor canvas ---------- */
@@ -156,6 +165,17 @@
     if (wx >= g.x && wx <= g.x + g.w && wy >= g.y && wy <= g.y + g.h) return { kind: 'goal' };
     const sp = d.spawn;
     if (Math.hypot(wx - sp.x, wy - sp.y) < 28) return { kind: 'spawn' };
+    const coins = d.coins || [];
+    for (let i = coins.length - 1; i >= 0; i--) {
+      const c = coins[i];
+      const r = Number(c.r) > 0 ? Number(c.r) : 14;
+      if (Math.hypot(wx - c.x, wy - c.y) < r + 10) return { kind: 'coin', index: i };
+    }
+    const mp = d.movingPlatforms || [];
+    for (let i = mp.length - 1; i >= 0; i--) {
+      const p = mp[i];
+      if (wx >= p.x && wx <= p.x + p.w && wy >= p.y && wy <= p.y + p.h) return { kind: 'mover', index: i };
+    }
     for (let i = d.fireballEmitters.length - 1; i >= 0; i--) {
       const e = d.fireballEmitters[i];
       let cx;
@@ -288,6 +308,35 @@
       ctx.fillRect(a.x, a.y, p.w * cam.s, p.h * cam.s);
       ctx.strokeStyle = 'rgba(165,180,252,0.6)';
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+      if (p.move) {
+        ctx.fillStyle = 'rgba(251,191,36,0.35)';
+        ctx.font = `${Math.max(9, 10 * cam.s)}px sans-serif`;
+        ctx.fillText('move', a.x + 4, a.y + 14 * cam.s);
+      }
+    }
+
+    for (const p of d.movingPlatforms || []) {
+      const a = toScreen(p.x, p.y);
+      ctx.fillStyle = '#4f46e5';
+      ctx.fillRect(a.x, a.y, p.w * cam.s, p.h * cam.s);
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#fde68a';
+      ctx.font = `${Math.max(9, 10 * cam.s)}px sans-serif`;
+      ctx.fillText('M', a.x + 4, a.y + 14 * cam.s);
+    }
+
+    for (const c of d.coins || []) {
+      const r = (Number(c.r) > 0 ? Number(c.r) : 14) * cam.s;
+      const a = toScreen(c.x, c.y);
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.stroke();
     }
 
     const gg = d.goal;
@@ -346,6 +395,17 @@
         const L = d.lava[editorSelection.index];
         const a = toScreen(L.x, L.y);
         ctx.strokeRect(a.x - 2, a.y - 2, L.w * cam.s + 4, L.h * cam.s + 4);
+      } else if (editorSelection.kind === 'coin') {
+        const c = d.coins[editorSelection.index];
+        const a = toScreen(c.x, c.y);
+        const r = (Number(c.r) > 0 ? Number(c.r) : 14) * cam.s;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, r + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (editorSelection.kind === 'mover') {
+        const p = d.movingPlatforms[editorSelection.index];
+        const a = toScreen(p.x, p.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, p.w * cam.s + 4, p.h * cam.s + 4);
       }
     }
   }
@@ -412,6 +472,14 @@
         if (drag && drag.sel.kind === 'goal') drag.startGoal = { x: d.goal.x, y: d.goal.y };
         if (drag && drag.sel.kind === 'spawn') drag.startSpawn = { x: d.spawn.x, y: d.spawn.y };
         if (drag && drag.sel.kind === 'fireball') drag.startEmitter = JSON.parse(JSON.stringify(d.fireballEmitters[drag.sel.index]));
+        if (drag && drag.sel.kind === 'coin') {
+          const c = d.coins[drag.sel.index];
+          drag.startCoin = { x: c.x, y: c.y };
+        }
+        if (drag && drag.sel.kind === 'mover') {
+          const p = d.movingPlatforms[drag.sel.index];
+          drag.startMover = { x: p.x, y: p.y };
+        }
         scheduleEditorRedraw();
         return;
       }
@@ -436,6 +504,20 @@
       } else if (editorTool === 'goal') {
         d.goal.x = Math.round((w.x - d.goal.w / 2) / 4) * 4;
         d.goal.y = Math.round((w.y - d.goal.h / 2) / 4) * 4;
+      } else if (editorTool === 'coin') {
+        if (!d.coins) d.coins = [];
+        d.coins.push({ x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
+        editorSelection = { kind: 'coin', index: d.coins.length - 1 };
+      } else if (editorTool === 'mover') {
+        if (!d.movingPlatforms) d.movingPlatforms = [];
+        d.movingPlatforms.push({
+          x: Math.round((w.x - 40) / 8) * 8,
+          y: Math.round((w.y - 10) / 8) * 8,
+          w: 80,
+          h: 20,
+          move: { axis: 'x', amp: 80, omega: 1, phase: 0 },
+        });
+        editorSelection = { kind: 'mover', index: d.movingPlatforms.length - 1 };
       }
       scheduleEditorRedraw();
     }
@@ -466,6 +548,14 @@
         const em = d.fireballEmitters[drag.sel.index];
         if (em.from === 'left' || em.from === 'right') em.pos += dy;
         else em.pos += dx;
+      } else if (drag.sel.kind === 'coin') {
+        const c = d.coins[drag.sel.index];
+        c.x += dx;
+        c.y += dy;
+      } else if (drag.sel.kind === 'mover') {
+        const p = d.movingPlatforms[drag.sel.index];
+        p.x += dx;
+        p.y += dy;
       }
       scheduleEditorRedraw();
     }
@@ -587,6 +677,7 @@
   }
 
   function newEditor() {
+    ownerBuiltinArr = null;
     editorState.id = null;
     editorState.title = 'Untitled level';
     editorState.published = false;
@@ -609,6 +700,19 @@
     const rt = document.getElementById('btnLvlEdRotate');
     const del = document.getElementById('btnLvlEdDelete');
     const tit = document.getElementById('lvlEdTitle');
+    if (ownerBuiltinArr) {
+      if (sv) sv.disabled = false;
+      if (te) te.disabled = false;
+      if (rt) rt.disabled = false;
+      if (del) del.disabled = false;
+      if (tit) tit.readOnly = true;
+      if (up) {
+        up.classList.add('opacity-40');
+        up.disabled = true;
+      }
+      if (st) st.textContent = 'Owner: built-in slot ' + (ownerBuiltinIdx + 1) + ' / ' + ownerBuiltinArr.length + ' — Save, then follow prompts.';
+      return;
+    }
     const ro = editorState.readOnly;
     if (sv) sv.disabled = !!ro;
     if (te) te.disabled = !!ro;
@@ -636,9 +740,104 @@
     }
   }
 
+  async function publishOwnerBuiltin() {
+    if (!ownerBuiltinArr || !ownerBuiltinArr.length) return;
+    try {
+      await api('/api/owner/builtin-stages', {
+        method: 'POST',
+        body: JSON.stringify({ stages: ownerBuiltinArr }),
+      });
+      lvlEdStatus.textContent = 'Uploaded ' + ownerBuiltinArr.length + ' built-in stages. Reload to play.';
+      ownerBuiltinArr = null;
+      showEditorScreen(false);
+      syncEditorUi();
+    } catch (e) {
+      lvlEdStatus.textContent = String(e.message || e);
+    }
+  }
+
+  async function startOwnerBuiltinEdit() {
+    if (!hasAuth()) {
+      window.alert('Log in as the site owner.');
+      return;
+    }
+    try {
+      const me = await api('/api/me');
+      if (me.role !== 'owner') {
+        window.alert('Only the site owner can edit the built-in campaign.');
+        return;
+      }
+      const data = await api('/api/builtin-stages', { noAuth: true });
+      let arr = data.stages && data.stages.length ? data.stages : null;
+      if (!arr || !arr.length) {
+        arr = JSON.parse(JSON.stringify(window.SKYHOP_STAGES || []));
+      } else {
+        arr = JSON.parse(JSON.stringify(data.stages));
+      }
+      if (!arr.length) {
+        window.alert('No stages loaded.');
+        return;
+      }
+      ownerBuiltinArr = arr;
+      ownerBuiltinIdx = 0;
+      editorState.id = null;
+      editorState.published = false;
+      editorState.readOnly = false;
+      editorState.beatenOk = true;
+      editorState.title = 'Builtin 1';
+      editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[0]));
+      normalizeEditorLevelInPlace(editorState.data);
+      document.getElementById('lvlEdTitle').value = 'Builtin 1';
+      showMine(false);
+      showOnline(false);
+      showEditorScreen(true);
+      scheduleEditorRedraw();
+      syncEditorUi();
+      document.getElementById('screenModInbox')?.classList.add('hidden');
+      document.getElementById('screenModInbox')?.classList.remove('flex');
+    } catch (e) {
+      window.alert(String(e.message || e));
+    }
+  }
+
   async function saveDraft() {
     if (editorState.readOnly) {
       lvlEdStatus.textContent = 'Cannot edit a published level.';
+      return;
+    }
+    if (ownerBuiltinArr != null) {
+      normalizeEditorLevelInPlace(editorState.data);
+      const data = stagePayloadFromEditor(editorState.data);
+      ownerBuiltinArr[ownerBuiltinIdx] = data;
+      lvlEdStatus.textContent =
+        'Updated built-in slot ' + (ownerBuiltinIdx + 1) + ' / ' + ownerBuiltinArr.length + ' (not on server yet).';
+      const next = window.prompt(
+        'Next: stage number 1–' +
+          ownerBuiltinArr.length +
+          ' to edit, type ALL to upload full campaign to server, or Cancel.',
+        String(ownerBuiltinIdx + 1)
+      );
+      if (next == null) {
+        syncEditorUi();
+        return;
+      }
+      const u = String(next).trim().toUpperCase();
+      if (u === 'ALL') {
+        await publishOwnerBuiltin();
+        return;
+      }
+      const n = parseInt(next, 10);
+      if (!Number.isFinite(n) || n < 1 || n > ownerBuiltinArr.length) {
+        syncEditorUi();
+        return;
+      }
+      ownerBuiltinIdx = n - 1;
+      editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
+      normalizeEditorLevelInPlace(editorState.data);
+      const titEl = document.getElementById('lvlEdTitle');
+      if (titEl) titEl.value = 'Builtin ' + n;
+      scheduleEditorRedraw();
+      syncEditorUi();
       return;
     }
     const title = (document.getElementById('lvlEdTitle').value || '').trim();
@@ -691,7 +890,7 @@
       lvlEdStatus.textContent = 'Cannot test-edit a published level.';
       return;
     }
-    if (!editorState.id) {
+    if (!editorState.id && ownerBuiltinArr == null) {
       lvlEdStatus.textContent = 'Save the level before Test play (so we can verify your clear).';
       return;
     }
@@ -707,6 +906,10 @@
         hudTitle: 'Test: ' + title,
         levelTitle: title,
         onTestCleared: function () {
+          if (!editorState.id) {
+            editorState.beatenOk = true;
+            return;
+          }
           api('/api/levels/' + encodeURIComponent(editorState.id) + '/beat', { method: 'POST', body: '{}' })
             .then(function () {
               editorState.beatenOk = true;
@@ -873,11 +1076,29 @@
       const stage = JSON.parse(JSON.stringify(row.data));
       if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST([stage]);
       showOnline(false);
+      let onlineCoinsCollected = new Set();
+      if (hasAuth()) {
+        try {
+          const cs = await api('/api/levels/' + encodeURIComponent(id) + '/coin-state');
+          for (const x of cs.collected || []) onlineCoinsCollected.add(Number(x));
+        } catch {
+          /* */
+        }
+      }
       if (window.SKYHOP && window.SKYHOP.startUserLevel) {
         window.SKYHOP.startUserLevel([stage], {
           mode: 'play',
           hudTitle: row.title || 'Custom',
           levelTitle: row.title,
+          levelUuid: id,
+          onlineCoinsCollected: onlineCoinsCollected,
+          onCoinCollected: function (coinIndex) {
+            if (!hasAuth()) return;
+            api('/api/levels/' + encodeURIComponent(id) + '/collect-coin', {
+              method: 'POST',
+              body: JSON.stringify({ coinIndex: coinIndex }),
+            }).catch(function () {});
+          },
           onContinue: function () {
             showOnline(true);
             onlineUserPanel.classList.remove('hidden');
@@ -957,6 +1178,7 @@
     });
 
     document.getElementById('btnLvlEdExit').addEventListener('click', () => {
+      ownerBuiltinArr = null;
       showEditorScreen(false);
       showMine(true);
       refreshMineList();
@@ -964,6 +1186,8 @@
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
     document.getElementById('btnLvlEdTest').addEventListener('click', () => runTestPlay());
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
+    const btnOb = document.getElementById('btnOwnerEditBuiltin');
+    if (btnOb) btnOb.addEventListener('click', () => void startOwnerBuiltinEdit());
     document.getElementById('btnLvlEdRotate').addEventListener('click', () => {
       if (!editorSelection || editorSelection.kind !== 'platform') return;
       const p = editorState.data.platforms[editorSelection.index];
@@ -976,6 +1200,8 @@
       if (editorSelection.kind === 'platform') d.platforms.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'lava') d.lava.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'fireball') d.fireballEmitters.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'coin') d.coins.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
       editorSelection = null;
       scheduleEditorRedraw();
     });

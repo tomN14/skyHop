@@ -32,6 +32,33 @@ export function durationKeyToBanUntil(key) {
   }
 }
 
+/**
+ * Owner ban body: { duration / durationKey }, { customDuration: { weeks, days, hours, minutes, seconds } },
+ * or { banUntilMs } (absolute epoch ms, must be in the future).
+ * @param {any} body
+ * @returns {number|null} ban_until_ms value or null if invalid
+ */
+export function parseBanDuration(body) {
+  if (!body || typeof body !== 'object') return null;
+  const ab = Number(body.banUntilMs);
+  if (Number.isFinite(ab) && ab > Date.now()) return Math.floor(ab);
+
+  const c = body.customDuration;
+  if (c && typeof c === 'object') {
+    const w = Math.max(0, Math.floor(Number(c.weeks) || 0));
+    const d = Math.max(0, Math.floor(Number(c.days) || 0));
+    const h = Math.max(0, Math.floor(Number(c.hours) || 0));
+    const mi = Math.max(0, Math.floor(Number(c.minutes) || 0));
+    const s = Math.max(0, Math.floor(Number(c.seconds) || 0));
+    const ms = (((w * 7 + d) * 24 + h) * 60 + mi) * 60 * 1000 + s * 1000;
+    if (ms <= 0 || ms > 100 * 365 * 24 * 60 * 60 * 1000) return null;
+    return Date.now() + ms;
+  }
+
+  const key = String(body.duration ?? body.durationKey ?? '');
+  return durationKeyToBanUntil(key);
+}
+
 export function effectiveRole(user) {
   if (!user) return 'player';
   const low = String(user.usernameLower || String(user.username || '').toLowerCase()).trim();

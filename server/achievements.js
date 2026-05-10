@@ -1,5 +1,8 @@
 /** @typedef {{ runCount: number, totalDeaths: number, minDeaths: number|null, maxDeaths: number|null, bestTimeMs: number|null, avgTimeMs: number|null, avgDeaths: number|null }} Agg */
 
+/** Coins granted per newly unlocked achievement on run submit. */
+export const ACHIEVEMENT_COIN_REWARD = 40;
+
 export const ACHIEVEMENT_DEFS = [
   { id: 'first_clear', title: 'Sky conquered', desc: 'Finish all 50 stages once and submit the run.' },
   { id: 'zero_death', title: 'Untouchable', desc: 'Complete a run with 0 deaths.' },

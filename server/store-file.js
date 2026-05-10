@@ -21,6 +21,8 @@ function migrateUsersAndReports(s) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
     if (!('banReason' in u)) u.banReason = null;
+    if (u.coins == null || !Number.isFinite(Number(u.coins))) u.coins = 0;
+    if (!('skinTexture' in u)) u.skinTexture = null;
   }
 }
 
@@ -100,6 +102,8 @@ export function createFileStore() {
         role: initialRoleForUsername(name),
         banUntilMs: null,
         banReason: null,
+        coins: 0,
+        skinTexture: null,
       };
       s.users.push(user);
       saveStore();
@@ -257,6 +261,78 @@ export function createFileStore() {
     async listModerators() {
       const s = loadStore();
       return s.users.filter((u) => u.role === 'moderator').map((u) => ({ id: u.id, username: u.username }));
+    },
+
+    async incrementUserCoins(userId, delta) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.coins = Math.max(0, Math.floor((u.coins || 0) + Number(delta)));
+      saveStore();
+    },
+
+    async setUserSkinTexture(userId, fn) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.skinTexture = fn != null ? String(fn).slice(0, 120) : null;
+      saveStore();
+    },
+
+    async getBuiltinCampaignStages() {
+      const p = path.join(DATA_DIR, 'builtin_campaign.json');
+      if (!fs.existsSync(p)) return null;
+      try {
+        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (!j.stages || !Array.isArray(j.stages) || !j.stages.length) return null;
+        return j.stages;
+      } catch {
+        return null;
+      }
+    },
+
+    async setBuiltinCampaignStages(stagesJson) {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const p = path.join(DATA_DIR, 'builtin_campaign.json');
+      fs.writeFileSync(p, JSON.stringify({ stages: stagesJson, updatedAt: Date.now() }), 'utf8');
+    },
+
+    async listOnlineCoinClaimIndices(userId, levelId) {
+      const p = path.join(DATA_DIR, 'coin_claims.json');
+      if (!fs.existsSync(p)) return new Set();
+      try {
+        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+        const claims = j.claims || [];
+        const out = new Set();
+        for (const c of claims) {
+          if (c.userId === userId && c.levelId === levelId) out.add(Number(c.coinIndex));
+        }
+        return out;
+      } catch {
+        return new Set();
+      }
+    },
+
+    async claimOnlineCoin(userId, levelId, coinIndex) {
+      const idx = Math.floor(Number(coinIndex));
+      if (idx < 0 || idx > 4096) throw new Error('Invalid coin');
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const p = path.join(DATA_DIR, 'coin_claims.json');
+      let j = { claims: [] };
+      if (fs.existsSync(p)) {
+        try {
+          j = JSON.parse(fs.readFileSync(p, 'utf8'));
+        } catch {
+          j = { claims: [] };
+        }
+      }
+      if (!Array.isArray(j.claims)) j.claims = [];
+      for (const c of j.claims) {
+        if (c.userId === userId && c.levelId === levelId && Number(c.coinIndex) === idx) return false;
+      }
+      j.claims.push({ userId, levelId, coinIndex: idx, at: Date.now() });
+      fs.writeFileSync(p, JSON.stringify(j), 'utf8');
+      return true;
     },
   };
 }

@@ -23,6 +23,8 @@ function mapUser(row) {
     role: row.role ?? 'player',
     banUntilMs: row.ban_until_ms != null ? Number(row.ban_until_ms) : null,
     banReason: row.ban_reason ?? null,
+    coins: row.coins != null ? Number(row.coins) : 0,
+    skinTexture: row.skin_texture ?? null,
   };
 }
 
@@ -91,6 +93,8 @@ export function createSupabaseStore() {
           role,
           ban_until_ms: null,
           ban_reason: null,
+          coins: 0,
+          skin_texture: null,
         })
         .select('*')
         .single();
@@ -287,6 +291,65 @@ export function createSupabaseStore() {
         .order('username');
       if (error) throw new Error(error.message);
       return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async incrementUserCoins(userId, delta) {
+      const d = Math.floor(Number(delta) || 0);
+      if (!d) return;
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const next = Math.max(0, (u.coins != null ? Number(u.coins) : 0) + d);
+      const { error } = await sb.from('skyhop_users').update({ coins: next }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async setUserSkinTexture(userId, filenameOrNull) {
+      const v = filenameOrNull != null ? String(filenameOrNull).slice(0, 120) : null;
+      const { error } = await sb.from('skyhop_users').update({ skin_texture: v }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async getBuiltinCampaignStages() {
+      const { data, error } = await sb.from('skyhop_builtin_campaign').select('stages').eq('id', 1).maybeSingle();
+      if (error) throw new Error(error.message);
+      const raw = data?.stages;
+      if (!raw || !Array.isArray(raw) || raw.length === 0) return null;
+      return raw;
+    },
+
+    async setBuiltinCampaignStages(stagesJson) {
+      const now = Date.now();
+      const { error } = await sb
+        .from('skyhop_builtin_campaign')
+        .upsert({ id: 1, stages: stagesJson, updated_at: now }, { onConflict: 'id' });
+      if (error) throw new Error(error.message);
+    },
+
+    async listOnlineCoinClaimIndices(userId, levelId) {
+      const { data, error } = await sb
+        .from('skyhop_online_coin_claims')
+        .select('coin_index')
+        .eq('user_id', userId)
+        .eq('level_id', levelId);
+      if (error) throw new Error(error.message);
+      return new Set((data || []).map((r) => Number(r.coin_index)));
+    },
+
+    async claimOnlineCoin(userId, levelId, coinIndex) {
+      const idx = Math.floor(Number(coinIndex));
+      if (idx < 0 || idx > 4096) throw new Error('Invalid coin');
+      const now = Date.now();
+      const { error } = await sb.from('skyhop_online_coin_claims').insert({
+        user_id: userId,
+        level_id: levelId,
+        coin_index: idx,
+        created_at: now,
+      });
+      if (error) {
+        if (error.code === '23505') return false;
+        throw new Error(error.message);
+      }
+      return true;
     },
   };
 }

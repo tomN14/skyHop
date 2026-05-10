@@ -6,6 +6,7 @@ COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 
 COPY server ./server
+COPY textures ./textures
 COPY index.html stages.js stages-extra.js stages-36-50.js ./
 COPY js ./js
 
