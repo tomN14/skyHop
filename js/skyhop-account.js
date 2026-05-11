@@ -479,6 +479,18 @@
       setModErr('');
       const me = window.__skyhopLastMe || {};
       const role = me.role || 'player';
+      if (role === 'player') {
+        if (kicker) kicker.textContent = 'Reports';
+        if (hint) {
+          hint.textContent =
+            'Submit a report from Account → Report a player. Moderators and the site owner use this inbox to review the queue.';
+        }
+        var ownerToolsPlayer = document.getElementById('ownerTools');
+        if (ownerToolsPlayer) ownerToolsPlayer.classList.add('hidden');
+        listEl.innerHTML =
+          '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-400">The moderation queue is only visible to <strong class="text-slate-300">moderators</strong> and the <strong class="text-slate-300">site owner</strong>. Open <strong class="text-slate-300">Account</strong> in the menu to file a report.</li>';
+        return;
+      }
       if (role === 'owner') void refreshOwnerModList();
       if (kicker) kicker.textContent = role === 'owner' ? 'Owner queue' : 'Moderator queue';
       if (hint) {

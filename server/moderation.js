@@ -64,6 +64,7 @@ export function effectiveRole(user) {
   const low = String(user.usernameLower || String(user.username || '').toLowerCase()).trim();
   const ownerEnv = (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase();
   if (ownerEnv && low === ownerEnv) return 'owner';
+  if ((user.role || '') === 'owner') return 'owner';
   if ((user.role || '') === 'moderator') return 'moderator';
   return 'player';
 }
