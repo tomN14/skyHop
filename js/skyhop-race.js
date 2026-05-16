@@ -405,6 +405,12 @@
     }
     ws = null;
     myPlayerId = null;
+    try {
+      window.__skyhopMpPeers = null;
+      window.__skyhopMyPlayerId = null;
+    } catch {
+      /* */
+    }
     roomId = null;
     isHost = false;
     mpPlayers = [];
@@ -427,6 +433,11 @@
     }
     if (msg.type === 'hello') {
       myPlayerId = msg.playerId;
+      try {
+        window.__skyhopMyPlayerId = msg.playerId;
+      } catch {
+        /* */
+      }
       return;
     }
     if (msg.type === 'error') {
@@ -490,11 +501,20 @@
       }
       raceType = 'mp';
       for (const k of Object.keys(mpProgress)) delete mpProgress[k];
+      try {
+        window.__skyhopMpPeers = mpProgress;
+      } catch {
+        /* */
+      }
       if (el.hud) el.hud.classList.remove('hidden');
       if (el.mpStatus) el.mpStatus.classList.add('hidden');
       if (el.hostPanel) el.hostPanel.classList.add('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
-      window.SKYHOP.beginRacing({ type: 'mp' });
+      window.SKYHOP.beginRacing({
+        type: 'mp',
+        difficulty: msg.difficulty,
+        customOpts: msg.customOpts,
+      });
       if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) {
         window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
       }
@@ -509,25 +529,40 @@
         const st = getSnapshot();
         if (ws && ws.readyState === 1) {
           try {
-            ws.send(
-              JSON.stringify({
-                type: 'progress',
-                stage0: st.stage0,
-                timeMs: performance.now() - raceT0,
-              })
-            );
+            const payload = {
+              type: 'progress',
+              stage0: st.stage0,
+              timeMs: performance.now() - raceT0,
+            };
+            if (st.x != null && st.y != null) {
+              payload.x = st.x;
+              payload.y = st.y;
+            }
+            if (st.g != null) payload.g = st.g;
+            ws.send(JSON.stringify(payload));
           } catch {
             /* */
           }
         }
-      }, 2000);
+      }, 100);
       return;
     }
     if (msg.type === 'playerProgress') {
       if (!mpProgress[msg.playerId]) mpProgress[msg.playerId] = { name: msg.name };
-      mpProgress[msg.playerId].stage = msg.stage0;
-      mpProgress[msg.playerId].name = msg.name;
-      mpProgress[msg.playerId].finished = false;
+      const pr = mpProgress[msg.playerId];
+      const prevStage = pr.stage;
+      pr.name = msg.name;
+      pr.finished = false;
+      if (msg.x != null && msg.y != null) {
+        pr.lx = msg.x;
+        pr.ly = msg.y;
+        pr.g = msg.g != null ? (Number(msg.g) < 0 ? -1 : 1) : 1;
+        if (prevStage != null && prevStage !== msg.stage0) {
+          pr.rx = msg.x;
+          pr.ry = msg.y;
+        }
+      }
+      pr.stage = msg.stage0;
       return;
     }
     if (msg.type === 'playerFinished') {
@@ -766,7 +801,19 @@
       el.btnStartRace.addEventListener('click', () => {
         if (ws && ws.readyState === 1) {
           try {
-            ws.send(JSON.stringify({ type: 'start' }));
+            const payload = { type: 'start' };
+            try {
+              if (window.SKYHOP && typeof window.SKYHOP.getRaceStartSettings === 'function') {
+                const s = window.SKYHOP.getRaceStartSettings();
+                if (s && s.difficulty) {
+                  payload.difficulty = s.difficulty;
+                  if (s.difficulty === 'custom' && s.customOpts) payload.customOpts = s.customOpts;
+                }
+              }
+            } catch {
+              /* */
+            }
+            ws.send(JSON.stringify(payload));
           } catch {
             /* */
           }

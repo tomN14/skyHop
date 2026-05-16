@@ -1414,8 +1414,23 @@
     syncLevelsTopNav();
   }
 
-  function beginRacing() {
-    refreshRuntimeOptsFromMenu();
+  function beginRacing(opts) {
+    if (opts && opts.type === 'mp') {
+      if (opts.difficulty === 'custom' && opts.customOpts && typeof opts.customOpts === 'object') {
+        menuDifficulty = 'custom';
+        runtimeOpts = window.SKYHOP_enrichRuntimeWithProjectileOpts(
+          window.SKYHOP_buildRuntimeOptions('custom', opts.customOpts)
+        );
+      } else if (opts.difficulty === 'easy' || opts.difficulty === 'normal' || opts.difficulty === 'hard') {
+        menuDifficulty = opts.difficulty;
+        refreshRuntimeOptsFromMenu();
+      } else {
+        refreshRuntimeOptsFromMenu();
+      }
+      syncDifficultyMenuUI();
+    } else {
+      refreshRuntimeOptsFromMenu();
+    }
     inRace = true;
     hasWoodenSword = false;
     hasShield = false;
@@ -1884,6 +1899,24 @@
     }
   }
 
+  function smoothMpRemotePeers(dt) {
+    if (!inRace) return;
+    const peers = window.__skyhopMpPeers;
+    if (!peers || typeof peers !== 'object') return;
+    const alpha = 1 - Math.exp(-Math.min(40, 14 * Math.max(0, dt || 0.001)));
+    for (const k of Object.keys(peers)) {
+      const p = peers[k];
+      if (p.lx == null || p.ly == null) continue;
+      if (p.rx == null || p.ry == null) {
+        p.rx = p.lx;
+        p.ry = p.ly;
+        continue;
+      }
+      p.rx += (p.lx - p.rx) * alpha;
+      p.ry += (p.ly - p.ry) * alpha;
+    }
+  }
+
   function update(dt) {
     if (gameState !== 'playing') return;
     const stage = stagesNow()[stageIndex];
@@ -2329,6 +2362,7 @@
       }
     }
 
+    smoothMpRemotePeers(dt);
     updateCamera(stage, dt);
   }
 
@@ -2789,6 +2823,49 @@
       ctx.restore();
     }
 
+    if (inRace) {
+      const peers = window.__skyhopMpPeers;
+      const myId = window.__skyhopMyPlayerId;
+      if (peers && typeof peers === 'object') {
+        const mW = player.w;
+        const mH = player.h;
+        const rr = 6;
+        for (const pid of Object.keys(peers)) {
+          if (myId != null && String(pid) === String(myId)) continue;
+          const pr = peers[pid];
+          if (!pr || pr.finished) continue;
+          if (pr.stage != null && pr.stage !== stageIndex) continue;
+          const rx = pr.rx != null ? pr.rx : pr.lx;
+          const ry = pr.ry != null ? pr.ry : pr.ly;
+          if (rx == null || ry == null) continue;
+          const hue =
+            Math.abs(String(pid).split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0)) % 360 || 210;
+          ctx.fillStyle = `hsl(${hue}, 68%, 52%)`;
+          ctx.strokeStyle = `hsl(${hue}, 78%, 36%)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(rx + rr, ry);
+          ctx.arcTo(rx + mW, ry, rx + mW, ry + mH, rr);
+          ctx.arcTo(rx + mW, ry + mH, rx, ry + mH, rr);
+          ctx.arcTo(rx, ry + mH, rx, ry, rr);
+          ctx.arcTo(rx, ry, rx + mW, ry, rr);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(rx + 8, ry + 12, 5, 5);
+          ctx.fillRect(rx + 17, ry + 12, 5, 5);
+          const label = pr.name || 'Rival';
+          ctx.font = 'bold 11px Space Grotesk, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+          ctx.fillText(label, rx + mW / 2, ry - 6);
+          ctx.textAlign = 'left';
+          ctx.lineWidth = 1;
+        }
+      }
+    }
+
     const r = 6;
     const px = player.x;
     const py = player.y;
@@ -3245,6 +3322,10 @@
     getRaceT0: function () {
       return runStartedAt;
     },
+    getRaceStartSettings: function () {
+      const snap = menuDifficulty === 'custom' ? readCustomForm() : null;
+      return { difficulty: menuDifficulty, customOpts: snap };
+    },
     getRacingState: function () {
       if (!inRace) {
         return { stage0: 0, finished: false, tMs: 0, deaths: 0 };
@@ -3254,6 +3335,9 @@
         finished: false,
         tMs: getRunElapsedMs(),
         deaths: deaths,
+        x: player.x,
+        y: player.y,
+        g: gravityDir,
       };
     },
   };

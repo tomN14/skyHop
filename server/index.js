@@ -243,7 +243,24 @@ wss.on('connection', (ws) => {
       }
       room.started = true;
       const startAt = Date.now();
-      const pack = { type: 'raceStart', startAt, roomId: room.id };
+      const diffRaw = msg.difficulty != null ? String(msg.difficulty).toLowerCase() : 'normal';
+      const difficulty = ['easy', 'normal', 'hard', 'custom'].includes(diffRaw) ? diffRaw : 'normal';
+      let customOpts = null;
+      if (difficulty === 'custom' && msg.customOpts && typeof msg.customOpts === 'object') {
+        try {
+          const ser = JSON.stringify(msg.customOpts);
+          if (ser.length > 32000) {
+            send(ws, { type: 'error', message: 'Custom settings payload too large' });
+            room.started = false;
+            return;
+          }
+          customOpts = msg.customOpts;
+        } catch {
+          customOpts = null;
+        }
+      }
+      const pack = { type: 'raceStart', startAt, roomId: room.id, difficulty };
+      if (customOpts) pack.customOpts = customOpts;
       for (const c of room.clients) send(c, pack);
       return;
     }
@@ -253,13 +270,39 @@ wss.on('connection', (ws) => {
       const room = meta && meta.roomId && rooms.get(meta.roomId);
       if (!room || !room.started) return;
       const st = msg.stage0 != null ? Math.max(0, Math.min(49, Math.floor(msg.stage0))) : 0;
+      let nx = null;
+      let ny = null;
+      let ng = null;
+      if (msg.x != null && msg.y != null) {
+        nx = Math.max(-5e5, Math.min(5e5, Number(msg.x)));
+        ny = Math.max(-5e5, Math.min(5e5, Number(msg.y)));
+        if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
+          nx = null;
+          ny = null;
+        }
+      }
+      if (msg.g != null) {
+        ng = Number(msg.g) < 0 ? -1 : 1;
+      }
       if (room.progress[playerId]) {
         room.progress[playerId].stage = st;
         room.progress[playerId].timeMs = msg.timeMs != null ? msg.timeMs : 0;
       }
       for (const c of room.clients) {
         if (c === ws) continue;
-        send(c, { type: 'playerProgress', playerId, name: room.names[playerId] || '?', stage0: st, timeMs: msg.timeMs || 0 });
+        const out = {
+          type: 'playerProgress',
+          playerId,
+          name: room.names[playerId] || '?',
+          stage0: st,
+          timeMs: msg.timeMs || 0,
+        };
+        if (nx != null && ny != null) {
+          out.x = nx;
+          out.y = ny;
+          out.g = ng != null ? ng : 1;
+        }
+        send(c, out);
       }
       return;
     }
