@@ -9,6 +9,10 @@
 
   const LS_API_ORIGIN = 'SKYHOP_API_ORIGIN';
 
+  let campaignRunSessionId = null;
+  const campaignAttestQueue = [];
+  let campaignAttestFlushing = false;
+
   function wsUrlIsLoopbackOnly(u) {
     if (!u) return true;
     try {
@@ -223,6 +227,87 @@
     }
   }
 
+  window.SkyHopCampaignAttestReset = function () {
+    campaignRunSessionId = null;
+    campaignAttestQueue.length = 0;
+    campaignAttestFlushing = false;
+  };
+
+  window.SkyHopCampaignAttestStart = function () {
+    const tok = getToken();
+    if (!tok) return Promise.resolve(null);
+    campaignRunSessionId = null;
+    campaignAttestQueue.length = 0;
+    campaignAttestFlushing = false;
+    return api('/api/campaign-run/start', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + tok },
+      body: JSON.stringify({}),
+    })
+      .then(function (d) {
+        campaignRunSessionId = d && d.sessionId ? d.sessionId : null;
+        if (campaignRunSessionId) flushCampaignAttestQueue();
+        return campaignRunSessionId;
+      })
+      .catch(function () {
+        campaignRunSessionId = null;
+        return null;
+      });
+  };
+
+  function sendOneCheckpoint(sample) {
+    const tok = getToken();
+    if (!tok || !campaignRunSessionId) return Promise.resolve(false);
+    return api('/api/campaign-run/checkpoint', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + tok },
+      body: JSON.stringify(Object.assign({ sessionId: campaignRunSessionId }, sample)),
+    })
+      .then(function () {
+        return true;
+      })
+      .catch(function (e) {
+        console.warn('Sky Hop: checkpoint rejected', e);
+        return false;
+      });
+  }
+
+  function flushCampaignAttestQueue() {
+    if (!campaignRunSessionId || campaignAttestFlushing || !campaignAttestQueue.length) return;
+    campaignAttestFlushing = true;
+    const sample = campaignAttestQueue.shift();
+    sendOneCheckpoint(sample).finally(function () {
+      campaignAttestFlushing = false;
+      flushCampaignAttestQueue();
+    });
+  }
+
+  window.SkyHopCampaignAttestCheckpoint = function (sample) {
+    if (!getToken() || !sample) return;
+    campaignAttestQueue.push(sample);
+    if (campaignRunSessionId) flushCampaignAttestQueue();
+  };
+
+  window.SkyHopCampaignAttestFlush = function () {
+    return new Promise(function (resolve) {
+      function tick() {
+        if (campaignAttestFlushing || campaignAttestQueue.length) {
+          if (!campaignAttestFlushing && campaignAttestQueue.length && campaignRunSessionId) {
+            flushCampaignAttestQueue();
+          }
+          setTimeout(tick, 40);
+          return;
+        }
+        resolve(campaignRunSessionId);
+      }
+      tick();
+    });
+  };
+
+  window.SkyHopCampaignAttestGetSessionId = function () {
+    return campaignRunSessionId;
+  };
+
   window.SkyHopSubmitRun = function (timeMs, deaths, source, extra) {
     const tok = getToken();
     if (!tok) return Promise.resolve();
@@ -233,6 +318,9 @@
     };
     if (extra && typeof extra === 'object' && source !== 'race') {
       payload.campaignCoinMeta = extra;
+      if (extra.campaignRunSessionId) {
+        payload.campaignRunSessionId = extra.campaignRunSessionId;
+      }
     }
     return api('/api/runs', {
       method: 'POST',

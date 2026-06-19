@@ -379,6 +379,14 @@
       lastPy: player.y,
       lastSi30: 0,
     };
+    pbResetAttestClient();
+    if (!window.SKYHOP_EXTERNAL_LEVEL && !inRace && typeof window.SkyHopCampaignAttestStart === 'function') {
+      try {
+        void window.SkyHopCampaignAttestStart();
+      } catch {
+        /* */
+      }
+    }
   }
   function pbStep(dtSec) {
     if (!pbAntiFarm || window.SKYHOP_EXTERNAL_LEVEL || inRace) return;
@@ -404,27 +412,37 @@
     a.path30.set(si30, (a.path30.get(si30) || 0) + Math.hypot(dx, dy));
     a.lastPx = player.x;
     a.lastPy = player.y;
+    pbMaybeSendCheckpoint();
   }
-  function pbBonusEligibleAtSubmit(prevBestMs, finalMs) {
-    if (!pbAntiFarm || window.SKYHOP_EXTERNAL_LEVEL || inRace) return false;
-    if (prevBestMs == null || !Number.isFinite(prevBestMs) || finalMs > prevBestMs - 5000) return false;
-    const total = pbAntiFarm.activeMs;
-    const n10 = Math.floor(total / 10000);
-    for (let i = 0; i < n10; i++) {
-      if (!pbAntiFarm.tenVel[i]) return false;
+  function pbResetAttestClient() {
+    pbAttestSeq = 0;
+    pbLastCheckpointActiveMs = 0;
+    try {
+      if (typeof window.SkyHopCampaignAttestReset === 'function') {
+        window.SkyHopCampaignAttestReset();
+      }
+    } catch {
+      /* */
     }
-    const n30 = Math.floor(total / 30000);
-    for (let i = 0; i < n30; i++) {
-      const p0 = pbAntiFarm.start30.get(i);
-      const p1 = pbAntiFarm.closedEnd.get(i);
-      if (!p0 || !p1) return false;
-      const net = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-      if (net < 200) return false;
-      const pathLen = pbAntiFarm.path30.get(i) || 0;
-      if (pathLen < 1) return false;
-      if (net / pathLen < 0.8) return false;
+  }
+
+  function pbMaybeSendCheckpoint() {
+    if (!pbAntiFarm || window.SKYHOP_EXTERNAL_LEVEL || inRace) return;
+    if (pbAntiFarm.activeMs - pbLastCheckpointActiveMs < PB_CHECKPOINT_EVERY_MS) return;
+    pbLastCheckpointActiveMs = pbAntiFarm.activeMs;
+    if (typeof window.SkyHopCampaignAttestCheckpoint !== 'function') return;
+    try {
+      window.SkyHopCampaignAttestCheckpoint({
+        seq: ++pbAttestSeq,
+        activeMs: Math.round(pbAntiFarm.activeMs),
+        x: Math.round(player.x),
+        y: Math.round(player.y),
+        vx: Math.round(player.vx),
+        vy: Math.round(player.vy),
+      });
+    } catch {
+      /* */
     }
-    return true;
   }
 
   function initStageCoins(stage) {
@@ -521,19 +539,30 @@
     }
   }
 
-  function submitCampaignRunIfNeeded() {
+  async function submitCampaignRunIfNeeded() {
     if (!window.SkyHopSubmitRun) return;
     const ext = window.SKYHOP_EXTERNAL_LEVEL;
-    const t = getRunElapsedMs();
+    pbMaybeSendCheckpoint();
+    if (typeof window.SkyHopCampaignAttestFlush === 'function') {
+      try {
+        await window.SkyHopCampaignAttestFlush();
+      } catch {
+        /* */
+      }
+    }
+    const sessionId =
+      typeof window.SkyHopCampaignAttestGetSessionId === 'function'
+        ? window.SkyHopCampaignAttestGetSessionId()
+        : null;
     const meta =
       !ext && !inRace
         ? {
             completedFullRun: true,
             stageCoinsCollected: campaignCoinsThisRun,
-            pbBonusEligible: pbBonusEligibleAtSubmit(window.__skyhopRunStartBestMs, t),
+            campaignRunSessionId: sessionId || undefined,
           }
         : undefined;
-    void window.SkyHopSubmitRun(t, deaths, 'campaign', meta);
+    void window.SkyHopSubmitRun(getRunElapsedMs(), deaths, 'campaign', meta);
   }
 
   function initTouchControls() {
