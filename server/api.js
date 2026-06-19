@@ -1,4 +1,9 @@
 import { ACHIEVEMENT_COIN_REWARD, ACHIEVEMENT_DEFS, aggregateRuns, computeNewUnlocks } from './achievements.js';
+import {
+  appendCampaignCheckpoint,
+  finalizeCampaignRunSession,
+  startCampaignRunSession,
+} from './campaign-run-sessions.js';
 import { banStatusForUser, effectiveRole, parseBanDuration } from './moderation.js';
 import { getShopItemById, SHOP_ITEMS } from './shop-catalog.js';
 import { store } from './store.js';
@@ -137,11 +142,19 @@ async function buildMePayload(userId) {
   const coinsInfinite = role === 'owner';
   let unlockedTextures = [];
   if (typeof store.listTextureGrantsForUser === 'function') {
-    unlockedTextures = await store.listTextureGrantsForUser(userId);
+    try {
+      unlockedTextures = await store.listTextureGrantsForUser(userId);
+    } catch {
+      unlockedTextures = [];
+    }
   }
   let friendIncomingCount = 0;
   if (typeof store.countIncomingPendingFriendRequests === 'function') {
-    friendIncomingCount = await store.countIncomingPendingFriendRequests(userId);
+    try {
+      friendIncomingCount = await store.countIncomingPendingFriendRequests(userId);
+    } catch {
+      friendIncomingCount = 0;
+    }
   }
   return {
     username: user.username,
@@ -182,7 +195,7 @@ function loginBanJson(bs) {
 /** @returns {Promise<boolean>} true if handled */
 export async function handleApi(req, res) {
   const u = new URL(req.url || '/', 'http://localhost');
-  const path = u.pathname;
+  const pathname = u.pathname;
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { ...CORS, 'Access-Control-Max-Age': '86400' });
@@ -190,7 +203,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/register' && req.method === 'POST') {
+  if (pathname === '/api/register' && req.method === 'POST') {
     let body;
     try {
       body = JSON.parse(await readBody(req));
@@ -208,7 +221,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/login' && req.method === 'POST') {
+  if (pathname === '/api/login' && req.method === 'POST') {
     let body;
     try {
       body = JSON.parse(await readBody(req));
@@ -233,7 +246,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/logout' && req.method === 'POST') {
+  if (pathname === '/api/logout' && req.method === 'POST') {
     const h = req.headers.authorization;
     if (h && /^Bearer\s+/i.test(h)) {
       const tok = h.replace(/^Bearer\s+/i, '').trim();
@@ -243,7 +256,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/me' && req.method === 'GET') {
+  if (pathname === '/api/me' && req.method === 'GET') {
     const uid = await bearerUserId(req);
     if (!uid) {
       json(res, 401, { error: 'Not logged in' });
@@ -258,7 +271,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/me/skin' && req.method === 'POST') {
+  if (pathname === '/api/me/skin' && req.method === 'POST') {
     const uid = await bearerUserId(req);
     if (!uid) {
       json(res, 401, { error: 'Not logged in' });
@@ -308,7 +321,48 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/runs' && req.method === 'POST') {
+  if (pathname === '/api/campaign-run/start' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const session = startCampaignRunSession(uid);
+      json(res, 200, { ok: true, ...session });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/campaign-run/checkpoint' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const result = appendCampaignCheckpoint(uid, body.sessionId, body);
+      if (!result.ok) {
+        json(res, 400, { error: result.error || 'Checkpoint rejected' });
+        return true;
+      }
+      json(res, 200, result);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/runs' && req.method === 'POST') {
     const uid = await bearerUserId(req);
     if (!uid) {
       json(res, 401, { error: 'Not logged in' });
@@ -354,9 +408,20 @@ export async function handleApi(req, res) {
         const pickups = Math.max(0, Math.min(5000, Math.floor(Number(m.stageCoinsCollected) || 0)));
         coinDelta += pickups;
         const isNewPB = prevCampaignBest == null || timeMs < prevCampaignBest;
-        const improvement = prevCampaignBest != null ? prevCampaignBest - timeMs : 0;
-        if (m.pbBonusEligible && isNewPB && prevCampaignBest != null && improvement >= 5000) {
-          coinDelta += 75;
+        const runSessionId =
+          body.campaignRunSessionId != null
+            ? String(body.campaignRunSessionId).trim()
+            : m.campaignRunSessionId != null
+              ? String(m.campaignRunSessionId).trim()
+              : '';
+        if (isNewPB && runSessionId) {
+          const finalized = finalizeCampaignRunSession(uid, runSessionId, {
+            timeMs,
+            prevBestMs: prevCampaignBest,
+          });
+          if (finalized && finalized.pbBonusEligible) {
+            coinDelta += 75;
+          }
         }
       }
 
@@ -382,7 +447,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/achievement-defs' && req.method === 'GET') {
+  if (pathname === '/api/achievement-defs' && req.method === 'GET') {
     json(
       res,
       200,
@@ -391,7 +456,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/textures' && req.method === 'GET') {
+  if (pathname === '/api/textures' && req.method === 'GET') {
     try {
       const sess = await getActiveSessionUser(req);
       if (!sess) {
@@ -415,7 +480,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/shop/items' && req.method === 'GET') {
+  if (pathname === '/api/shop/items' && req.method === 'GET') {
     try {
       const disk = await listTextureFilenames();
       const items = SHOP_ITEMS.filter((x) => disk.has(x.texture)).map((x) => ({
@@ -431,7 +496,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/shop/buy' && req.method === 'POST') {
+  if (pathname === '/api/shop/buy' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -488,7 +553,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/friends' && req.method === 'GET') {
+  if (pathname === '/api/friends' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -507,7 +572,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/friends/request' && req.method === 'POST') {
+  if (pathname === '/api/friends/request' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -543,7 +608,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/friends/accept' && req.method === 'POST') {
+  if (pathname === '/api/friends/accept' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -571,7 +636,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/friends/decline' && req.method === 'POST') {
+  if (pathname === '/api/friends/decline' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -599,7 +664,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/friends/gift-coins' && req.method === 'POST') {
+  if (pathname === '/api/friends/gift-coins' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -658,7 +723,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/builtin-stages' && req.method === 'GET') {
+  if (pathname === '/api/builtin-stages' && req.method === 'GET') {
     try {
       if (typeof store.getBuiltinCampaignStages !== 'function') {
         json(res, 200, { stages: null });
@@ -672,7 +737,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/builtin-stages' && req.method === 'POST') {
+  if (pathname === '/api/owner/builtin-stages' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -712,7 +777,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/reports' && req.method === 'POST') {
+  if (pathname === '/api/reports' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -758,7 +823,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/mod/reports' && req.method === 'GET') {
+  if (pathname === '/api/mod/reports' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -865,7 +930,7 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (path === '/api/owner/ban' && req.method === 'POST') {
+  if (pathname === '/api/owner/ban' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -926,7 +991,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/dismiss-report' && req.method === 'POST') {
+  if (pathname === '/api/owner/dismiss-report' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -962,7 +1027,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/gift-coins' && req.method === 'POST') {
+  if (pathname === '/api/owner/gift-coins' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -1020,7 +1085,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/gift-texture' && req.method === 'POST') {
+  if (pathname === '/api/owner/gift-texture' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -1076,7 +1141,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/moderators' && req.method === 'GET') {
+  if (pathname === '/api/owner/moderators' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -1099,7 +1164,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/owner/set-moderator' && req.method === 'POST') {
+  if (pathname === '/api/owner/set-moderator' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
       json(res, 401, { error: 'Not logged in' });
@@ -1210,7 +1275,7 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (path === '/api/levels/mine' && req.method === 'GET') {
+  if (pathname === '/api/levels/mine' && req.method === 'GET') {
     const uid = await bearerUserId(req);
     if (!uid) {
       json(res, 401, { error: 'Not logged in' });
@@ -1225,7 +1290,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/levels/save' && req.method === 'POST') {
+  if (pathname === '/api/levels/save' && req.method === 'POST') {
     const uid = await bearerUserId(req);
     if (!uid) {
       json(res, 401, { error: 'Not logged in' });
@@ -1313,7 +1378,7 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (path === '/api/levels/search' && req.method === 'GET') {
+  if (pathname === '/api/levels/search' && req.method === 'GET') {
     const q = u.searchParams.get('q') || '';
     const page = Number(u.searchParams.get('page') || '1') || 1;
     try {
@@ -1325,7 +1390,7 @@ export async function handleApi(req, res) {
     return true;
   }
 
-  if (path === '/api/levels/lookup' && req.method === 'GET') {
+  if (pathname === '/api/levels/lookup' && req.method === 'GET') {
     const id = (u.searchParams.get('id') || '').trim();
     try {
       const item = await UserLevels.levelsPublishedMetaById(id);
@@ -1354,8 +1419,8 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (path.startsWith('/api/levels/user/') && req.method === 'GET') {
-    const rest = path.slice('/api/levels/user/'.length);
+  if (pathname.startsWith('/api/levels/user/') && req.method === 'GET') {
+    const rest = pathname.slice('/api/levels/user/'.length);
     const username = decodeURIComponent((rest.split('?')[0] || '').trim().toLowerCase());
     const page = Number(u.searchParams.get('page') || '1') || 1;
     if (!username) {
