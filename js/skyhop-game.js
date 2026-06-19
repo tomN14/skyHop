@@ -367,6 +367,9 @@
   let campaignCoinsThisRun = 0;
   let stageCoinStates = [];
   let pbAntiFarm = null;
+  let pbAttestSeq = 0;
+  let pbLastCheckpointActiveMs = 0;
+  const PB_CHECKPOINT_EVERY_MS = 2000;
 
   function pbInit() {
     pbAntiFarm = {
