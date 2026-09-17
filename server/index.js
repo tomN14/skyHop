@@ -81,6 +81,19 @@ function send(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
 }
 
+async function wsUserDisabledFromToken(authToken) {
+  const tok = authToken != null ? String(authToken).trim() : '';
+  if (!tok || typeof store.sessionUserId !== 'function') return false;
+  try {
+    const uid = await store.sessionUserId(tok);
+    if (!uid) return false;
+    const user = await store.findUserById(uid);
+    return isAccountDisabled(user);
+  } catch {
+    return false;
+  }
+}
+
 function broadcastRoom(room, obj, exceptWs) {
   for (const c of room.clients) {
     if (c !== exceptWs) send(c, obj);
@@ -90,6 +103,8 @@ function broadcastRoom(room, obj, exceptWs) {
 }
 
 import { handleApi } from './api.js';
+import { store } from './store.js';
+import { isAccountDisabled } from './moderation.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -155,29 +170,47 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'create') {
-      if (rooms.size > 500) {
-        send(ws, { type: 'error', message: 'Server busy' });
-        return;
-      }
-      let roomId = makeRoomId();
-      while (rooms.has(roomId)) roomId = makeRoomId();
-      const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
-      const room = {
-        id: roomId,
-        host: ws,
-        started: false,
-        clients: new Set([ws]),
-        names: { [playerId]: name },
-        progress: { [playerId]: { stage: 0, finished: false } },
-      };
-      rooms.set(roomId, room);
-      const meta = socketMeta.get(ws);
-      meta.roomId = roomId;
-      send(ws, { type: 'roomCreated', roomId, youAreHost: true, name, playerId, players: [{ id: playerId, name, host: true }] });
+      void (async () => {
+        if (await wsUserDisabledFromToken(msg.authToken)) {
+          send(ws, { type: 'error', message: 'Account disabled — cannot host races.' });
+          return;
+        }
+        if (rooms.size > 500) {
+          send(ws, { type: 'error', message: 'Server busy' });
+          return;
+        }
+        let roomId = makeRoomId();
+        while (rooms.has(roomId)) roomId = makeRoomId();
+        const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
+        const room = {
+          id: roomId,
+          host: ws,
+          started: false,
+          clients: new Set([ws]),
+          names: { [playerId]: name },
+          progress: { [playerId]: { stage: 0, finished: false } },
+        };
+        rooms.set(roomId, room);
+        const meta = socketMeta.get(ws);
+        meta.roomId = roomId;
+        send(ws, {
+          type: 'roomCreated',
+          roomId,
+          youAreHost: true,
+          name,
+          playerId,
+          players: [{ id: playerId, name, host: true }],
+        });
+      })();
       return;
     }
 
     if (msg.type === 'join') {
+      void (async () => {
+        if (await wsUserDisabledFromToken(msg.authToken)) {
+          send(ws, { type: 'error', message: 'Account disabled — cannot join races.' });
+          return;
+        }
       const roomId = (msg.roomId && String(msg.roomId).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) || '';
       if (roomId.length < 4) {
         send(ws, { type: 'error', message: 'Invalid session ID' });
@@ -219,6 +252,7 @@ wss.on('connection', (ws) => {
         if (c === ws) continue;
         send(c, { type: 'playerJoined', playerId, name, players });
       }
+      })();
       return;
     }
 

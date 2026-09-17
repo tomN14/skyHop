@@ -20,6 +20,7 @@ function defaultStore() {
     reports: [],
     textureGrants: [],
     friendRequests: [],
+    friendChat: [],
     nextUserId: 1,
   };
 }
@@ -28,12 +29,14 @@ function migrateUsersAndReports(s) {
   if (!Array.isArray(s.reports)) s.reports = [];
   if (!Array.isArray(s.textureGrants)) s.textureGrants = [];
   if (!Array.isArray(s.friendRequests)) s.friendRequests = [];
+  if (!Array.isArray(s.friendChat)) s.friendChat = [];
   for (const u of s.users) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
     if (!('banReason' in u)) u.banReason = null;
     if (u.coins == null || !Number.isFinite(Number(u.coins))) u.coins = 0;
     if (!('skinTexture' in u)) u.skinTexture = null;
+    if (!('disabledAt' in u)) u.disabledAt = null;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -92,7 +95,7 @@ export function createFileStore() {
   return {
     async findUserByUsername(username) {
       const s = loadStore();
-      const low = String(username || '').toLowerCase();
+      const low = String(username || '').trim().toLowerCase();
       return s.users.find((u) => u.usernameLower === low) || null;
     },
 
@@ -485,6 +488,80 @@ export function createFileStore() {
     async countIncomingPendingFriendRequests(userId) {
       const s = loadStore();
       return s.friendRequests.filter((r) => r.status === 'pending' && r.toUserId === userId).length;
+    },
+
+    async setUserDisabled(userId, disabled) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.disabledAt = disabled ? Date.now() : null;
+      saveStore();
+    },
+
+    async deleteUserPermanently(userId) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      s.users = s.users.filter((x) => x.id !== userId);
+      s.runs = s.runs.filter((r) => r.userId !== userId);
+      s.userAchievements = s.userAchievements.filter((a) => a.userId !== userId);
+      s.sessions = s.sessions.filter((x) => x.userId !== userId);
+      s.textureGrants = s.textureGrants.filter((g) => g.userId !== userId);
+      s.friendRequests = s.friendRequests.filter(
+        (r) => r.fromUserId !== userId && r.toUserId !== userId
+      );
+      s.friendChat = s.friendChat.filter((m) => m.fromUserId !== userId && m.toUserId !== userId);
+      s.reports = s.reports.filter((r) => r.reporterId !== userId && r.reportedUserId !== userId);
+      saveStore();
+      const levelsPath = path.join(DATA_DIR, 'user_levels.json');
+      if (fs.existsSync(levelsPath)) {
+        try {
+          const j = JSON.parse(fs.readFileSync(levelsPath, 'utf8'));
+          if (Array.isArray(j.levels)) {
+            j.levels = j.levels.filter((lv) => lv.authorId !== userId);
+            fs.writeFileSync(levelsPath, JSON.stringify(j), 'utf8');
+          }
+        } catch {
+          /* */
+        }
+      }
+    },
+
+    async insertFriendChatMessage(fromUserId, toUserId, body) {
+      const s = loadStore();
+      const row = {
+        id: crypto.randomUUID(),
+        fromUserId,
+        toUserId,
+        body: String(body || '').slice(0, 2000),
+        createdAt: Date.now(),
+      };
+      s.friendChat.push(row);
+      if (s.friendChat.length > 50000) s.friendChat.splice(0, s.friendChat.length - 50000);
+      saveStore();
+      return row;
+    },
+
+    async listFriendChatMessages(userId, friendUserId, sinceMs) {
+      const s = loadStore();
+      const since = Number(sinceMs) || 0;
+      return s.friendChat
+        .filter(
+          (m) =>
+            m.createdAt > since &&
+            ((m.fromUserId === userId && m.toUserId === friendUserId) ||
+              (m.fromUserId === friendUserId && m.toUserId === userId))
+        )
+        .sort((x, y) => x.createdAt - y.createdAt)
+        .slice(-200)
+        .map((m) => ({
+          id: m.id,
+          fromUserId: m.fromUserId,
+          toUserId: m.toUserId,
+          body: m.body,
+          createdAt: m.createdAt,
+          mine: m.fromUserId === userId,
+        }));
     },
   };
 }

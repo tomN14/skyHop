@@ -74,6 +74,7 @@ create index if not exists skyhop_reports_status_idx on public.skyhop_reports (s
 -- Coins, skins, server-stored built-in campaign, online coin claims (see extend_v2_coins_builtin.sql for ALTER on existing DBs)
 alter table public.skyhop_users add column if not exists coins bigint not null default 0;
 alter table public.skyhop_users add column if not exists skin_texture text;
+alter table public.skyhop_users add column if not exists disabled_at bigint;
 
 create table if not exists public.skyhop_builtin_campaign (
   id smallint primary key default 1 constraint skyhop_builtin_singleton check (id = 1),
@@ -124,3 +125,14 @@ create unique index if not exists skyhop_friend_requests_one_pending_pair_idx
 create index if not exists skyhop_friend_requests_user_accepted_idx
   on public.skyhop_friend_requests (from_user_id, to_user_id)
   where status = 'accepted';
+
+create table if not exists public.skyhop_friend_chat (
+  id uuid primary key default gen_random_uuid(),
+  from_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  to_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  body text not null,
+  created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
+);
+
+create index if not exists skyhop_friend_chat_pair_idx
+  on public.skyhop_friend_chat (from_user_id, to_user_id, created_at);

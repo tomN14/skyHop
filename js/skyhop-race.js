@@ -737,7 +737,17 @@
         ws.onmessage = onWsMessage;
         bindWsUntilOpen(ws, function () {
           ws.send(
-            JSON.stringify({ type: 'create', name: (el.name && el.name.value) || 'Host' })
+            JSON.stringify({
+              type: 'create',
+              name: (el.name && el.name.value) || 'Host',
+              authToken: (function () {
+                try {
+                  return localStorage.getItem('SKYHOP_AUTH_TOKEN') || undefined;
+                } catch {
+                  return undefined;
+                }
+              })(),
+            })
           );
         });
         if (el.joinPanel) el.joinPanel.classList.add('hidden');
@@ -776,7 +786,18 @@
         ws.onmessage = onWsMessage;
         bindWsUntilOpen(ws, function () {
           ws.send(
-            JSON.stringify({ type: 'join', roomId: code, name: (el.name && el.name.value) || 'Racer' })
+            JSON.stringify({
+              type: 'join',
+              roomId: code,
+              name: (el.name && el.name.value) || 'Racer',
+              authToken: (function () {
+                try {
+                  return localStorage.getItem('SKYHOP_AUTH_TOKEN') || undefined;
+                } catch {
+                  return undefined;
+                }
+              })(),
+            })
           );
         });
         if (el.mpStatus) {

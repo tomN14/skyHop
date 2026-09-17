@@ -4,7 +4,10 @@ import {
   finalizeCampaignRunSession,
   startCampaignRunSession,
 } from './campaign-run-sessions.js';
-import { banStatusForUser, effectiveRole, parseBanDuration } from './moderation.js';
+import { banStatusForUser, assertAccountActive, effectiveRole, isAccountDisabled, ownerUsernameLower, parseBanDuration } from './moderation.js';
+import { censorProfanity } from './profanity-filter.js';
+import { createDeleteToken, consumeDeleteToken } from './owner-delete.js';
+import { sendOwnerMail } from './mail.js';
 import { getShopItemById, SHOP_ITEMS } from './shop-catalog.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
@@ -159,6 +162,7 @@ async function buildMePayload(userId) {
   return {
     username: user.username,
     role,
+    disabled: isAccountDisabled(user),
     coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
     skinTexture: user.skinTexture ?? user.skin_texture ?? null,
@@ -723,6 +727,116 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/friends/chat/messages' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(sess.user);
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    if (typeof store.listFriendChatMessages !== 'function') {
+      json(res, 501, { error: 'Chat not configured on server.' });
+      return true;
+    }
+    const friendUsername = String(u.searchParams.get('friendUsername') || '').trim();
+    const since = Number(u.searchParams.get('since') || 0) || 0;
+    if (!friendUsername) {
+      json(res, 400, { error: 'friendUsername required' });
+      return true;
+    }
+    try {
+      const friend = await store.findUserByUsername(friendUsername);
+      if (!friend) {
+        json(res, 400, { error: 'Friend not found.' });
+        return true;
+      }
+      const ok = await store.areFriends(sess.userId, friend.id);
+      if (!ok) {
+        json(res, 403, { error: 'Chat is only available with accepted friends.' });
+        return true;
+      }
+      const messages = await store.listFriendChatMessages(sess.userId, friend.id, since);
+      json(res, 200, { messages });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/friends/chat/send' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(sess.user);
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    if (typeof store.insertFriendChatMessage !== 'function') {
+      json(res, 501, { error: 'Chat not configured on server.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const toUsername = String(body.toUsername || '').trim();
+    const rawText = String(body.text || '');
+    if (!toUsername) {
+      json(res, 400, { error: 'toUsername required' });
+      return true;
+    }
+    if (!rawText.trim()) {
+      json(res, 400, { error: 'Message cannot be empty.' });
+      return true;
+    }
+    if (rawText.length > 2000) {
+      json(res, 400, { error: 'Message too long.' });
+      return true;
+    }
+    try {
+      const friend = await store.findUserByUsername(toUsername);
+      if (!friend) {
+        json(res, 400, { error: 'Friend not found.' });
+        return true;
+      }
+      const ok = await store.areFriends(sess.userId, friend.id);
+      if (!ok) {
+        json(res, 403, { error: 'You can only chat with accepted friends.' });
+        return true;
+      }
+      const censored = censorProfanity(rawText);
+      const row = await store.insertFriendChatMessage(sess.userId, friend.id, censored.text);
+      json(res, 201, {
+        ok: true,
+        message: {
+          id: row.id,
+          body: row.body,
+          createdAt: row.createdAt,
+          mine: true,
+          censored: censored.flagged,
+        },
+        hint: censored.flagged
+          ? 'Some language was censored. Other players may report uncivil chat; profanity alone does not auto-ban.'
+          : undefined,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/builtin-stages' && req.method === 'GET') {
     try {
       if (typeof store.getBuiltinCampaignStages !== 'function') {
@@ -792,7 +906,6 @@ export async function handleApi(req, res) {
     }
     const reportedUsername = String(body.reportedUsername || '').trim();
     const reason = String(body.reason || '').trim();
-   
     if (reason.length < 3) {
       json(res, 400, { error: 'Please enter a reason (at least 3 characters).' });
       return true;
@@ -853,7 +966,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/mod\/reports\/([^/]+)\/reject$/.exec(path);
+    const m = /^\/api\/mod\/reports\/([^/]+)\/reject$/.exec(pathname);
     if (m && req.method === 'POST') {
       const reportId = m[1];
       const sess = await getActiveSessionUser(req);
@@ -892,7 +1005,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/mod\/reports\/([^/]+)\/escalate$/.exec(path);
+    const m = /^\/api\/mod\/reports\/([^/]+)\/escalate$/.exec(pathname);
     if (m && req.method === 'POST') {
       const reportId = m[1];
       const sess = await getActiveSessionUser(req);
@@ -1201,10 +1314,160 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/owner/account-disable' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const disabled = body.disabled !== false;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(un);
+      if (!target) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      const own = ownerUsernameLower();
+      if (own && target.usernameLower === own) {
+        json(res, 400, { error: 'Cannot disable the owner account.' });
+        return true;
+      }
+      if (typeof store.setUserDisabled !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      await store.setUserDisabled(target.id, disabled);
+      json(res, 200, { ok: true, username: target.username, disabled });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/account-delete/request' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(un);
+      if (!target) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      const own = ownerUsernameLower();
+      if (own && target.usernameLower === own) {
+        json(res, 400, { error: 'Cannot delete the owner account.' });
+        return true;
+      }
+      if (typeof store.deleteUserPermanently !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      const ownerEmail = String(process.env.SKYHOP_OWNER_EMAIL || '').trim();
+      if (!ownerEmail) {
+        json(res, 400, {
+          error: 'Set SKYHOP_OWNER_EMAIL on the server to receive deletion confirmation links.',
+        });
+        return true;
+      }
+      const { token } = createDeleteToken(sess.userId, target.id);
+      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+      const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const confirmUrl = `${proto}://${host}/api/owner/account-delete/confirm?token=${encodeURIComponent(token)}`;
+      await sendOwnerMail({
+        to: ownerEmail,
+        subject: `Sky Hop — PERMANENT delete ${target.username}`,
+        text:
+          `You requested permanent deletion of Sky Hop account "${target.username}".\n\n` +
+          `This removes all stats and user levels. There is no restore.\n\n` +
+          `Confirm within 60 seconds (single use):\n${confirmUrl}\n\n` +
+          `If this was not you, ignore this email.`,
+        html:
+          `<p>You requested <strong>permanent deletion</strong> of Sky Hop account <strong>${target.username}</strong>.</p>` +
+          `<p>This removes all stats and user levels. There is no restore.</p>` +
+          `<p><a href="${confirmUrl}">Confirm permanent deletion</a> (expires in 60 seconds, single use).</p>`,
+      });
+      json(res, 200, {
+        ok: true,
+        message: 'Confirmation email sent. Open the link within 60 seconds to complete deletion.',
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/account-delete/confirm' && req.method === 'GET') {
+    const token = u.searchParams.get('token');
+    const consumed = consumeDeleteTokenPublic(token);
+    const esc = (s) =>
+      String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    if (!consumed.ok) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
+      res.end(
+        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Deletion failed</h1><p>${esc(consumed.error)}</p></body></html>`
+      );
+      return true;
+    }
+    try {
+      const target = await store.findUserById(consumed.targetUserId);
+      const name = target ? target.username : 'user';
+      if (typeof store.deleteUserPermanently !== 'function') throw new Error('Not configured');
+      await store.deleteUserPermanently(consumed.targetUserId);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
+      res.end(
+        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Account deleted</h1><p>Permanently removed <strong>${esc(name)}</strong> and their levels/stats.</p></body></html>`
+      );
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
+      res.end(
+        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Deletion failed</h1><p>${esc(String(e.message || e))}</p></body></html>`
+      );
+    }
+    return true;
+  }
+
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
   {
-    const m = /^\/api\/levels\/([^/]+)\/coin-state$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)\/coin-state$/.exec(pathname);
     if (m && req.method === 'GET') {
       const uid = await bearerUserId(req);
       if (!uid) {
@@ -1230,7 +1493,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/levels\/([^/]+)\/collect-coin$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)\/collect-coin$/.exec(pathname);
     if (m && req.method === 'POST') {
       const uid = await bearerUserId(req);
       if (!uid) {
@@ -1296,6 +1559,13 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
+    const author = await store.findUserById(uid);
+    try {
+      assertAccountActive(author);
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
     let body;
     try {
       body = JSON.parse(await readBody(req));
@@ -1318,7 +1588,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/levels\/([^/]+)\/beat$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)\/beat$/.exec(pathname);
     if (m && req.method === 'POST') {
       const uid = await bearerUserId(req);
       if (!uid) {
@@ -1340,7 +1610,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/levels\/([^/]+)\/publish$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)\/publish$/.exec(pathname);
     if (m && req.method === 'POST') {
       const uid = await bearerUserId(req);
       if (!uid) {
@@ -1352,6 +1622,8 @@ export async function handleApi(req, res) {
         return true;
       }
       try {
+        const author = await store.findUserById(uid);
+        assertAccountActive(author);
         await UserLevels.levelsPublish(uid, m[1]);
         json(res, 200, { ok: true });
       } catch (e) {
@@ -1362,7 +1634,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/levels\/([^/]+)\/play$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)\/play$/.exec(pathname);
     if (m && req.method === 'POST') {
       if (!uuidRe.test(m[1])) {
         json(res, 400, { error: 'Invalid id' });
@@ -1402,7 +1674,7 @@ export async function handleApi(req, res) {
   }
 
   {
-    const m = /^\/api\/levels\/([^/]+)$/.exec(path);
+    const m = /^\/api\/levels\/([^/]+)$/.exec(pathname);
     if (m && req.method === 'GET') {
       if (!uuidRe.test(m[1])) {
         json(res, 400, { error: 'Invalid id' });

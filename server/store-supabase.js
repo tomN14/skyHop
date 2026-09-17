@@ -26,6 +26,7 @@ function mapUser(row) {
     banReason: row.ban_reason ?? null,
     coins: row.coins != null ? Number(row.coins) : 0,
     skinTexture: row.skin_texture ?? null,
+    disabledAt: row.disabled_at != null ? Number(row.disabled_at) : null,
   };
 }
 
@@ -57,7 +58,7 @@ export function createSupabaseStore() {
 
   return {
     async findUserByUsername(username) {
-      const low = String(username || '').toLowerCase();
+      const low = String(username || '').trim().toLowerCase();
       const { data, error } = await sb.from('skyhop_users').select('*').eq('username_lower', low).maybeSingle();
       if (error) throw new Error(error.message);
       return mapUser(data);
@@ -540,6 +541,54 @@ export function createSupabaseStore() {
         .eq('status', 'pending');
       if (error) throw new Error(error.message);
       return count != null ? Number(count) : 0;
+    },
+
+    async setUserDisabled(userId, disabled) {
+      const v = disabled ? Date.now() : null;
+      const { error } = await sb.from('skyhop_users').update({ disabled_at: v }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async deleteUserPermanently(userId) {
+      await sb.from('skyhop_user_levels').delete().eq('author_id', userId);
+      const { error } = await sb.from('skyhop_users').delete().eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async insertFriendChatMessage(fromUserId, toUserId, body) {
+      const id = crypto.randomUUID();
+      const now = Date.now();
+      const { error } = await sb.from('skyhop_friend_chat').insert({
+        id,
+        from_user_id: fromUserId,
+        to_user_id: toUserId,
+        body: String(body || '').slice(0, 2000),
+        created_at: now,
+      });
+      if (error) throw new Error(error.message);
+      return { id, fromUserId, toUserId, body: String(body || '').slice(0, 2000), createdAt: now };
+    },
+
+    async listFriendChatMessages(userId, friendUserId, sinceMs) {
+      const since = Number(sinceMs) || 0;
+      const { data, error } = await sb
+        .from('skyhop_friend_chat')
+        .select('id, from_user_id, to_user_id, body, created_at')
+        .gt('created_at', since)
+        .or(
+          `and(from_user_id.eq.${userId},to_user_id.eq.${friendUserId}),and(from_user_id.eq.${friendUserId},to_user_id.eq.${userId})`
+        )
+        .order('created_at', { ascending: true })
+        .limit(200);
+      if (error) throw new Error(error.message);
+      return (data || []).map((m) => ({
+        id: m.id,
+        fromUserId: Number(m.from_user_id),
+        toUserId: Number(m.to_user_id),
+        body: m.body,
+        createdAt: Number(m.created_at),
+        mine: Number(m.from_user_id) === userId,
+      }));
     },
   };
 }

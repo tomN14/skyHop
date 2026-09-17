@@ -207,8 +207,11 @@
             Racing
           </button>
         </div>
-        <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Account &amp; cloud stats
+        </button>
+        <button id="btnOpenOwnerPage" type="button" class="mt-2 hidden w-full rounded-2xl border border-rose-500/45 bg-rose-950/40 px-6 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 focus:ring-offset-slate-900">
+          Owner administration
         </button>
       </div>
     </div>
@@ -339,7 +342,7 @@
             <label class="mt-2 block text-[11px] text-slate-500">Their username</label>
             <input id="accReportUser" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
             <label class="mt-2 block text-[11px] text-slate-500">What happened?</label>
-            <textarea id="accReportReason" rows="3" maxlength="4000" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Brief, factual summary (min 3 characters)"></textarea>
+            <textarea id="accReportReason" rows="4" maxlength="4000" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Describe what happened — spaces and full sentences are OK (min 3 characters)"></textarea>
             <button id="accBtnSubmitReport" type="button" class="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/50 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Submit report</button>
             <p id="accReportMsg" class="mt-2 hidden text-xs text-slate-400"></p>
           </div>
@@ -361,6 +364,48 @@
             <ul id="accAchList" class="mt-2 grid max-h-52 list-none gap-2 overflow-y-auto p-0 sm:max-h-64"></ul>
           </div>
           <p class="text-[11px] text-slate-500">Finishing all 50 stages (campaign or race) while logged in uploads that run. Progress mid-run is not saved until you win.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Terms of Service (required after each login unless permanently dismissed) -->
+    <div id="screenTos" class="pointer-events-auto fixed inset-0 z-[45] hidden flex-col items-center justify-center bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
+      <div class="flex h-full max-h-[min(92vh,820px)] w-full max-w-2xl flex-col rounded-3xl border border-violet-500/35 bg-gradient-to-br from-slate-900 to-violet-950/40 p-5 shadow-2xl md:p-7">
+        <p class="shrink-0 text-xs font-sem uppercase tracking-widest text-violet-400">Required agreement</p>
+        <p id="tosStepLabel" class="mt-1 shrink-0 text-[11px] text-slate-500">Page 1 of 5</p>
+        <div
+          id="tosBody"
+          class="mt-3 min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-left text-[13px] leading-relaxed text-slate-200 md:p-5 md:text-sm"
+        ></div>
+        <div id="tosAgreeBlock" class="mt-4 hidden shrink-0 space-y-3 border-t border-white/10 pt-4">
+          <label class="flex cursor-pointer items-start gap-2 text-left text-xs text-slate-400">
+            <input id="tosSkipForever" type="checkbox" class="mt-0.5 rounded border-white/20 bg-slate-900 text-violet-500 focus:ring-violet-400" />
+            <span>Do not show this message again</span>
+          </label>
+          <p class="text-[11px] text-slate-500">If unchecked, you will see these terms again the next time you log in.</p>
+        </div>
+        <div class="mt-4 flex shrink-0 flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            id="tosBtnLogout"
+            type="button"
+            class="order-3 w-full rounded-2xl border border-white/20 px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-white/5 sm:order-1 sm:mr-auto sm:w-auto"
+          >
+            Log out
+          </button>
+          <button
+            id="tosBtnNext"
+            type="button"
+            class="order-1 w-full rounded-2xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white hover:bg-violet-500 sm:order-2 sm:w-auto"
+          >
+            Next
+          </button>
+          <button
+            id="tosBtnAgree"
+            type="button"
+            class="order-2 hidden w-full rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 sm:w-auto"
+          >
+            Agree
+          </button>
         </div>
       </div>
     </div>
@@ -427,6 +472,27 @@
       </div>
     </div>
 
+    <div id="screenOwnerAdmin" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
+      <div class="my-auto w-full max-w-md rounded-3xl border border-rose-500/40 bg-gradient-to-br from-slate-900 to-rose-950/40 p-6 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-sem uppercase tracking-widest text-rose-400">Owner only</p>
+            <h3 class="mt-1 text-xl font-bold text-white">Account administration</h3>
+            <p class="mt-1 text-[11px] text-slate-500">Disable limits levels and racing. Delete is permanent (email confirmation required).</p>
+          </div>
+          <button id="btnOwnerAdminClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <label class="mt-4 block text-[11px] text-slate-500">Target username</label>
+        <input id="ownerAdminUsername" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
+        <div class="mt-4 flex flex-col gap-2">
+          <button id="ownerBtnDisable" type="button" class="rounded-xl border border-amber-500/50 bg-amber-950/50 px-4 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-900/40">Disable account…</button>
+          <button id="ownerBtnEnable" type="button" class="rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-900/40">Re-enable account…</button>
+          <button id="ownerBtnDelete" type="button" class="rounded-xl border border-rose-600/60 bg-rose-950/60 px-4 py-2.5 text-sm font-semibold text-rose-100 hover:bg-rose-900/50">Delete account permanently…</button>
+        </div>
+        <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
+      </div>
+    </div>
+
     <div id="screenFriends" class="pointer-events-auto fixed inset-0 z-[35] hidden flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
       <div class="my-auto w-full max-w-md rounded-3xl border border-teal-500/35 bg-gradient-to-br from-slate-900 to-teal-950/50 p-6 shadow-2xl">
         <div class="flex items-start justify-between gap-3">
@@ -453,6 +519,18 @@
         </div>
         <p class="mt-4 text-[11px] font-sem text-slate-400">Friends</p>
         <ul id="friendsListEl" class="mt-1 max-h-32 list-none space-y-1 overflow-y-auto p-0 text-sm text-slate-200"></ul>
+        <p class="mt-4 text-[11px] font-sem text-teal-200/90">Friend chat</p>
+        <p class="mt-1 text-[11px] text-slate-500">Profanity is censored automatically. It does not auto-ban — others may report serious harassment.</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <input id="friendChatPeer" type="text" maxlength="24" placeholder="friend username" class="min-w-0 flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" autocomplete="off" />
+          <button id="friendChatLoad" type="button" class="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">Open chat</button>
+        </div>
+        <ul id="friendChatLog" class="mt-2 max-h-40 list-none space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-slate-950/60 p-2 text-xs text-slate-200"></ul>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <input id="friendChatInput" type="text" maxlength="2000" placeholder="Message…" class="min-w-0 flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" autocomplete="off" />
+          <button id="friendChatSend" type="button" class="rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-500">Send</button>
+        </div>
+        <p id="friendChatHint" class="mt-1 hidden text-[11px] text-slate-500"></p>
         <p class="mt-3 text-[11px] font-sem text-slate-500">Outgoing (pending)</p>
         <ul id="friendsOutgoingList" class="mt-1 max-h-24 list-none space-y-1 overflow-y-auto p-0 text-xs text-slate-400"></ul>
       </div>
@@ -591,6 +669,7 @@
   <script src="js/skyhop-campaign-boot.js"></script>
   <script src="js/skyhop-game.js"></script>
   <script src="js/skyhop-race.js"></script>
+  <script src="js/skyhop-tos.js"></script>
   <script src="js/skyhop-account.js"></script>
   <script src="js/skyhop-levels.js"></script>
 </body>

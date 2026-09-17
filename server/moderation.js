@@ -72,3 +72,18 @@ export function effectiveRole(user) {
 export function ownerUsernameLower() {
   return (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase() || null;
 }
+
+export function isAccountDisabled(u) {
+  if (!u) return false;
+  if (u.disabledAt != null && Number(u.disabledAt) > 0) return true;
+  if (u.disabled === true) return true;
+  return false;
+}
+
+export function assertAccountActive(user) {
+  if (isAccountDisabled(user)) {
+    const err = new Error('This account is disabled and cannot perform that action.');
+    err.code = 'ACCOUNT_DISABLED';
+    throw err;
+  }
+}

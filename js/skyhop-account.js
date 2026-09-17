@@ -905,6 +905,8 @@
         if (fab) fab.classList.add('hidden');
         var ffabOut = document.getElementById('btnFriendsFab');
         if (ffabOut) ffabOut.classList.add('hidden');
+        var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
+        if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
         return;
       }
@@ -935,6 +937,16 @@
         updateFriendsFab(me);
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
+        var btnOpenOwnerPage = document.getElementById('btnOpenOwnerPage');
+        if (btnOpenOwnerPage) btnOpenOwnerPage.classList.toggle('hidden', me.role !== 'owner');
+        try {
+          if (typeof window.SkyHopTosGateIfNeeded === 'function') {
+            await window.SkyHopTosGateIfNeeded();
+          }
+        } catch (tosErr) {
+          if (String(tosErr && tosErr.message) === 'logged_out') return;
+        }
+        if (!getToken()) return;
       } catch (e) {
         setAuth(null, null);
         if (accLogged) accLogged.classList.add('hidden');
@@ -1065,6 +1077,25 @@
       });
     }
 
+    window.SkyHopTosOnLogout = async function () {
+      const tok = getToken();
+      try {
+        if (tok) {
+          await api('/api/logout', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok },
+          });
+        }
+      } catch {
+        /* */
+      }
+      if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
+        window.SkyHopTosClearSessionAcceptance();
+      }
+      setAuth(null, null);
+      await refreshPanel();
+    };
+
     if (btnLogin) {
       btnLogin.addEventListener('click', async function () {
         setErr('');
@@ -1078,6 +1109,9 @@
           });
           setAuth(data.token, data.username);
           if (inpLoginPass) inpLoginPass.value = '';
+          if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
+            window.SkyHopTosClearSessionAcceptance();
+          }
           await refreshPanel();
         } catch (e) {
           if (e.skyhop && e.skyhop.banned) {
@@ -1102,6 +1136,9 @@
           });
           setAuth(data.token, data.username);
           if (inpRegPass) inpRegPass.value = '';
+          if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
+            window.SkyHopTosClearSessionAcceptance();
+          }
           await refreshPanel();
         } catch (e) {
           setErr(String(e.message || e));
@@ -1122,6 +1159,9 @@
           }
         } catch {
           /* */
+        }
+        if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
+          window.SkyHopTosClearSessionAcceptance();
         }
         setAuth(null, null);
         await refreshPanel();
@@ -1165,8 +1205,8 @@
             method: 'POST',
             headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              reportedUsername: (accReportUser && accReportUser.value) || '',
-              reason: (accReportReason && accReportReason.value) || '',
+              reportedUsername: String((accReportUser && accReportUser.value) || '').trim(),
+              reason: String((accReportReason && accReportReason.value) || '').trim(),
             }),
           });
           if (accReportUser) accReportUser.value = '';
@@ -1392,6 +1432,281 @@
     var friendBtnGiftCoins = document.getElementById('friendBtnGiftCoins');
     var friendGiftUser = document.getElementById('friendGiftUser');
     var friendGiftAmt = document.getElementById('friendGiftAmt');
+    var screenOwnerAdmin = document.getElementById('screenOwnerAdmin');
+    var btnOwnerAdminClose = document.getElementById('btnOwnerAdminClose');
+    var ownerAdminUsername = document.getElementById('ownerAdminUsername');
+    var ownerAdminMsg = document.getElementById('ownerAdminMsg');
+    function setOwnerAdminMsg(t, isErr) {
+      if (!ownerAdminMsg) return;
+      ownerAdminMsg.textContent = t || '';
+      ownerAdminMsg.classList.toggle('hidden', !t);
+      ownerAdminMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerAdminMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function ownerTargetUsername() {
+      return String((ownerAdminUsername && ownerAdminUsername.value) || '').trim();
+    }
+    var btnOpenOwnerPageEl = document.getElementById('btnOpenOwnerPage');
+    if (btnOpenOwnerPageEl && screenOwnerAdmin) {
+      btnOpenOwnerPageEl.addEventListener('click', function () {
+        var me = window.__skyhopLastMe;
+        if (!me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        screenOwnerAdmin.classList.remove('hidden');
+        screenOwnerAdmin.classList.add('flex');
+      });
+    }
+    if (btnOwnerAdminClose && screenOwnerAdmin) {
+      btnOwnerAdminClose.addEventListener('click', function () {
+        screenOwnerAdmin.classList.add('hidden');
+        screenOwnerAdmin.classList.remove('flex');
+      });
+    }
+    var ownerBtnDisable = document.getElementById('ownerBtnDisable');
+    var ownerBtnEnable = document.getElementById('ownerBtnEnable');
+    var ownerBtnDelete = document.getElementById('ownerBtnDelete');
+    if (ownerBtnDisable) {
+      ownerBtnDisable.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        var un = ownerTargetUsername();
+        if (!un) {
+          setOwnerAdminMsg('Enter the target username.', true);
+          return;
+        }
+        if (
+          !window.confirm(
+            'Disable account "' +
+              un +
+              '"?\n\nThey cannot save or publish levels, join or host races, or use friend chat until re-enabled.'
+          )
+        ) {
+          return;
+        }
+        try {
+          await api('/api/owner/account-disable', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: un, disabled: true }),
+          });
+          setOwnerAdminMsg('Disabled ' + un + '.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+    if (ownerBtnEnable) {
+      ownerBtnEnable.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        var un = ownerTargetUsername();
+        if (!un) {
+          setOwnerAdminMsg('Enter the target username.', true);
+          return;
+        }
+        if (!window.confirm('Re-enable account "' + un + '"?')) return;
+        try {
+          await api('/api/owner/account-disable', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: un, disabled: false }),
+          });
+          setOwnerAdminMsg('Re-enabled ' + un + '.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+    if (ownerBtnDelete) {
+      ownerBtnDelete.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        var un = ownerTargetUsername();
+        if (!un) {
+          setOwnerAdminMsg('Enter the target username.', true);
+          return;
+        }
+        if (
+          !window.confirm(
+            'PERMANENTLY delete "' +
+              un +
+              '"?\n\nThis removes all stats and their levels. There is no restore.\n\nIf you click OK, a confirmation email is sent. You must open the link within 60 seconds.'
+          )
+        ) {
+          return;
+        }
+        if (
+          !window.confirm(
+            'Last chance: delete "' + un + '" forever?\n\nClick OK to send the email confirmation.'
+          )
+        ) {
+          return;
+        }
+        try {
+          var data = await api('/api/owner/account-delete/request', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: un }),
+          });
+          setOwnerAdminMsg(data.message || 'Confirmation email sent.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var friendChatPeer = document.getElementById('friendChatPeer');
+    var friendChatLoad = document.getElementById('friendChatLoad');
+    var friendChatLog = document.getElementById('friendChatLog');
+    var friendChatInput = document.getElementById('friendChatInput');
+    var friendChatSend = document.getElementById('friendChatSend');
+    var friendChatHint = document.getElementById('friendChatHint');
+    var friendChatActivePeer = '';
+    var friendChatSince = 0;
+    var friendChatAccum = [];
+    var friendChatPollTimer = null;
+    function stopFriendChatPoll() {
+      if (friendChatPollTimer) {
+        clearInterval(friendChatPollTimer);
+        friendChatPollTimer = null;
+      }
+    }
+    function renderFriendChatMessages(messages) {
+      if (!friendChatLog) return;
+      if (!messages || !messages.length) {
+        if (!friendChatLog.dataset.hadMsgs) {
+          friendChatLog.innerHTML =
+            '<li class="text-slate-500">No messages yet. Say hi!</li>';
+        }
+        return;
+      }
+      friendChatLog.dataset.hadMsgs = '1';
+      friendChatLog.innerHTML = messages
+        .map(function (m) {
+          var who = m.mine ? 'You' : friendChatActivePeer || '?';
+          var t = new Date(m.createdAt || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          return (
+            '<li><span class="text-slate-500">' +
+            t +
+            '</span> <span class="font-sem text-teal-200/90">' +
+            who +
+            ':</span> ' +
+            String(m.body || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;') +
+            '</li>'
+          );
+        })
+        .join('');
+      friendChatLog.scrollTop = friendChatLog.scrollHeight;
+    }
+    async function pullFriendChat() {
+      var tok = getToken();
+      if (!tok || !friendChatActivePeer) return;
+      try {
+        var q =
+          '/api/friends/chat/messages?friendUsername=' +
+          encodeURIComponent(friendChatActivePeer) +
+          '&since=' +
+          encodeURIComponent(String(friendChatSince || 0));
+        var data = await api(q, { headers: { Authorization: 'Bearer ' + tok } });
+        var msgs = data.messages || [];
+        for (var mi = 0; mi < msgs.length; mi++) {
+          var msg = msgs[mi];
+          if (!msg || !msg.id) continue;
+          var dup = false;
+          for (var dj = 0; dj < friendChatAccum.length; dj++) {
+            if (friendChatAccum[dj].id === msg.id) {
+              dup = true;
+              break;
+            }
+          }
+          if (!dup) friendChatAccum.push(msg);
+        }
+        friendChatAccum.sort(function (a, b) {
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        });
+        if (friendChatAccum.length > 250) {
+          friendChatAccum = friendChatAccum.slice(friendChatAccum.length - 250);
+        }
+        if (friendChatAccum.length) {
+          var lastM = friendChatAccum[friendChatAccum.length - 1];
+          if (lastM && lastM.createdAt) {
+            friendChatSince = Math.max(friendChatSince, Number(lastM.createdAt));
+          }
+        }
+        renderFriendChatMessages(friendChatAccum);
+      } catch (e) {
+        if (friendChatHint) {
+          friendChatHint.textContent = String(e.message || e);
+          friendChatHint.classList.remove('hidden');
+        }
+      }
+    }
+    function startFriendChatPoll(peer) {
+      stopFriendChatPoll();
+      friendChatActivePeer = peer;
+      friendChatSince = 0;
+      friendChatAccum = [];
+      if (friendChatLog) {
+        delete friendChatLog.dataset.hadMsgs;
+        friendChatLog.innerHTML = '<li class="text-slate-500">Loading…</li>';
+      }
+      if (friendChatHint) friendChatHint.classList.add('hidden');
+      void pullFriendChat();
+      friendChatPollTimer = setInterval(function () {
+        void pullFriendChat();
+      }, 3000);
+    }
+    if (friendChatLoad) {
+      friendChatLoad.addEventListener('click', function () {
+        var peer = String((friendChatPeer && friendChatPeer.value) || '').trim();
+        if (!peer) {
+          setFriendsErr('Enter a friend username for chat.', false);
+          return;
+        }
+        startFriendChatPoll(peer);
+      });
+    }
+    if (friendChatSend) {
+      friendChatSend.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        var peer = friendChatActivePeer || String((friendChatPeer && friendChatPeer.value) || '').trim();
+        var text = String((friendChatInput && friendChatInput.value) || '');
+        if (!peer) {
+          setFriendsErr('Open chat with a friend first.', false);
+          return;
+        }
+        if (!text.trim()) return;
+        try {
+          await api('/api/friends/chat/send', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toUsername: peer, text: text }),
+          });
+          if (friendChatInput) friendChatInput.value = '';
+          if (!friendChatActivePeer) startFriendChatPoll(peer);
+          else void pullFriendChat();
+        } catch (e) {
+          setFriendsErr(String(e.message || e), false);
+        }
+      });
+    }
+    if (btnFriendsClose) {
+      btnFriendsClose.addEventListener('click', function () {
+        stopFriendChatPoll();
+        friendChatActivePeer = '';
+      });
+    }
+
     if (friendBtnGiftCoins) {
       friendBtnGiftCoins.addEventListener('click', async function () {
         var tok = getToken();
