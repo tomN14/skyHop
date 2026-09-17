@@ -6,7 +6,12 @@ import {
 } from './campaign-run-sessions.js';
 import { banStatusForUser, assertAccountActive, effectiveRole, isAccountDisabled, ownerUsernameLower, parseBanDuration } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
-import { createDeleteToken, consumeDeleteToken } from './owner-delete.js';
+import {
+  createDeleteToken,
+  consumeDeleteToken,
+  consumeDeleteTokenPublic,
+  peekDeleteToken,
+} from './owner-delete.js';
 import { sendOwnerMail } from './mail.js';
 import { getShopItemById, SHOP_ITEMS } from './shop-catalog.js';
 import { store } from './store.js';
@@ -1414,12 +1419,12 @@ export async function handleApi(req, res) {
         text:
           `You requested permanent deletion of Sky Hop account "${target.username}".\n\n` +
           `This removes all stats and user levels. There is no restore.\n\n` +
-          `Confirm within 60 seconds (single use):\n${confirmUrl}\n\n` +
+          `Open this link within 60 seconds, then click the red button on the page:\n${confirmUrl}\n\n` +
           `If this was not you, ignore this email.`,
         html:
           `<p>You requested <strong>permanent deletion</strong> of Sky Hop account <strong>${target.username}</strong>.</p>` +
           `<p>This removes all stats and user levels. There is no restore.</p>` +
-          `<p><a href="${confirmUrl}">Confirm permanent deletion</a> (expires in 60 seconds, single use).</p>`,
+          `<p><a href="${confirmUrl}">Open deletion confirmation page</a> — then click <strong>Yes — delete permanently</strong> (expires 60 seconds after you started in Sky Hop).</p>`,
       });
       json(res, 200, {
         ok: true,
@@ -1432,35 +1437,90 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (pathname === '/api/owner/account-delete/confirm' && req.method === 'GET') {
-    const token = u.searchParams.get('token');
-    const consumed = consumeDeleteTokenPublic(token);
+  const deleteConfirmHtml = (title, bodyHtml, status = 200) => {
     const esc = (s) =>
       String(s || '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-    if (!consumed.ok) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
-      res.end(
-        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Deletion failed</h1><p>${esc(consumed.error)}</p></body></html>`
-      );
-      return true;
-    }
+    res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
+    res.end(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${esc(title)}</title></head>` +
+        `<body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem;max-width:32rem;margin:0 auto">` +
+        `<h1 style="color:#f87171">${esc(title)}</h1>${bodyHtml}</body></html>`
+    );
+  };
+
+  if (pathname === '/api/owner/account-delete/confirm' && req.method === 'GET') {
     try {
+      const token = u.searchParams.get('token');
+      const peek = peekDeleteToken(token);
+      if (!peek.ok) {
+        deleteConfirmHtml(
+          'Deletion failed',
+          `<p>${String(peek.error).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`,
+          400
+        );
+        return true;
+      }
+      const target = await store.findUserById(peek.targetUserId);
+      const name = target ? target.username : 'user #' + String(peek.targetUserId);
+      const escAttr = (s) =>
+        String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;');
+      deleteConfirmHtml(
+        'Confirm permanent deletion',
+        `<p>This permanently removes account <strong>${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</strong>, all stats, and their levels. There is no restore.</p>` +
+          `<p style="color:#94a3b8;font-size:0.9rem">Link expires 60 seconds after you started deletion in Sky Hop.</p>` +
+          `<form method="POST" action="/api/owner/account-delete/finalize" style="margin-top:1.5rem">` +
+          `<input type="hidden" name="token" value="${escAttr(token)}"/>` +
+          `<button type="submit" style="background:#be123c;color:#fff;border:none;padding:0.75rem 1.25rem;border-radius:0.75rem;font-size:1rem;font-weight:600;cursor:pointer">Yes — delete permanently</button>` +
+          `</form>`,
+        200
+      );
+    } catch (e) {
+      deleteConfirmHtml('Deletion failed', `<p>${String(e.message || e)}</p>`, 500);
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/account-delete/finalize' && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      let token = '';
+      const ctype = String(req.headers['content-type'] || '');
+      if (ctype.includes('application/x-www-form-urlencoded')) {
+        token = new URLSearchParams(raw).get('token') || '';
+      } else {
+        try {
+          const j = JSON.parse(raw || '{}');
+          token = j.token || '';
+        } catch {
+          token = '';
+        }
+      }
+      const consumed = consumeDeleteTokenPublic(token);
+      if (!consumed.ok) {
+        deleteConfirmHtml(
+          'Deletion failed',
+          `<p>${String(consumed.error).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`,
+          400
+        );
+        return true;
+      }
       const target = await store.findUserById(consumed.targetUserId);
       const name = target ? target.username : 'user';
       if (typeof store.deleteUserPermanently !== 'function') throw new Error('Not configured');
       await store.deleteUserPermanently(consumed.targetUserId);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
-      res.end(
-        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Account deleted</h1><p>Permanently removed <strong>${esc(name)}</strong> and their levels/stats.</p></body></html>`
+      deleteConfirmHtml(
+        'Account deleted',
+        `<p>Permanently removed <strong>${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</strong> and their levels/stats.</p>`,
+        200
       );
     } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8', ...CORS });
-      res.end(
-        `<!DOCTYPE html><html><body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem"><h1>Deletion failed</h1><p>${esc(String(e.message || e))}</p></body></html>`
-      );
+      deleteConfirmHtml('Deletion failed', `<p>${String(e.message || e)}</p>`, 500);
     }
     return true;
   }

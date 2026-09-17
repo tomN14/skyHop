@@ -550,7 +550,8 @@ export function createSupabaseStore() {
     },
 
     async deleteUserPermanently(userId) {
-      await sb.from('skyhop_user_levels').delete().eq('author_id', userId);
+      const { error: lvlErr } = await sb.from('skyhop_user_levels').delete().eq('author_id', userId);
+      if (lvlErr) throw new Error(lvlErr.message);
       const { error } = await sb.from('skyhop_users').delete().eq('id', userId);
       if (error) throw new Error(error.message);
     },
