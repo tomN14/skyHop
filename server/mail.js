@@ -24,7 +24,8 @@ export async function sendOwnerMail({ to, subject, html, text }) {
     });
     if (!r.ok) {
       const body = await r.text();
-      throw new Error('Email send failed: ' + body.slice(0, 200));
+      console.error('[Sky Hop mail] Resend HTTP', r.status, body.slice(0, 400));
+      throw new Error('Email send failed: ' + body.slice(0, 300));
     }
     return { ok: true, via: 'resend' };
   }

@@ -1361,28 +1361,28 @@ export async function handleApi(req, res) {
   }
 
   if (pathname === '/api/owner/account-delete/request' && req.method === 'POST') {
-    const sess = await getActiveSessionUser(req);
-    if (!sess) {
-      json(res, 401, { error: 'Not logged in' });
-      return true;
-    }
-    if (effectiveRole(sess.user) !== 'owner') {
-      json(res, 403, { error: 'Owner only' });
-      return true;
-    }
-    let body;
     try {
-      body = JSON.parse(await readBody(req));
-    } catch {
-      json(res, 400, { error: 'Invalid JSON' });
-      return true;
-    }
-    const un = String(body.username || '').trim();
-    if (!un) {
-      json(res, 400, { error: 'username required' });
-      return true;
-    }
-    try {
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Owner only' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const un = String(body.username || '').trim();
+      if (!un) {
+        json(res, 400, { error: 'username required' });
+        return true;
+      }
       const target = await store.findUserByUsername(un);
       if (!target) {
         json(res, 400, { error: 'User not found' });
@@ -1425,10 +1425,11 @@ export async function handleApi(req, res) {
         ok: true,
         message: 'Confirmation email sent. Open the link within 60 seconds to complete deletion.',
       });
+      return true;
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
+      return true;
     }
-    return true;
   }
 
   if (pathname === '/api/owner/account-delete/confirm' && req.method === 'GET') {

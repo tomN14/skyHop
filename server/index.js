@@ -116,13 +116,19 @@ const server = http.createServer((req, res) => {
     try {
       if (await handleApi(req, res)) return;
     } catch (e) {
-      console.error(e);
+      console.error('[Sky Hop API]', e);
+      const reqPath = (req.url && req.url.split('?')[0]) || '/';
+      const detail = String(e?.message || e || 'Server error').slice(0, 500);
       res.writeHead(500, {
         'Content-Type': 'application/json; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
-      res.end(JSON.stringify({ error: 'Server error' }));
+      res.end(
+        JSON.stringify({
+          error: reqPath.startsWith('/api') ? detail : 'Server error',
+        })
+      );
       return;
     }
     const reqPath = (req.url && req.url.split('?')[0]) || '/';
@@ -135,12 +141,18 @@ const server = http.createServer((req, res) => {
       if (req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', ...CORS });
         const ownerSet = !!String(process.env.SKYHOP_OWNER_USERNAME || '').trim();
+        const ownerEmailSet = !!String(process.env.SKYHOP_OWNER_EMAIL || '').trim();
+        const resendSet = !!String(
+          process.env.SKYHOP_RESEND_API_KEY || process.env.RESEND_API_KEY || ''
+        ).trim();
         res.end(
           JSON.stringify({
             ok: true,
             service: 'skyhop-race',
             /** True if SKYHOP_OWNER_USERNAME is non-empty (same process that runs /api). */
             ownerEnvConfigured: ownerSet,
+            ownerEmailConfigured: ownerEmailSet,
+            resendConfigured: resendSet,
           })
         );
         return;
