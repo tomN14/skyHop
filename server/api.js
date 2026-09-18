@@ -1927,7 +1927,7 @@ export async function handleApi(req, res) {
     }
   }
 
-  if (pathname === '/api/staff/signups' && req.method === 'GET') {
+  if ((pathname === '/api/staff/visits' || pathname === '/api/staff/signups') && req.method === 'GET') {
     const staff = await requireStaffSession(req);
     if (!staff) {
       json(res, 403, { error: 'Moderator or owner access required.' });
@@ -1942,12 +1942,10 @@ export async function handleApi(req, res) {
           : 7 * 24 * 60 * 60 * 1000;
     const sinceMs = Date.now() - ms;
     try {
-      if (typeof store.countUsersCreatedSince !== 'function') {
-        json(res, 501, { error: 'Signup metrics not available.' });
-        return true;
-      }
-      const count = await store.countUsersCreatedSince(sinceMs);
-      json(res, 200, { period: period === 'day' || period === 'month' ? period : 'week', sinceMs, signups: count });
+      const { countVisitsSince } = await import('./visit-stats.js');
+      const count = await countVisitsSince(sinceMs);
+      const periodOut = period === 'day' || period === 'month' ? period : 'week';
+      json(res, 200, { period: periodOut, sinceMs, visits: count, signups: count });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }

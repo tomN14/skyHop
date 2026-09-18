@@ -1,5 +1,5 @@
 /**
- * Moderator / owner dashboard: signups, user stats, level management.
+ * Moderator / owner dashboard: visits, user stats, level management.
  */
 (function () {
   var lastLookupUser = '';
@@ -46,23 +46,24 @@
 
   window.SkyHopUpdateModDashboardFab = updateFab;
 
-  async function refreshSignups() {
-    var sel = document.getElementById('modDashSignupPeriod');
-    var out = document.getElementById('modDashSignupCount');
+  async function refreshVisits() {
+    var sel = document.getElementById('modDashVisitPeriod');
+    var out = document.getElementById('modDashVisitCount');
     var period = sel ? sel.value : 'week';
     var tok = getToken();
     if (!tok) return;
     try {
-      var data = await api('/api/staff/signups?period=' + encodeURIComponent(period), {
+      var data = await api('/api/staff/visits?period=' + encodeURIComponent(period), {
         method: 'GET',
         headers: { Authorization: 'Bearer ' + tok },
       });
       if (out) {
         var label = period === 'day' ? '24 hours' : period === 'month' ? '30 days' : '7 days';
-        out.textContent = 'Sign-ups in the past ' + label + ': ' + String(data.signups != null ? data.signups : 0);
+        var n = data.visits != null ? data.visits : data.signups != null ? data.signups : 0;
+        out.textContent = 'Visits in the past ' + label + ': ' + String(n);
       }
     } catch (e) {
-      if (out) out.textContent = 'Sign-ups: ' + String(e.message || e);
+      if (out) out.textContent = 'Visits: ' + String(e.message || e);
     }
   }
 
@@ -226,7 +227,7 @@
     screen.classList.remove('hidden');
     screen.classList.add('flex');
     setErr('');
-    void refreshSignups();
+    void refreshVisits();
   }
 
   function closeDashboard() {
@@ -240,8 +241,8 @@
     var fab = document.getElementById('btnModDashboardFab');
     var close = document.getElementById('btnModDashboardClose');
     var lookup = document.getElementById('modDashLookup');
-    var refresh = document.getElementById('modDashRefreshSignups');
-    var period = document.getElementById('modDashSignupPeriod');
+    var refresh = document.getElementById('modDashRefreshVisits');
+    var period = document.getElementById('modDashVisitPeriod');
     var unInp = document.getElementById('modDashUsername');
 
     if (fab) fab.addEventListener('click', openDashboard);
@@ -250,11 +251,11 @@
       void lookupUser();
     });
     if (refresh) refresh.addEventListener('click', function () {
-      void refreshSignups();
+      void refreshVisits();
     });
     if (period) {
       period.addEventListener('change', function () {
-        void refreshSignups();
+        void refreshVisits();
       });
     }
     if (unInp) {

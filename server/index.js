@@ -105,6 +105,7 @@ function broadcastRoom(room, obj, exceptWs) {
 import { handleApi } from './api.js';
 import { store } from './store.js';
 import { isAccountDisabled } from './moderation.js';
+import { recordVisit } from './visit-stats.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -158,7 +159,12 @@ const server = http.createServer((req, res) => {
         return;
       }
     }
-    if (await serveStatic(req, res, reqPath)) return;
+    if (await serveStatic(req, res, reqPath)) {
+      if (req.method === 'GET' && (reqPath === '/' || reqPath === '/index.html')) {
+        void recordVisit().catch(() => {});
+      }
+      return;
+    }
     res.writeHead(404, CORS);
     res.end();
   };

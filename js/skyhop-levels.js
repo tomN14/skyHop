@@ -852,13 +852,13 @@
     }
   }
 
-  function applyLevelTitleCensor(showStatus) {
+  function applyLevelTitleCensor(showStatus, live) {
     const el = document.getElementById('lvlEdTitle');
     if (!el) return '';
     if (typeof window.SkyHopCensorProfanity === 'function') {
       const cens = window.SkyHopCensorProfanity(el.value || '');
       if (cens.flagged) {
-        el.value = cens.text.trim() || '***';
+        el.value = live ? cens.text : cens.text.trim() || '***';
         if (showStatus && lvlEdStatus) {
           lvlEdStatus.textContent = 'Profanity in the title was censored.';
         }
@@ -1325,8 +1325,11 @@
     bindEditorCanvas();
     var lvlEdTitleInput = document.getElementById('lvlEdTitle');
     if (lvlEdTitleInput) {
+      lvlEdTitleInput.addEventListener('input', function () {
+        applyLevelTitleCensor(false, true);
+      });
       lvlEdTitleInput.addEventListener('blur', function () {
-        applyLevelTitleCensor(true);
+        applyLevelTitleCensor(true, false);
       });
     }
     window.addEventListener('skyhop-auth-changed', syncMyLevelsNav);
