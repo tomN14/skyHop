@@ -362,6 +362,14 @@
   };
 
   function bind() {
+    if (document.documentElement.dataset.skyhopAccountBound === '1') return;
+    document.documentElement.dataset.skyhopAccountBound = '1';
+
+    let authRefreshSeq = 0;
+    function bumpAuthRefresh() {
+      authRefreshSeq += 1;
+    }
+
     const screen = document.getElementById('screenAccount');
     const btnOpen = document.getElementById('btnOpenAccount');
     const btnClose = document.getElementById('btnAccountClose');
@@ -897,7 +905,13 @@
       }
     }
 
+    function clearGuestLoginFields() {
+      if (inpLoginPass) inpLoginPass.value = '';
+      if (inpRegPass) inpRegPass.value = '';
+    }
+
     async function refreshPanel() {
+      const refreshSeq = authRefreshSeq;
       setErr('');
       if (inpApiBase) {
         try {
@@ -931,6 +945,8 @@
           method: 'GET',
           headers: { Authorization: 'Bearer ' + tok },
         });
+        if (refreshSeq !== authRefreshSeq) return;
+        if (getToken() !== tok) return;
         window.__skyhopLastMe = me;
         if (accGuest) accGuest.classList.add('hidden');
         if (accLogged) accLogged.classList.remove('hidden');
@@ -944,7 +960,11 @@
             accUserLabel.className = 'font-semibold text-violet-200';
           }
         }
-        setAuth(tok, me.username);
+        try {
+          if (me.username) localStorage.setItem(LS_USER, me.username);
+        } catch {
+          /* */
+        }
         renderStats(me.stats);
         renderAchievements(me.achievements);
         void refreshSkinUi(me);
@@ -965,7 +985,10 @@
         }
         if (!getToken()) return;
       } catch (e) {
+        if (refreshSeq !== authRefreshSeq) return;
+        if (getToken() !== tok) return;
         setAuth(null, null);
+        clearGuestLoginFields();
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
@@ -1126,6 +1149,7 @@
     }
 
     window.SkyHopTosOnLogout = async function () {
+      bumpAuthRefresh();
       const tok = getToken();
       try {
         if (tok) {
@@ -1141,20 +1165,28 @@
         window.SkyHopTosClearSessionAcceptance();
       }
       setAuth(null, null);
+      clearGuestLoginFields();
       await refreshPanel();
     };
 
     if (btnLogin) {
       btnLogin.addEventListener('click', async function () {
         setErr('');
+        const loginUser = String((inpLoginUser && inpLoginUser.value) || '').trim();
+        const loginPass = inpLoginPass ? inpLoginPass.value : '';
+        if (!loginUser || !loginPass) {
+          setErr('Enter both username and password.');
+          return;
+        }
         try {
           const data = await api('/api/login', {
             method: 'POST',
             body: JSON.stringify({
-              username: (inpLoginUser && inpLoginUser.value) || '',
-              password: (inpLoginPass && inpLoginPass.value) || '',
+              username: loginUser,
+              password: loginPass,
             }),
           });
+          bumpAuthRefresh();
           setAuth(data.token, data.username);
           if (inpLoginPass) inpLoginPass.value = '';
           if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
@@ -1174,14 +1206,25 @@
     if (btnRegister) {
       btnRegister.addEventListener('click', async function () {
         setErr('');
+        const regUser = String((inpRegUser && inpRegUser.value) || '').trim();
+        const regPass = inpRegPass ? inpRegPass.value : '';
+        if (!regUser || !regPass) {
+          setErr('Enter both username and password.');
+          return;
+        }
+        if (regPass.length < 6) {
+          setErr('Password must be at least 6 characters.');
+          return;
+        }
         try {
           const data = await api('/api/register', {
             method: 'POST',
             body: JSON.stringify({
-              username: (inpRegUser && inpRegUser.value) || '',
-              password: (inpRegPass && inpRegPass.value) || '',
+              username: regUser,
+              password: regPass,
             }),
           });
+          bumpAuthRefresh();
           setAuth(data.token, data.username);
           if (inpRegPass) inpRegPass.value = '';
           if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
@@ -1196,6 +1239,7 @@
 
     if (btnLogout) {
       btnLogout.addEventListener('click', async function () {
+        bumpAuthRefresh();
         const tok = getToken();
         setErr('');
         try {
@@ -1212,7 +1256,22 @@
           window.SkyHopTosClearSessionAcceptance();
         }
         setAuth(null, null);
+        clearGuestLoginFields();
         await refreshPanel();
+      });
+    }
+
+    if (inpLoginUser) {
+      inpLoginUser.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') e.preventDefault();
+      });
+    }
+    if (inpLoginPass) {
+      inpLoginPass.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && btnLogin) {
+          e.preventDefault();
+          btnLogin.click();
+        }
       });
     }
 
