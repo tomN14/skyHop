@@ -97,7 +97,11 @@
         'flex min-h-[10rem] flex-col items-center justify-start rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:min-h-[11rem]';
       var it = itemAt(shopPage, slot);
       if (!it) {
-        cell.classList.add('opacity-40');
+        cell.classList.add('border-dashed', 'opacity-60');
+        var emptyLabel = document.createElement('p');
+        emptyLabel.className = 'mt-auto text-center text-[11px] font-medium uppercase tracking-wide text-slate-500';
+        emptyLabel.textContent = 'Empty slot';
+        cell.appendChild(emptyLabel);
         grid.appendChild(cell);
         continue;
       }
@@ -122,8 +126,8 @@
         btn.disabled = true;
         btn.className += ' opacity-50 cursor-not-allowed';
       } else {
-        btn.addEventListener('click', function (item, isOwned) {
-          return function () {
+        (function (item, isOwned) {
+          btn.addEventListener('click', function () {
             if (isOwned) {
               showConfirm(
                 'Confirm selling ' + (item.label || item.texture) + ' for ' + String(item.sellPrice) + ' coins?',
@@ -165,7 +169,7 @@
                 }
               );
             }
-          };
+          });
         })(it, has);
       }
       cell.appendChild(img);
