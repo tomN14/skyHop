@@ -25,6 +25,38 @@ const LEET = {
   '2': 'z',
 };
 
+/** Longer innocent words — allow live typing prefixes (e.g. ass → assume). */
+const SAFE_TYPING_WORDS = [
+  'assume',
+  'assumed',
+  'assumes',
+  'assuming',
+  'assu',
+  'assistant',
+  'assembly',
+  'assault',
+  'asset',
+  'assets',
+  'assign',
+  'assigned',
+  'association',
+  'pass',
+  'passage',
+  'passenger',
+  'classic',
+  'bass',
+  'mass',
+  'massive',
+  'grass',
+  'glass',
+  'brass',
+  'compass',
+  'success',
+  'address',
+  'passion',
+  'passive',
+];
+
 const BLOCK_WORDS = new Set([
   'ass',
   'asshole',
@@ -202,6 +234,18 @@ function neuralFeaturize(token) {
   return f;
 }
 
+function isInnocentTypingPrefix(lettersOnly) {
+  if (!lettersOnly) return true;
+  for (const safe of SAFE_TYPING_WORDS) {
+    if (safe.startsWith(lettersOnly) && lettersOnly.length < safe.length) return true;
+  }
+  return false;
+}
+
+function isMaskOnlyToken(compact) {
+  return /^[*._\-~]+$/.test(compact);
+}
+
 function neuralProfaneScore(token) {
   const x = neuralFeaturize(token);
   const h = new Float32Array(NN_HID);
@@ -215,9 +259,18 @@ function neuralProfaneScore(token) {
   return 1 / (1 + Math.exp(-o));
 }
 
-function tokenProfane(token) {
+function tokenProfane(token, strict) {
   const compact = String(token || '').trim().replace(/\s/g, '');
   if (!compact) return false;
+  if (isMaskOnlyToken(compact)) return false;
+
+  const lettersOnly = normalizeToken(compact.replace(/[*._\-~]/g, ''));
+  const hasMask = /[*._\-~]/.test(compact);
+
+  if (!strict) {
+    if (lettersOnly.length < 3 && !hasMask) return false;
+    if (!hasMask && isInnocentTypingPrefix(lettersOnly)) return false;
+  }
 
   const m = /^([a-zA-Z0-9@#€$+!|]+)([*._\-~]*)$/i.exec(compact);
   if (m) {
@@ -225,7 +278,10 @@ function tokenProfane(token) {
     const obfSuffix = m[2];
 
     for (const w of BLOCK_WORDS) {
-      if (normLetters === w) return true;
+      if (normLetters === w) {
+        if (!strict && isInnocentTypingPrefix(normLetters)) continue;
+        return true;
+      }
       if (normLetters.length > w.length && normLetters.startsWith(w)) continue;
       if (
         obfSuffix.length > 0 &&
@@ -238,7 +294,7 @@ function tokenProfane(token) {
     }
   }
 
-  if (/[*._\-~]/.test(compact)) {
+  if (hasMask) {
     const built = obfuscationMaskRegex(compact);
     if (built) {
       const re = new RegExp(built.pattern, 'i');
@@ -249,17 +305,17 @@ function tokenProfane(token) {
     if (maskedAfterPrefixProfane(compact)) return true;
   }
 
-  const lettersOnly = normalizeToken(compact.replace(/[*._\-~]/g, ''));
   if (fuzzySubsequenceProfane(lettersOnly)) return true;
 
-  const hasMask = /[*._\-~]/.test(compact);
   if (
+    lettersOnly.length >= 4 &&
     (hasMask || lettersOnly.length <= 8) &&
     neuralProfaneScore(compact) >= NN_THRESHOLD
   ) {
     return true;
   }
 
+  if (!strict) return false;
   if (isBlockedWord(prepareForScan(compact))) return true;
   const parts = stripObfuscation(compact)
     .split(/[^a-zA-Z0-9@#']+/i)
@@ -270,12 +326,14 @@ function tokenProfane(token) {
   return false;
 }
 
-export function textContainsProfanity(chunk) {
+export function textContainsProfanity(chunk, opts) {
+  const strict = !opts || opts.strict !== false;
   const raw = String(chunk || '').trim();
   if (!raw) return false;
   for (const word of raw.split(/\s+/).filter(Boolean)) {
-    if (tokenProfane(word)) return true;
+    if (tokenProfane(word, strict)) return true;
   }
+  if (!strict) return false;
   if (isBlockedWord(prepareForScan(raw))) return true;
   const parts = stripObfuscation(raw)
     .split(/[^a-zA-Z0-9@#']+/i)
@@ -286,15 +344,16 @@ export function textContainsProfanity(chunk) {
   return false;
 }
 
-export function censorProfanity(text) {
+export function censorProfanity(text, opts) {
+  const strict = !opts || opts.strict !== false;
   const raw = String(text ?? '');
   if (!raw.trim()) return { text: raw, flagged: false };
 
-  if (!textContainsProfanity(raw)) return { text: raw, flagged: false };
+  if (!textContainsProfanity(raw, opts)) return { text: raw, flagged: false };
 
   let flagged = false;
   const replaced = raw.replace(/\S+/g, (word) => {
-    if (tokenProfane(word)) {
+    if (tokenProfane(word, strict)) {
       flagged = true;
       return '*'.repeat(Math.min(Math.max(word.length, 3), 24));
     }

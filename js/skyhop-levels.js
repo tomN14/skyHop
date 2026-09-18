@@ -856,7 +856,7 @@
     const el = document.getElementById('lvlEdTitle');
     if (!el) return '';
     if (typeof window.SkyHopCensorProfanity === 'function') {
-      const cens = window.SkyHopCensorProfanity(el.value || '');
+      const cens = window.SkyHopCensorProfanity(el.value || '', { strict: !live });
       if (cens.flagged) {
         el.value = live ? cens.text : cens.text.trim() || '***';
         if (showStatus && lvlEdStatus) {
