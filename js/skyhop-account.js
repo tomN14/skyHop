@@ -483,6 +483,7 @@
       const badge = document.getElementById('friendsFabBadge');
       if (!fab) return;
       fab.classList.remove('hidden');
+      fab.style.display = 'flex';
       if (!badge) return;
       const tok = getToken();
       if (!tok) {
@@ -974,6 +975,13 @@
       }
     }
 
+    function updateProfileBioCount() {
+      var bioEl = document.getElementById('accProfileBio');
+      var numEl = document.getElementById('accProfileBioCountNum');
+      if (!numEl) return;
+      numEl.textContent = String(bioEl ? bioEl.value.length : 0);
+    }
+
     function renderProfileUi(me) {
       var bioEl = document.getElementById('accProfileBio');
       var imgEl = document.getElementById('accProfileAvatar');
@@ -983,6 +991,7 @@
         msg.textContent = '';
       }
       if (bioEl && me) bioEl.value = me.profileBio || '';
+      updateProfileBioCount();
       if (imgEl) {
         if (me && me.profileAvatarUrl) {
           imgEl.src = me.profileAvatarUrl + (me.profileAvatarUrl.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
@@ -1231,6 +1240,10 @@
     var accProfileBio = document.getElementById('accProfileBio');
     var accProfileAvatarFile = document.getElementById('accProfileAvatarFile');
     var accProfileMsg = document.getElementById('accProfileMsg');
+    if (accProfileBio) {
+      accProfileBio.addEventListener('input', updateProfileBioCount);
+      updateProfileBioCount();
+    }
     function setProfileMsg(t, isErr) {
       if (!accProfileMsg) return;
       accProfileMsg.textContent = t || '';
