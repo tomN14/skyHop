@@ -465,6 +465,12 @@
       if (accStatDeathAvg) accStatDeathAvg.textContent = fmtAvgDeaths(st.avgDeaths);
     }
 
+    function updateModDashboardFab(me) {
+      if (typeof window.SkyHopUpdateModDashboardFab === 'function') {
+        window.SkyHopUpdateModDashboardFab(me);
+      }
+    }
+
     function updateModFab(me) {
       const fab = document.getElementById('btnModInbox');
       const badge = document.getElementById('modInboxBadge');
@@ -935,6 +941,7 @@
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
         updateFriendsFab(null);
+        updateModDashboardFab(null);
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
@@ -971,6 +978,7 @@
         renderProfileUi(me);
         if (typeof window.SkyHopRefreshCoinShop === 'function') window.SkyHopRefreshCoinShop();
         updateModFab(me);
+        updateModDashboardFab(me);
         updateFriendsFab(me);
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
@@ -993,6 +1001,7 @@
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
         updateFriendsFab(null);
+        updateModDashboardFab(null);
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -1980,6 +1989,7 @@
     }
 
     updateFriendsFab(null);
+    updateModDashboardFab(null);
     if (getToken()) void refreshPanel();
   }
 

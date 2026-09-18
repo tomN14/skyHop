@@ -3127,7 +3127,14 @@
   }
 
   function ensureGameShellVisible() {
-    const shellIds = ['screenMenu', 'screenLevelEditor', 'screenLevelsOnline', 'screenLevelsMine', 'screenAccount'];
+    const shellIds = [
+      'screenMenu',
+      'screenLevelEditor',
+      'screenLevelsOnline',
+      'screenLevelsMine',
+      'screenAccount',
+      'screenModDashboard',
+    ];
     const anyVisible = shellIds.some(function (id) {
       const el = document.getElementById(id);
       return el && !el.classList.contains('hidden');

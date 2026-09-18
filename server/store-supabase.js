@@ -34,6 +34,7 @@ function mapUser(row) {
     disabledAt: row.disabled_at != null ? Number(row.disabled_at) : null,
     profileBio: row.profile_bio ?? null,
     profileAvatarPath: row.profile_avatar_path ?? null,
+    createdAt: row.created_at != null ? Number(row.created_at) : null,
   };
 }
 
@@ -239,6 +240,16 @@ export function createSupabaseStore() {
         });
       }
       return out;
+    },
+
+    async countUsersCreatedSince(sinceMs) {
+      const since = Number(sinceMs) || 0;
+      const { count, error } = await sb
+        .from('skyhop_users')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', since);
+      if (error) throw new Error(error.message);
+      return count || 0;
     },
 
     async getRunsForUser(userId) {

@@ -34,6 +34,7 @@
     beatenOk: false,
     published: false,
     readOnly: false,
+    staffEdit: false,
   };
 
   /** When non-null, editor is editing built-in campaign slots (owner). */
@@ -653,8 +654,40 @@
       .replace(/"/g, '&quot;');
   }
 
+  async function openStaffLevelEditor(levelId, canEdit) {
+    lvlEdStatus.textContent = '';
+    ownerBuiltinArr = null;
+    try {
+      const row = await api('/api/staff/levels/' + encodeURIComponent(levelId));
+      editorState.id = row.id;
+      editorState.title = row.title;
+      editorState.published = !!row.published;
+      editorState.beatenOk = true;
+      editorState.staffEdit = !!canEdit && !!row.canEdit;
+      editorState.readOnly = !canEdit || !row.canEdit;
+      editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
+      if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
+      normalizeEditorLevelInPlace(editorState.data);
+      document.getElementById('lvlEdTitle').value = editorState.title;
+      var dash = document.getElementById('screenModDashboard');
+      if (dash) {
+        dash.classList.add('hidden');
+        dash.classList.remove('flex');
+      }
+      showMine(false);
+      showOnline(false);
+      showEditorScreen(true);
+      syncEditorUi();
+    } catch (e) {
+      lvlEdStatus.textContent = String(e.message || e);
+    }
+  }
+
+  window.SkyHopOpenStaffLevelEditor = openStaffLevelEditor;
+
   async function openEditorForId(id) {
     lvlEdStatus.textContent = '';
+    editorState.staffEdit = false;
     try {
       const row = await api('/api/levels/' + encodeURIComponent(id));
       editorState.id = row.id;
@@ -700,6 +733,23 @@
     const rt = document.getElementById('btnLvlEdRotate');
     const del = document.getElementById('btnLvlEdDelete');
     const tit = document.getElementById('lvlEdTitle');
+    if (editorState.staffEdit) {
+      if (sv) sv.disabled = !!ro;
+      if (te) te.disabled = !!ro;
+      if (rt) rt.disabled = !!ro;
+      if (del) del.disabled = !!ro;
+      if (tit) tit.readOnly = !!ro;
+      if (up) {
+        up.classList.add('opacity-40');
+        up.disabled = true;
+      }
+      if (st) {
+        st.textContent = ro
+          ? 'Staff: viewing level (read-only).'
+          : 'Staff edit — Save writes to this user’s level. Upload/Test hidden.';
+      }
+      return;
+    }
     if (ownerBuiltinArr) {
       if (sv) sv.disabled = false;
       if (te) te.disabled = false;
@@ -803,6 +853,44 @@
   }
 
   async function saveDraft() {
+    if (editorState.readOnly && !editorState.staffEdit) {
+      lvlEdStatus.textContent = 'Cannot edit a published level.';
+      return;
+    }
+    if (editorState.staffEdit && editorState.id && !editorState.readOnly) {
+      let title = (document.getElementById('lvlEdTitle').value || '').trim();
+      if (!title) {
+        lvlEdStatus.textContent = 'Level name required.';
+        return;
+      }
+      if (typeof window.SkyHopCensorProfanity === 'function') {
+        const cens = window.SkyHopCensorProfanity(title);
+        if (cens.flagged) {
+          title = cens.text.trim();
+          const titEl = document.getElementById('lvlEdTitle');
+          if (titEl) titEl.value = title;
+        }
+      }
+      const data = stagePayloadFromEditor(editorState.data);
+      try {
+        const saved = await api('/api/staff/levels/save', {
+          method: 'POST',
+          body: JSON.stringify({ levelId: editorState.id, title, data }),
+        });
+        if (saved && saved.title) {
+          title = String(saved.title);
+          document.getElementById('lvlEdTitle').value = title;
+        }
+        editorState.title = title;
+        lvlEdStatus.textContent = 'Staff save OK.';
+        if (typeof window.SkyHopModDashboardRefreshLevels === 'function') {
+          window.SkyHopModDashboardRefreshLevels();
+        }
+      } catch (e) {
+        lvlEdStatus.textContent = String(e.message || e);
+      }
+      return;
+    }
     if (editorState.readOnly) {
       lvlEdStatus.textContent = 'Cannot edit a published level.';
       return;

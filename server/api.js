@@ -76,6 +76,14 @@ function readBody(req) {
   });
 }
 
+async function requireStaffSession(req) {
+  const sess = await getActiveSessionUser(req);
+  if (!sess) return null;
+  const role = effectiveRole(sess.user);
+  if (role !== 'moderator' && role !== 'owner') return null;
+  return Object.assign({}, sess, { role });
+}
+
 async function getActiveSessionUser(req) {
   const h = req.headers.authorization;
   if (!h || typeof h !== 'string') return null;
@@ -1917,6 +1925,199 @@ export async function handleApi(req, res) {
       }
       return true;
     }
+  }
+
+  if (pathname === '/api/staff/signups' && req.method === 'GET') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    const period = String(u.searchParams.get('period') || 'week').toLowerCase();
+    const ms =
+      period === 'day'
+        ? 24 * 60 * 60 * 1000
+        : period === 'month'
+          ? 30 * 24 * 60 * 60 * 1000
+          : 7 * 24 * 60 * 60 * 1000;
+    const sinceMs = Date.now() - ms;
+    try {
+      if (typeof store.countUsersCreatedSince !== 'function') {
+        json(res, 501, { error: 'Signup metrics not available.' });
+        return true;
+      }
+      const count = await store.countUsersCreatedSince(sinceMs);
+      json(res, 200, { period: period === 'day' || period === 'month' ? period : 'week', sinceMs, signups: count });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/user-profile' && req.method === 'GET') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    const un = String(u.searchParams.get('username') || '').trim();
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(un);
+      if (!target) {
+        json(res, 404, { error: 'User not found' });
+        return true;
+      }
+      const role = effectiveRole(target);
+      const runs = await store.getRunsForUser(target.id);
+      const agg = aggregateRuns(runs);
+      const levels = await UserLevels.levelsStaffListForAuthor(target.id);
+      const publishedCount = levels.filter((L) => L.published).length;
+      json(res, 200, {
+        username: target.username,
+        role,
+        disabled: isAccountDisabled(target),
+        createdAt: target.createdAt != null ? target.createdAt : null,
+        isSiteOwner: role === 'owner',
+        canEditLevels: role !== 'owner',
+        stats: {
+          runCount: agg.runCount,
+          totalDeaths: agg.totalDeaths,
+          minDeaths: agg.minDeaths,
+          maxDeaths: agg.maxDeaths,
+          bestTimeMs: agg.bestTimeMs,
+          avgTimeMs: agg.avgTimeMs,
+          avgDeaths: agg.avgDeaths,
+        },
+        coins: target.coins != null ? Number(target.coins) : 0,
+        levelCount: levels.length,
+        publishedLevelCount: publishedCount,
+      });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/user-levels' && req.method === 'GET') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    const un = String(u.searchParams.get('username') || '').trim();
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(un);
+      if (!target) {
+        json(res, 404, { error: 'User not found' });
+        return true;
+      }
+      const role = effectiveRole(target);
+      const levels = await UserLevels.levelsStaffListForAuthor(target.id);
+      json(res, 200, {
+        username: target.username,
+        isSiteOwner: role === 'owner',
+        canEditLevels: role !== 'owner',
+        levels,
+      });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/staff\/levels\/([^/]+)$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const staff = await requireStaffSession(req);
+      if (!staff) {
+        json(res, 403, { error: 'Moderator or owner access required.' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const row = await UserLevels.levelsStaffGetById(m[1]);
+        if (!row) {
+          json(res, 404, { error: 'Not found' });
+          return true;
+        }
+        const author = await store.findUserById(row.authorId);
+        const authorRole = effectiveRole(author);
+        json(res, 200, Object.assign({}, row, {
+          authorUsername: author?.username || null,
+          isSiteOwnerLevel: authorRole === 'owner',
+          canEdit: authorRole !== 'owner',
+        }));
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/staff/levels/save' && req.method === 'POST') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const levelId = String(body.levelId || body.id || '').trim();
+    if (!uuidRe.test(levelId)) {
+      json(res, 400, { error: 'Invalid level id' });
+      return true;
+    }
+    try {
+      const titleCensored = censorProfanity(String(body.title || '')).text;
+      const out = await UserLevels.levelsStaffUpdate(levelId, titleCensored, body.data);
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/levels/delete' && req.method === 'POST') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const levelId = String(body.levelId || body.id || '').trim();
+    if (!uuidRe.test(levelId)) {
+      json(res, 400, { error: 'Invalid level id' });
+      return true;
+    }
+    try {
+      await UserLevels.levelsStaffDelete(levelId);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
   }
 
   if (pathname === '/api/levels/mine' && req.method === 'GET') {

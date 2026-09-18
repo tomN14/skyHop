@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { effectiveRole } from './moderation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LEVELS_PATH = path.join(__dirname, 'data', 'user_levels.json');
@@ -397,4 +398,111 @@ export async function levelsSearchName(q, page) {
     .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, author_id: L.author_id }));
   const enriched = await enrichAuthorMeta(slice);
   return { items: enriched, total, page: p };
+}
+
+async function authorIsSiteOwner(authorId) {
+  const { store } = await import('./store.js');
+  const u = await store.findUserById(authorId);
+  return effectiveRole(u) === 'owner';
+}
+
+export async function levelsStaffListForAuthor(authorId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data, error } = await sb
+      .from('skyhop_user_levels')
+      .select('id, title, published, beaten_verified, play_count, created_at')
+      .eq('author_id', authorId)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+  const db = fileLoad();
+  return db.levels
+    .filter((L) => L.author_id === authorId)
+    .sort((a, b) => b.created_at - a.created_at)
+    .map((L) => ({
+      id: L.id,
+      title: L.title,
+      published: L.published,
+      beaten_verified: L.beaten_verified,
+      play_count: L.play_count,
+      created_at: L.created_at,
+    }));
+}
+
+export async function levelsStaffGetById(levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error } = await sb.from('skyhop_user_levels').select('*').eq('id', levelId).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) return null;
+    return {
+      id: row.id,
+      title: row.title,
+      authorId: row.author_id,
+      data: row.data,
+      playCount: row.play_count,
+      published: row.published,
+      beatenVerified: !!row.beaten_verified,
+    };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((L) => L.id === levelId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    authorId: row.author_id,
+    data: row.data,
+    playCount: row.play_count,
+    published: row.published,
+    beatenVerified: !!row.beaten_verified,
+  };
+}
+
+export async function levelsStaffUpdate(levelId, title, data) {
+  const row = await levelsStaffGetById(levelId);
+  if (!row) throw new Error('Level not found');
+  if (await authorIsSiteOwner(row.authorId)) throw new Error('Site owner levels cannot be edited.');
+  const clean = validateLevelData(data);
+  const t = String(title || '').trim().slice(0, 80);
+  if (t.length < 1) throw new Error('Title required');
+
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { error } = await sb
+      .from('skyhop_user_levels')
+      .update({ title: t, title_lower: t.toLowerCase(), data: clean })
+      .eq('id', levelId);
+    if (error) throw new Error(error.message);
+    return { ok: true, title: t };
+  }
+  const db = fileLoad();
+  const L = db.levels.find((x) => x.id === levelId);
+  if (!L) throw new Error('Level not found');
+  L.title = t;
+  L.title_lower = t.toLowerCase();
+  L.data = clean;
+  fileSave(db);
+  return { ok: true, title: t };
+}
+
+export async function levelsStaffDelete(levelId) {
+  const row = await levelsStaffGetById(levelId);
+  if (!row) throw new Error('Level not found');
+  if (await authorIsSiteOwner(row.authorId)) throw new Error('Site owner levels cannot be deleted.');
+
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { error } = await sb.from('skyhop_user_levels').delete().eq('id', levelId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  }
+  const db = fileLoad();
+  const idx = db.levels.findIndex((L) => L.id === levelId);
+  if (idx < 0) throw new Error('Level not found');
+  db.levels.splice(idx, 1);
+  fileSave(db);
+  return { ok: true };
 }

@@ -249,6 +249,12 @@ export function createFileStore() {
       return out;
     },
 
+    async countUsersCreatedSince(sinceMs) {
+      const s = loadStore();
+      const since = Number(sinceMs) || 0;
+      return s.users.filter((u) => (u.createdAt != null ? Number(u.createdAt) : 0) >= since).length;
+    },
+
     async getRunsForUser(userId) {
       const s = loadStore();
       return s.runs.filter((r) => r.userId === userId);
