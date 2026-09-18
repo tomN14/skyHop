@@ -1,11 +1,21 @@
 /**
  * Coin shop: each item unlocks one texture filename (file must exist under textures/).
- * Players only see/equip skins they unlocked here or received as a grant (owner gift).
- *
- * Example entry (uncomment after adding the PNG):
- * { id: 'skin_neon', texture: 'neon.png', price: 400, label: 'Neon' },
+ * page: 1–3, slot: 0–5 (row-major in a 2×3 grid, top-left = 0).
  */
-export const SHOP_ITEMS = [];
+export const SHOP_PAGES = 3;
+export const SHOP_SLOTS_PER_PAGE = 6;
+
+export const SHOP_ITEMS = [
+  {
+    id: 'skin_mango',
+    texture: 'mango.png',
+    label: 'mango.png',
+    price: 150,
+    sellPrice: 100,
+    page: 1,
+    slot: 0,
+  },
+];
 
 /** @param {string} id */
 export function getShopItemById(id) {

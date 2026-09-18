@@ -319,6 +319,9 @@ wss.on('connection', (ws) => {
       let nx = null;
       let ny = null;
       let ng = null;
+      let nvx = null;
+      let nvy = null;
+      let nog = null;
       if (msg.x != null && msg.y != null) {
         nx = Math.max(-5e5, Math.min(5e5, Number(msg.x)));
         ny = Math.max(-5e5, Math.min(5e5, Number(msg.y)));
@@ -330,6 +333,15 @@ wss.on('connection', (ws) => {
       if (msg.g != null) {
         ng = Number(msg.g) < 0 ? -1 : 1;
       }
+      if (msg.vx != null && msg.vy != null) {
+        nvx = Math.max(-4000, Math.min(4000, Number(msg.vx)));
+        nvy = Math.max(-4000, Math.min(4000, Number(msg.vy)));
+        if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
+          nvx = null;
+          nvy = null;
+        }
+      }
+      if (msg.og != null) nog = !!msg.og;
       if (room.progress[playerId]) {
         room.progress[playerId].stage = st;
         room.progress[playerId].timeMs = msg.timeMs != null ? msg.timeMs : 0;
@@ -348,6 +360,11 @@ wss.on('connection', (ws) => {
           out.y = ny;
           out.g = ng != null ? ng : 1;
         }
+        if (nvx != null && nvy != null) {
+          out.vx = nvx;
+          out.vy = nvy;
+        }
+        if (nog != null) out.og = nog;
         send(c, out);
       }
       return;

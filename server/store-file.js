@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
+import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -37,6 +38,8 @@ function migrateUsersAndReports(s) {
     if (u.coins == null || !Number.isFinite(Number(u.coins))) u.coins = 0;
     if (!('skinTexture' in u)) u.skinTexture = null;
     if (!('disabledAt' in u)) u.disabledAt = null;
+    if (!('profileBio' in u)) u.profileBio = null;
+    if (!('profileAvatarPath' in u)) u.profileAvatarPath = null;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -204,13 +207,46 @@ export function createFileStore() {
       saveStore();
     },
 
-    async addRun(userId, timeMs, deaths, source) {
+    async addRun(userId, timeMs, deaths, source, difficulty) {
       const s = loadStore();
       const t = Math.max(0, Math.min(Number(timeMs) || 0, 48 * 60 * 60 * 1000));
       const d = Math.max(0, Math.min(Math.floor(Number(deaths) || 0), 1_000_000));
       const src = source === 'race' ? 'race' : 'campaign';
-      s.runs.push({ userId, timeMs: t, deaths: d, source: src, createdAt: Date.now() });
+      let diff = null;
+      if (src === 'campaign' && difficulty) {
+        const low = String(difficulty).toLowerCase();
+        if (low === 'easy' || low === 'normal' || low === 'hard') diff = low;
+      }
+      s.runs.push({ userId, timeMs: t, deaths: d, source: src, difficulty: diff, createdAt: Date.now() });
       saveStore();
+    },
+
+    async listCampaignLeaderboard(difficulty, limit = 10) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const s = loadStore();
+      const best = new Map();
+      for (const r of s.runs) {
+        if (r.source !== 'campaign' || r.difficulty !== diff) continue;
+        const prev = best.get(r.userId);
+        if (!prev || r.timeMs < prev.timeMs) {
+          best.set(r.userId, { userId: r.userId, timeMs: r.timeMs, deaths: r.deaths });
+        }
+      }
+      const rows = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of rows) {
+        const u = s.users.find((x) => x.id === row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
     },
 
     async getRunsForUser(userId) {
@@ -290,6 +326,48 @@ export function createFileStore() {
       if (!u) throw new Error('User not found');
       u.coins = Math.max(0, Math.floor((u.coins || 0) + Number(delta)));
       saveStore();
+    },
+
+    async setUserProfile(userId, { bio, avatarPath }) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      if (bio !== undefined) {
+        const b = bio == null ? null : String(bio).trim().slice(0, 500);
+        u.profileBio = b || null;
+      }
+      if (avatarPath !== undefined) {
+        u.profileAvatarPath = avatarPath == null ? null : String(avatarPath).slice(0, 240);
+      }
+      saveStore();
+    },
+
+    async uploadUserProfileAvatar(userId, buffer, contentType) {
+      if (buffer.length > MAX_AVATAR_BYTES) throw new Error('Avatar must be 512 KB or smaller.');
+      const ext = extFromContentType(contentType) || sniffImageExt(buffer);
+      if (!ext) throw new Error('File must be PNG, JPEG, WebP, or GIF.');
+      const dir = path.join(DATA_DIR, 'profile-avatars');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const rel = `${userId}/avatar.${ext === 'jpg' ? 'jpg' : ext}`;
+      const full = path.join(dir, `${userId}.${ext === 'jpg' ? 'jpg' : ext}`);
+      fs.writeFileSync(full, buffer);
+      await this.setUserProfile(userId, { avatarPath: rel });
+      return rel;
+    },
+
+    async createUserProfileSignedAvatarUpload() {
+      throw new Error('Signed storage upload requires Supabase.');
+    },
+
+    async getPublicProfileByUsername(username) {
+      const u = await this.findUserByUsername(username);
+      if (!u) return null;
+      return {
+        username: u.username,
+        bio: u.profileBio ?? null,
+        avatarPath: u.profileAvatarPath ?? null,
+        role: u.role ?? 'player',
+      };
     },
 
     async setUserSkinTexture(userId, fn) {
@@ -380,6 +458,15 @@ export function createFileStore() {
       s.textureGrants.push({ userId, filename: fn, at: Date.now() });
       saveStore();
       return true;
+    },
+
+    async removeTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      const s = loadStore();
+      const before = s.textureGrants.length;
+      s.textureGrants = s.textureGrants.filter((g) => !(g.userId === userId && g.filename === fn));
+      saveStore();
+      return s.textureGrants.length < before;
     },
 
     async transferCoins(fromUserId, toUserId, amount, opts) {
@@ -513,6 +600,15 @@ export function createFileStore() {
       s.friendChat = s.friendChat.filter((m) => m.fromUserId !== userId && m.toUserId !== userId);
       s.reports = s.reports.filter((r) => r.reporterId !== userId && r.reportedUserId !== userId);
       saveStore();
+      try {
+        const avDir = path.join(DATA_DIR, 'profile-avatars');
+        for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) {
+          const fp = path.join(avDir, `${userId}.${ext}`);
+          if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        }
+      } catch {
+        /* */
+      }
       const levelsPath = path.join(DATA_DIR, 'user_levels.json');
       if (fs.existsSync(levelsPath)) {
         try {

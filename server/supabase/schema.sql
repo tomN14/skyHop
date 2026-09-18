@@ -28,10 +28,14 @@ create table if not exists public.skyhop_runs (
   time_ms bigint not null,
   deaths integer not null,
   source text not null check (source in ('campaign', 'race')),
+  difficulty text check (difficulty is null or difficulty in ('easy', 'normal', 'hard')),
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
 );
 
 create index if not exists skyhop_runs_user_id_idx on public.skyhop_runs (user_id);
+create index if not exists skyhop_runs_campaign_diff_time_idx
+  on public.skyhop_runs (difficulty, time_ms)
+  where source = 'campaign' and difficulty is not null;
 
 create table if not exists public.skyhop_user_achievements (
   user_id bigint not null references public.skyhop_users (id) on delete cascade,
@@ -74,6 +78,8 @@ create index if not exists skyhop_reports_status_idx on public.skyhop_reports (s
 -- Coins, skins, server-stored built-in campaign, online coin claims (see extend_v2_coins_builtin.sql for ALTER on existing DBs)
 alter table public.skyhop_users add column if not exists coins bigint not null default 0;
 alter table public.skyhop_users add column if not exists skin_texture text;
+alter table public.skyhop_users add column if not exists profile_bio text;
+alter table public.skyhop_users add column if not exists profile_avatar_path text;
 alter table public.skyhop_users add column if not exists disabled_at bigint;
 
 create table if not exists public.skyhop_builtin_campaign (

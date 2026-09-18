@@ -563,6 +563,10 @@
             completedFullRun: true,
             stageCoinsCollected: campaignCoinsThisRun,
             campaignRunSessionId: sessionId || undefined,
+            difficulty:
+              menuDifficulty === 'easy' || menuDifficulty === 'normal' || menuDifficulty === 'hard'
+                ? menuDifficulty
+                : undefined,
           }
         : undefined;
     void window.SkyHopSubmitRun(getRunElapsedMs(), deaths, 'campaign', meta);
@@ -843,6 +847,9 @@
 
   function setMenuDifficulty(d) {
     menuDifficulty = d;
+    if (typeof window.SkyHopLeaderboardSetDiff === 'function') {
+      window.SkyHopLeaderboardSetDiff(d);
+    }
     syncDifficultyMenuUI();
   }
 
@@ -1935,17 +1942,40 @@
     if (!inRace) return;
     const peers = window.__skyhopMpPeers;
     if (!peers || typeof peers !== 'object') return;
-    const alpha = 1 - Math.exp(-Math.min(40, 14 * Math.max(0, dt || 0.001)));
+    const now = performance.now();
+    const sens = getSensitivity();
+    const O = runtimeOpts;
+    const step = Math.max(0.001, dt || 0.016);
+    const extrapCapSec = 0.14;
     for (const k of Object.keys(peers)) {
       const p = peers[k];
       if (p.lx == null || p.ly == null) continue;
       if (p.rx == null || p.ry == null) {
         p.rx = p.lx;
         p.ry = p.ly;
-        continue;
       }
-      p.rx += (p.lx - p.rx) * alpha;
-      p.ry += (p.ly - p.ry) * alpha;
+      let tx = p.lx;
+      let ty = p.ly;
+      if (p.recvAt != null) {
+        const ageSec = Math.min(extrapCapSec, Math.max(0, (now - p.recvAt) * 0.001));
+        const vx = Number(p.lvx) || 0;
+        const vy = Number(p.lvy) || 0;
+        tx = p.lx + vx * ageSec;
+        ty = p.ly + vy * ageSec;
+        const gDir = p.g != null ? (Number(p.g) < 0 ? -1 : 1) : 1;
+        if (!p.log && ageSec > 0.002) {
+          const grav = C.GRAVITY * gDir * sens * O.gravityMul;
+          ty += 0.5 * grav * ageSec * ageSec;
+        }
+      }
+      const dx = tx - p.rx;
+      const dy = ty - p.ry;
+      const dist = Math.hypot(dx, dy);
+      const snap = dist > 140;
+      const rate = snap ? 26 : 16;
+      const alpha = 1 - Math.exp(-Math.min(52, rate) * step);
+      p.rx += dx * alpha;
+      p.ry += dy * alpha;
     }
   }
 
@@ -3370,6 +3400,9 @@
         x: player.x,
         y: player.y,
         g: gravityDir,
+        vx: player.vx,
+        vy: player.vy,
+        og: !!player.onGround,
       };
     },
   };

@@ -3,6 +3,11 @@ import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { BAN_PERMANENT_MS, ownerUsernameLower } from './moderation.js';
+import {
+  createSignedAvatarUpload,
+  removeUserProfileStorage,
+  uploadProfileAvatar,
+} from './profile-storage.js';
 
 const SESSION_DAYS = 60;
 
@@ -27,6 +32,8 @@ function mapUser(row) {
     coins: row.coins != null ? Number(row.coins) : 0,
     skinTexture: row.skin_texture ?? null,
     disabledAt: row.disabled_at != null ? Number(row.disabled_at) : null,
+    profileBio: row.profile_bio ?? null,
+    profileAvatarPath: row.profile_avatar_path ?? null,
   };
 }
 
@@ -36,6 +43,7 @@ function mapRun(row) {
     timeMs: row.time_ms,
     deaths: row.deaths,
     source: row.source,
+    difficulty: row.difficulty ?? null,
     createdAt: row.created_at,
   };
 }
@@ -175,23 +183,69 @@ export function createSupabaseStore() {
       await sb.from('skyhop_sessions').delete().eq('token', token);
     },
 
-    async addRun(userId, timeMs, deaths, source) {
+    async addRun(userId, timeMs, deaths, source, difficulty) {
       const t = Math.max(0, Math.min(Number(timeMs) || 0, 48 * 60 * 60 * 1000));
       const d = Math.max(0, Math.min(Math.floor(Number(deaths) || 0), 1_000_000));
       const src = source === 'race' ? 'race' : 'campaign';
+      let diff = null;
+      if (src === 'campaign' && difficulty) {
+        const low = String(difficulty).toLowerCase();
+        if (low === 'easy' || low === 'normal' || low === 'hard') diff = low;
+      }
       const createdAt = Date.now();
-      const { error } = await sb.from('skyhop_runs').insert({
+      const row = {
         user_id: userId,
         time_ms: t,
         deaths: d,
         source: src,
         created_at: createdAt,
-      });
+      };
+      if (diff) row.difficulty = diff;
+      const { error } = await sb.from('skyhop_runs').insert(row);
       if (error) throw new Error(error.message);
     },
 
+    async listCampaignLeaderboard(difficulty, limit = 10) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const { data, error } = await sb
+        .from('skyhop_runs')
+        .select('user_id, time_ms, deaths')
+        .eq('source', 'campaign')
+        .eq('difficulty', diff)
+        .order('time_ms', { ascending: true })
+        .limit(8000);
+      if (error) throw new Error(error.message);
+      const best = new Map();
+      for (const r of data || []) {
+        const uid = Number(r.user_id);
+        const tm = Number(r.time_ms);
+        const prev = best.get(uid);
+        if (!prev || tm < prev.timeMs) {
+          best.set(uid, { userId: uid, timeMs: tm, deaths: Number(r.deaths) });
+        }
+      }
+      const sorted = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of sorted) {
+        const u = await this.findUserById(row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
+    },
+
     async getRunsForUser(userId) {
-      const { data, error } = await sb.from('skyhop_runs').select('user_id, time_ms, deaths, source, created_at').eq('user_id', userId);
+      const { data, error } = await sb
+        .from('skyhop_runs')
+        .select('user_id, time_ms, deaths, source, difficulty, created_at')
+        .eq('user_id', userId);
       if (error) throw new Error(error.message);
       return (data || []).map(mapRun);
     },
@@ -311,6 +365,41 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
     },
 
+    async setUserProfile(userId, { bio, avatarPath }) {
+      const patch = {};
+      if (bio !== undefined) {
+        const b = bio == null ? null : String(bio).trim().slice(0, 500);
+        patch.profile_bio = b || null;
+      }
+      if (avatarPath !== undefined) {
+        patch.profile_avatar_path = avatarPath == null ? null : String(avatarPath).slice(0, 240);
+      }
+      if (!Object.keys(patch).length) return;
+      const { error } = await sb.from('skyhop_users').update(patch).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async uploadUserProfileAvatar(userId, buffer, contentType) {
+      const path = await uploadProfileAvatar(sb, userId, buffer, contentType);
+      await this.setUserProfile(userId, { avatarPath: path });
+      return path;
+    },
+
+    async createUserProfileSignedAvatarUpload(userId, ext) {
+      return createSignedAvatarUpload(sb, userId, ext);
+    },
+
+    async getPublicProfileByUsername(username) {
+      const u = await this.findUserByUsername(username);
+      if (!u) return null;
+      return {
+        username: u.username,
+        bio: u.profileBio ?? null,
+        avatarPath: u.profileAvatarPath ?? null,
+        role: u.role ?? 'player',
+      };
+    },
+
     async getBuiltinCampaignStages() {
       const { data, error } = await sb.from('skyhop_builtin_campaign').select('stages').eq('id', 1).maybeSingle();
       if (error) throw new Error(error.message);
@@ -390,6 +479,18 @@ export function createSupabaseStore() {
         if (error.code === '23505') return false;
         throw new Error(error.message);
       }
+      return true;
+    },
+
+    async removeTextureGrant(userId, filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn) return false;
+      const { error } = await sb
+        .from('skyhop_user_texture_grants')
+        .delete()
+        .eq('user_id', userId)
+        .eq('texture_filename', fn);
+      if (error) throw new Error(error.message);
       return true;
     },
 
@@ -550,6 +651,11 @@ export function createSupabaseStore() {
     },
 
     async deleteUserPermanently(userId) {
+      try {
+        await removeUserProfileStorage(sb, userId);
+      } catch {
+        /* */
+      }
       const { error: lvlErr } = await sb.from('skyhop_user_levels').delete().eq('author_id', userId);
       if (lvlErr) throw new Error(lvlErr.message);
       const { error } = await sb.from('skyhop_users').delete().eq('id', userId);

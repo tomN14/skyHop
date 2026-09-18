@@ -317,7 +317,12 @@
       source: source === 'race' ? 'race' : 'campaign',
     };
     if (extra && typeof extra === 'object' && source !== 'race') {
-      payload.campaignCoinMeta = extra;
+      const coinMeta = Object.assign({}, extra);
+      if (coinMeta.difficulty) {
+        payload.difficulty = coinMeta.difficulty;
+        delete coinMeta.difficulty;
+      }
+      payload.campaignCoinMeta = coinMeta;
       if (extra.campaignRunSessionId) {
         payload.campaignRunSessionId = extra.campaignRunSessionId;
       }
@@ -328,6 +333,13 @@
       body: JSON.stringify(payload),
     })
       .then(function (data) {
+        if (typeof window.SkyHopRefreshLeaderboard === 'function') {
+          try {
+            window.SkyHopRefreshLeaderboard();
+          } catch {
+            /* */
+          }
+        }
         if (data && window.__skyhopLastMe) {
           if (data.coins != null) window.__skyhopLastMe.coins = data.coins;
           if (data.coinsInfinite != null) window.__skyhopLastMe.coinsInfinite = !!data.coinsInfinite;
@@ -932,7 +944,8 @@
         renderStats(me.stats);
         renderAchievements(me.achievements);
         void refreshSkinUi(me);
-        void renderCoinShop(me);
+        renderProfileUi(me);
+        if (typeof window.SkyHopRefreshCoinShop === 'function') window.SkyHopRefreshCoinShop();
         updateModFab(me);
         updateFriendsFab(me);
         const ownerTools = document.getElementById('ownerTools');
@@ -958,6 +971,30 @@
         setErr(String(e.message || e));
       }
     }
+
+    function renderProfileUi(me) {
+      var bioEl = document.getElementById('accProfileBio');
+      var imgEl = document.getElementById('accProfileAvatar');
+      var msg = document.getElementById('accProfileMsg');
+      if (msg) {
+        msg.classList.add('hidden');
+        msg.textContent = '';
+      }
+      if (bioEl && me) bioEl.value = me.profileBio || '';
+      if (imgEl) {
+        if (me && me.profileAvatarUrl) {
+          imgEl.src = me.profileAvatarUrl + (me.profileAvatarUrl.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+          imgEl.classList.remove('hidden');
+        } else {
+          imgEl.removeAttribute('src');
+          imgEl.classList.add('hidden');
+        }
+      }
+    }
+
+    window.refreshSkinUiFromMe = function (me) {
+      void refreshSkinUi(me);
+    };
 
     async function refreshSkinUi(me) {
       const sel = document.getElementById('accSkinSelect');
@@ -1187,6 +1224,74 @@
 
     var btnBanOk = document.getElementById('btnBanOk');
     if (btnBanOk) btnBanOk.addEventListener('click', hideBanScreen);
+
+    var accBtnSaveProfileBio = document.getElementById('accBtnSaveProfileBio');
+    var accProfileBio = document.getElementById('accProfileBio');
+    var accProfileAvatarFile = document.getElementById('accProfileAvatarFile');
+    var accProfileMsg = document.getElementById('accProfileMsg');
+    function setProfileMsg(t, isErr) {
+      if (!accProfileMsg) return;
+      accProfileMsg.textContent = t || '';
+      accProfileMsg.classList.toggle('hidden', !t);
+      accProfileMsg.classList.toggle('text-rose-300', !!isErr);
+      accProfileMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    if (accBtnSaveProfileBio) {
+      accBtnSaveProfileBio.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setProfileMsg('', false);
+        try {
+          await api('/api/me/profile', {
+            method: 'PATCH',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bio: (accProfileBio && accProfileBio.value) || '' }),
+          });
+          setProfileMsg('Bio saved.', false);
+          if (window.__skyhopLastMe) {
+            window.__skyhopLastMe.profileBio = accProfileBio ? accProfileBio.value : '';
+          }
+        } catch (e) {
+          setProfileMsg(String(e.message || e), true);
+        }
+      });
+    }
+    if (accProfileAvatarFile) {
+      accProfileAvatarFile.addEventListener('change', async function () {
+        var tok = getToken();
+        if (!tok || !accProfileAvatarFile.files || !accProfileAvatarFile.files[0]) return;
+        setProfileMsg('', false);
+        var file = accProfileAvatarFile.files[0];
+        if (file.size > 512 * 1024) {
+          setProfileMsg('Avatar must be 512 KB or smaller.', true);
+          accProfileAvatarFile.value = '';
+          return;
+        }
+        try {
+          var b64 = await new Promise(function (resolve, reject) {
+            var r = new FileReader();
+            r.onload = function () {
+              resolve(String(r.result || ''));
+            };
+            r.onerror = reject;
+            r.readAsDataURL(file);
+          });
+          var data = await api('/api/me/profile/avatar', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: b64, contentType: file.type }),
+          });
+          if (window.__skyhopLastMe) {
+            window.__skyhopLastMe.profileAvatarUrl = data.profileAvatarUrl;
+          }
+          renderProfileUi(window.__skyhopLastMe || { profileAvatarUrl: data.profileAvatarUrl });
+          setProfileMsg('Avatar updated.', false);
+        } catch (e) {
+          setProfileMsg(String(e.message || e), true);
+        }
+        accProfileAvatarFile.value = '';
+      });
+    }
 
     var accBtnSubmitReport = document.getElementById('accBtnSubmitReport');
     var accReportUser = document.getElementById('accReportUser');

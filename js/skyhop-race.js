@@ -539,6 +539,9 @@
               payload.y = st.y;
             }
             if (st.g != null) payload.g = st.g;
+            if (st.vx != null) payload.vx = st.vx;
+            if (st.vy != null) payload.vy = st.vy;
+            if (st.og != null) payload.og = st.og;
             ws.send(JSON.stringify(payload));
           } catch {
             /* */
@@ -553,11 +556,31 @@
       const prevStage = pr.stage;
       pr.name = msg.name;
       pr.finished = false;
+      const nowRecv = performance.now();
       if (msg.x != null && msg.y != null) {
+        const stageSnap = prevStage != null && prevStage !== msg.stage0;
+        if (
+          !stageSnap &&
+          pr.lx != null &&
+          pr.ly != null &&
+          pr.recvAt != null &&
+          msg.vx == null &&
+          msg.vy == null
+        ) {
+          const dtSec = Math.max(0.02, (nowRecv - pr.recvAt) * 0.001);
+          pr.lvx = (msg.x - pr.lx) / dtSec;
+          pr.lvy = (msg.y - pr.ly) / dtSec;
+        }
         pr.lx = msg.x;
         pr.ly = msg.y;
-        pr.g = msg.g != null ? (Number(msg.g) < 0 ? -1 : 1) : 1;
-        if (prevStage != null && prevStage !== msg.stage0) {
+        pr.g = msg.g != null ? (Number(msg.g) < 0 ? -1 : 1) : pr.g != null ? pr.g : 1;
+        if (msg.vx != null && msg.vy != null) {
+          pr.lvx = msg.vx;
+          pr.lvy = msg.vy;
+        }
+        if (msg.og != null) pr.log = !!msg.og;
+        pr.recvAt = nowRecv;
+        if (stageSnap) {
           pr.rx = msg.x;
           pr.ry = msg.y;
         }

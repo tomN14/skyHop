@@ -13,9 +13,10 @@ import {
   peekDeleteToken,
 } from './owner-delete.js';
 import { sendOwnerMail } from './mail.js';
-import { getShopItemById, SHOP_ITEMS } from './shop-catalog.js';
+import { getShopItemById, SHOP_ITEMS, SHOP_PAGES, SHOP_SLOTS_PER_PAGE } from './shop-catalog.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
+import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -99,6 +100,19 @@ async function bearerUserId(req) {
   return s ? s.userId : null;
 }
 
+function resolveProfileAvatarUrl(user, req) {
+  const p = user?.profileAvatarPath ?? user?.profile_avatar_path ?? null;
+  if (!p) return null;
+  if (process.env.SUPABASE_URL && !String(p).startsWith('file:')) {
+    return publicAvatarUrl(process.env.SUPABASE_URL, p);
+  }
+  const host = req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost';
+  const proto = req?.headers?.['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  const uid = user?.id;
+  if (uid == null) return null;
+  return `${proto}://${host}/api/profile/avatar-file/${uid}`;
+}
+
 async function enrichReports(rows) {
   const out = [];
   for (const r of rows) {
@@ -120,7 +134,7 @@ async function enrichReports(rows) {
   return out;
 }
 
-async function buildMePayload(userId) {
+async function buildMePayload(userId, req = null) {
   if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(userId);
   const user = await store.findUserById(userId);
   if (!user) return null;
@@ -171,6 +185,8 @@ async function buildMePayload(userId) {
     coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
     skinTexture: user.skinTexture ?? user.skin_texture ?? null,
+    profileBio: user.profileBio ?? user.profile_bio ?? null,
+    profileAvatarUrl: resolveProfileAvatarUrl(user, req),
     unlockedTextures,
     friendIncomingCount,
     modInboxCount,
@@ -271,13 +287,229 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    const me = await buildMePayload(uid);
+    const me = await buildMePayload(uid, req);
     if (!me) {
       json(res, 401, { error: 'Invalid session' });
       return true;
     }
     json(res, 200, me);
     return true;
+  }
+
+  if (pathname === '/api/me/profile' && req.method === 'PATCH') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    if (typeof store.setUserProfile !== 'function') {
+      json(res, 501, { error: 'Profiles not configured' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+      await store.setUserProfile(uid, { bio: body.bio });
+      const me = await buildMePayload(uid, req);
+      json(res, 200, { ok: true, profileBio: me.profileBio, profileAvatarUrl: me.profileAvatarUrl });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/me/profile/avatar' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (typeof store.uploadUserProfileAvatar !== 'function') {
+      json(res, 501, { error: 'Profile avatars not configured' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+      let contentType = String(req.headers['content-type'] || '').split(';')[0].trim();
+      let buf;
+      if (contentType.includes('application/json')) {
+        const body = JSON.parse(await readBody(req));
+        const b64 = String(body.imageBase64 || '').replace(/^data:[^;]+;base64,/, '');
+        buf = Buffer.from(b64, 'base64');
+        if (body.contentType) contentType = String(body.contentType);
+      } else {
+        json(res, 400, { error: 'Send JSON { imageBase64, contentType }.' });
+        return true;
+      }
+      if (!buf || !buf.length) {
+        json(res, 400, { error: 'Empty image body' });
+        return true;
+      }
+      if (buf.length > MAX_AVATAR_BYTES) {
+        json(res, 400, { error: 'Avatar must be 512 KB or smaller.' });
+        return true;
+      }
+      if (!sniffImageExt(buf)) {
+        json(res, 400, { error: 'File must be PNG, JPEG, WebP, or GIF.' });
+        return true;
+      }
+      const pathStored = await store.uploadUserProfileAvatar(uid, buf, contentType);
+      const user = await store.findUserById(uid);
+      json(res, 200, {
+        ok: true,
+        avatarPath: pathStored,
+        profileAvatarUrl: resolveProfileAvatarUrl(user, req),
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/me/profile/avatar-upload-url' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (typeof store.createUserProfileSignedAvatarUpload !== 'function') {
+      json(res, 501, { error: 'Signed upload requires Supabase Storage' });
+      return true;
+    }
+    let body = {};
+    try {
+      const raw = await readBody(req);
+      if (raw) body = JSON.parse(raw);
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+      const ext = extFromContentType(body.contentType) || 'webp';
+      const signed = await store.createUserProfileSignedAvatarUpload(uid, ext);
+      json(res, 200, {
+        ok: true,
+        bucket: 'skyhop-profiles',
+        path: signed.path,
+        signedUrl: signed.signedUrl,
+        token: signed.token,
+        folder: String(uid),
+        hint: 'Upload only to your folder via this signed URL, then POST /api/me/profile/avatar/confirm',
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/me/profile/avatar/confirm' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const pathStored = String(body.path || '').trim();
+    const folder = String(uid);
+    if (!pathStored.startsWith(`${folder}/`)) {
+      json(res, 403, { error: 'Path must be inside your profile folder.' });
+      return true;
+    }
+    if (typeof store.setUserProfile !== 'function') {
+      json(res, 501, { error: 'Profiles not configured' });
+      return true;
+    }
+    try {
+      await store.setUserProfile(uid, { avatarPath: pathStored });
+      const user = await store.findUserById(uid);
+      json(res, 200, { ok: true, profileAvatarUrl: resolveProfileAvatarUrl(user, req) });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/profile\/avatar-file\/(\d+)$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const uid = Number(m[1]);
+      if (!Number.isFinite(uid)) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const user = await store.findUserById(uid);
+        if (!user || !user.profileAvatarPath) {
+          json(res, 404, { error: 'No avatar' });
+          return true;
+        }
+        const rel = user.profileAvatarPath;
+        const ext = rel.split('.').pop() || 'png';
+        const full = path.join(__dirnameApi, 'data', 'profile-avatars', `${uid}.${ext}`);
+        if (!fs.existsSync(full)) {
+          json(res, 404, { error: 'No avatar file' });
+          return true;
+        }
+        const mime =
+          ext === 'png'
+            ? 'image/png'
+            : ext === 'webp'
+              ? 'image/webp'
+              : ext === 'gif'
+                ? 'image/gif'
+                : 'image/jpeg';
+        res.writeHead(200, { 'Content-Type': mime, ...CORS, 'Cache-Control': 'public, max-age=300' });
+        res.end(fs.readFileSync(full));
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/profile\/([^/]+)$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const un = decodeURIComponent(m[1]).trim();
+      if (!un || un.length > 24) {
+        json(res, 400, { error: 'Invalid username' });
+        return true;
+      }
+      if (typeof store.getPublicProfileByUsername !== 'function') {
+        json(res, 501, { error: 'Profiles not configured' });
+        return true;
+      }
+      try {
+        const p = await store.getPublicProfileByUsername(un);
+        if (!p) {
+          json(res, 404, { error: 'User not found' });
+          return true;
+        }
+        const user = await store.findUserByUsername(un);
+        json(res, 200, {
+          username: p.username,
+          bio: p.bio,
+          avatarUrl: user ? resolveProfileAvatarUrl(user, req) : null,
+          role: effectiveRole(user || {}),
+        });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
   }
 
   if (pathname === '/api/me/skin' && req.method === 'POST') {
@@ -394,7 +626,10 @@ export async function handleApi(req, res) {
       const prevCampaignBest =
         campaignBefore.length > 0 ? Math.min(...campaignBefore.map((r) => r.timeMs)) : null;
 
-      await store.addRun(uid, timeMs, deaths, source);
+      const diffRaw = body.difficulty != null ? String(body.difficulty).toLowerCase() : '';
+      const difficulty =
+        diffRaw === 'easy' || diffRaw === 'normal' || diffRaw === 'hard' ? diffRaw : undefined;
+      await store.addRun(uid, timeMs, deaths, source, difficulty);
 
       const runs = await store.getRunsForUser(uid);
       const achRows = await store.getAchievementsForUser(uid);
@@ -456,6 +691,25 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/leaderboard/campaign' && req.method === 'GET') {
+    const diff = String(u.searchParams.get('difficulty') || 'normal').toLowerCase();
+    if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+      json(res, 400, { error: 'difficulty must be easy, normal, or hard' });
+      return true;
+    }
+    if (typeof store.listCampaignLeaderboard !== 'function') {
+      json(res, 501, { error: 'Leaderboard not configured on this server.' });
+      return true;
+    }
+    try {
+      const rows = await store.listCampaignLeaderboard(diff, 10);
+      json(res, 200, { difficulty: diff, entries: rows });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/achievement-defs' && req.method === 'GET') {
     json(
       res,
@@ -496,9 +750,12 @@ export async function handleApi(req, res) {
         id: x.id,
         texture: x.texture,
         price: x.price,
+        sellPrice: x.sellPrice != null ? x.sellPrice : 0,
         label: x.label || x.texture,
+        page: x.page != null ? x.page : 1,
+        slot: x.slot != null ? x.slot : 0,
       }));
-      json(res, 200, { items });
+      json(res, 200, { items, pages: SHOP_PAGES, slotsPerPage: SHOP_SLOTS_PER_PAGE });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }
@@ -555,6 +812,68 @@ export async function handleApi(req, res) {
         unlockedTextures: me.unlockedTextures,
         coins: me.coins,
         coinsInfinite: !!me.coinsInfinite,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/shop/sell' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const item = getShopItemById(String(body.itemId || ''));
+    if (!item) {
+      json(res, 400, { error: 'Unknown shop item.' });
+      return true;
+    }
+    const sellPrice = Math.max(0, Math.floor(Number(item.sellPrice) || 0));
+    if (sellPrice <= 0) {
+      json(res, 400, { error: 'This item cannot be sold.' });
+      return true;
+    }
+    try {
+      if (typeof store.userHasTextureGrant !== 'function' || typeof store.removeTextureGrant !== 'function') {
+        json(res, 501, { error: 'Shop not configured.' });
+        return true;
+      }
+      if (!(await store.userHasTextureGrant(sess.userId, item.texture))) {
+        json(res, 400, { error: 'You do not own this skin.' });
+        return true;
+      }
+      const removed = await store.removeTextureGrant(sess.userId, item.texture);
+      if (!removed) {
+        json(res, 400, { error: 'Could not remove skin.' });
+        return true;
+      }
+      const u = await store.findUserById(sess.userId);
+      const equipped = u?.skinTexture ?? u?.skin_texture ?? null;
+      if (equipped && path.basename(String(equipped)) === item.texture) {
+        if (typeof store.setUserSkinTexture === 'function') {
+          await store.setUserSkinTexture(sess.userId, null);
+        }
+      }
+      const infinite = effectiveRole(sess.user) === 'owner';
+      if (!infinite) {
+        await store.incrementUserCoins(sess.userId, sellPrice);
+      }
+      const me = await buildMePayload(sess.userId, req);
+      json(res, 200, {
+        ok: true,
+        unlockedTextures: me.unlockedTextures,
+        coins: me.coins,
+        coinsInfinite: !!me.coinsInfinite,
+        sellPrice,
       });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
