@@ -750,6 +750,8 @@
       lvlEdStatus.textContent = 'Uploaded ' + ownerBuiltinArr.length + ' built-in stages. Reload to play.';
       ownerBuiltinArr = null;
       showEditorScreen(false);
+      showMine(true);
+      void refreshMineList();
       syncEditorUi();
     } catch (e) {
       lvlEdStatus.textContent = String(e.message || e);
@@ -840,29 +842,49 @@
       syncEditorUi();
       return;
     }
-    const title = (document.getElementById('lvlEdTitle').value || '').trim();
+    let title = (document.getElementById('lvlEdTitle').value || '').trim();
     if (!title) {
       lvlEdStatus.textContent = 'Level name required.';
       return;
     }
+    let titleWasCensored = false;
+    if (typeof window.SkyHopCensorProfanity === 'function') {
+      const cens = window.SkyHopCensorProfanity(title);
+      if (cens.flagged) {
+        titleWasCensored = true;
+        title = cens.text.trim();
+        const titEl = document.getElementById('lvlEdTitle');
+        if (titEl) titEl.value = title;
+      }
+    }
     const data = stagePayloadFromEditor(editorState.data);
     try {
       if (editorState.id) {
-        await api('/api/levels/save', {
+        const saved = await api('/api/levels/save', {
           method: 'POST',
           body: JSON.stringify({ id: editorState.id, title, data }),
         });
+        if (saved && saved.title) {
+          title = String(saved.title);
+          const titEl2 = document.getElementById('lvlEdTitle');
+          if (titEl2) titEl2.value = title;
+        }
       } else {
         const out = await api('/api/levels/save', {
           method: 'POST',
           body: JSON.stringify({ title, data }),
         });
         editorState.id = out.id;
+        if (out.title) {
+          title = String(out.title);
+          const titEl3 = document.getElementById('lvlEdTitle');
+          if (titEl3) titEl3.value = title;
+        }
       }
       editorState.title = title;
       editorState.beatenOk = false;
       editorState.published = false;
-      lvlEdStatus.textContent = 'Saved.';
+      lvlEdStatus.textContent = titleWasCensored ? 'Saved (profanity in title was censored).' : 'Saved.';
       syncEditorUi();
     } catch (e) {
       lvlEdStatus.textContent = String(e.message || e);
@@ -878,6 +900,7 @@
     try {
       await api('/api/levels/' + encodeURIComponent(editorState.id) + '/publish', { method: 'POST', body: '{}' });
       editorState.published = true;
+      editorState.readOnly = true;
       lvlEdStatus.textContent = 'Published!';
       syncEditorUi();
     } catch (e) {
@@ -922,6 +945,9 @@
           showEditorScreen(true);
           syncEditorUi();
           lvlEdStatus.textContent = 'Test complete. Upload is available after a successful beat.';
+          if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
+            window.SKYHOP.ensureGameShellVisible();
+          }
         },
       });
     }
@@ -1101,7 +1127,10 @@
           },
           onContinue: function () {
             showOnline(true);
-            onlineUserPanel.classList.remove('hidden');
+            if (onlineUserPanel) onlineUserPanel.classList.remove('hidden');
+            if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
+              window.SKYHOP.ensureGameShellVisible();
+            }
           },
         });
       }

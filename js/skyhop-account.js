@@ -1316,14 +1316,24 @@
         if (!tok) return;
         setProfileMsg('', false);
         try {
+          var rawBio = (accProfileBio && accProfileBio.value) || '';
+          var bioOut = rawBio;
+          var bioCensored = false;
+          if (typeof window.SkyHopCensorProfanity === 'function') {
+            var censBio = window.SkyHopCensorProfanity(rawBio);
+            bioOut = censBio.text;
+            bioCensored = censBio.flagged;
+            if (accProfileBio && bioCensored) accProfileBio.value = bioOut;
+            updateProfileBioCount();
+          }
           await api('/api/me/profile', {
             method: 'PATCH',
             headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bio: (accProfileBio && accProfileBio.value) || '' }),
+            body: JSON.stringify({ bio: bioOut }),
           });
-          setProfileMsg('Bio saved.', false);
+          setProfileMsg(bioCensored ? 'Bio saved (some language was censored).' : 'Bio saved.', false);
           if (window.__skyhopLastMe) {
-            window.__skyhopLastMe.profileBio = accProfileBio ? accProfileBio.value : '';
+            window.__skyhopLastMe.profileBio = bioOut;
           }
         } catch (e) {
           setProfileMsg(String(e.message || e), true);
@@ -1380,12 +1390,20 @@
         var tok = getToken();
         if (!tok) return;
         try {
+          var reportReason = String((accReportReason && accReportReason.value) || '').trim();
+          var reportCensored = false;
+          if (typeof window.SkyHopCensorProfanity === 'function') {
+            var censRep = window.SkyHopCensorProfanity(reportReason);
+            reportReason = censRep.text.trim();
+            reportCensored = censRep.flagged;
+            if (accReportReason && reportCensored) accReportReason.value = reportReason;
+          }
           await api('/api/reports', {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               reportedUsername: String((accReportUser && accReportUser.value) || '').trim(),
-              reason: String((accReportReason && accReportReason.value) || '').trim(),
+              reason: reportReason,
             }),
           });
           if (accReportUser) accReportUser.value = '';
@@ -1865,6 +1883,11 @@
           return;
         }
         if (!text.trim()) return;
+        if (typeof window.SkyHopCensorProfanity === 'function') {
+          var censChat = window.SkyHopCensorProfanity(text);
+          text = censChat.text;
+          if (friendChatInput && censChat.flagged) friendChatInput.value = text;
+        }
         try {
           await api('/api/friends/chat/send', {
             method: 'POST',

@@ -1996,8 +1996,12 @@
 
     if (player.onGround) player.springGravityScale = null;
 
-    const left = keys['ArrowLeft'] || keys['a'] || keys['A'];
-    const right = keys['ArrowRight'] || keys['d'] || keys['D'];
+    const worldMinX = 0;
+    const worldMaxX = Math.max(0, stage.worldW - player.w);
+    let left = keys['ArrowLeft'] || keys['a'] || keys['A'];
+    let right = keys['ArrowRight'] || keys['d'] || keys['D'];
+    if (player.x <= worldMinX + 0.5 && left) left = false;
+    if (player.x >= worldMaxX - 0.5 && right) right = false;
     if (right && !left) facing = 1;
     if (left && !right) facing = -1;
 
@@ -3122,6 +3126,19 @@
     syncLevelsTopNav();
   }
 
+  function ensureGameShellVisible() {
+    const shellIds = ['screenMenu', 'screenLevelEditor', 'screenLevelsOnline', 'screenLevelsMine', 'screenAccount'];
+    const anyVisible = shellIds.some(function (id) {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains('hidden');
+    });
+    if (!anyVisible) goToMenu();
+  }
+
+  function clearInputKeys() {
+    for (const k of Object.keys(keys)) keys[k] = false;
+  }
+
   function goToMenu() {
     const wasRacing = inRace;
     if (wasRacing) {
@@ -3231,6 +3248,11 @@
     if (e.code === 'KeyB') keys.KeyB = false;
   });
 
+  window.addEventListener('blur', clearInputKeys);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') clearInputKeys();
+  });
+
   btnPlay.addEventListener('click', () => {
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;
@@ -3334,6 +3356,7 @@
       } catch {
         /* */
       }
+      ensureGameShellVisible();
       return;
     }
     stageIndex++;
@@ -3389,6 +3412,8 @@
   window.SKYHOP = {
     beginRacing,
     startUserLevel,
+    ensureGameShellVisible,
+    goToMenu,
     isRacing: function () {
       return inRace;
     },

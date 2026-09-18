@@ -315,7 +315,8 @@ export async function handleApi(req, res) {
     }
     try {
       assertAccountActive(await store.findUserById(uid));
-      await store.setUserProfile(uid, { bio: body.bio });
+      const bioCensored = censorProfanity(body.bio != null ? String(body.bio) : '').text;
+      await store.setUserProfile(uid, { bio: bioCensored });
       const me = await buildMePayload(uid, req);
       json(res, 200, { ok: true, profileBio: me.profileBio, profileAvatarUrl: me.profileAvatarUrl });
     } catch (e) {
@@ -1229,7 +1230,7 @@ export async function handleApi(req, res) {
       return true;
     }
     const reportedUsername = String(body.reportedUsername || '').trim();
-    const reason = String(body.reason || '').trim();
+    const reason = censorProfanity(String(body.reason || '').trim()).text;
     if (reason.length < 3) {
       json(res, 400, { error: 'Please enter a reason (at least 3 characters).' });
       return true;
@@ -1954,12 +1955,13 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
+      const titleCensored = censorProfanity(String(body.title || '')).text;
       if (body.id && uuidRe.test(String(body.id))) {
-        await UserLevels.levelsUpdateDraft(uid, String(body.id), body.title, body.data);
-        json(res, 200, { id: String(body.id) });
+        await UserLevels.levelsUpdateDraft(uid, String(body.id), titleCensored, body.data);
+        json(res, 200, { id: String(body.id), title: titleCensored.trim().slice(0, 80) });
       } else {
-        const out = await UserLevels.levelsCreate(uid, body.title, body.data);
-        json(res, 201, out);
+        const out = await UserLevels.levelsCreate(uid, titleCensored, body.data);
+        json(res, 201, Object.assign({}, out, { title: titleCensored.trim().slice(0, 80) }));
       }
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
