@@ -218,7 +218,10 @@
     var yes = document.getElementById('shopConfirmYes');
     var no = document.getElementById('shopConfirmNo');
 
-    if (fab) fab.addEventListener('click', openShop);
+    if (fab) {
+      fab.classList.remove('hidden');
+      fab.addEventListener('click', openShop);
+    }
     if (close) close.addEventListener('click', closeShop);
     if (prev) {
       prev.addEventListener('click', function () {

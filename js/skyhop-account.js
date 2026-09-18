@@ -481,13 +481,14 @@
     function updateFriendsFab(me) {
       const fab = document.getElementById('btnFriendsFab');
       const badge = document.getElementById('friendsFabBadge');
-      if (!fab || !badge) return;
+      if (!fab) return;
+      fab.classList.remove('hidden');
+      if (!badge) return;
       const tok = getToken();
       if (!tok) {
-        fab.classList.add('hidden');
+        badge.classList.add('hidden');
         return;
       }
-      fab.classList.remove('hidden');
       const n = me && me.friendIncomingCount != null ? Number(me.friendIncomingCount) : 0;
       if (n > 0) {
         badge.textContent = n > 99 ? '99+' : String(n);
@@ -879,7 +880,10 @@
 
     async function loadFriendsPanel() {
       const tok = getToken();
-      if (!tok) return;
+      if (!tok) {
+        setFriendsErr('Log in from Account to use friends, chat, and gifts.', true);
+        return;
+      }
       setFriendsErr('', false);
       try {
         const bundle = await api('/api/friends', {
@@ -915,8 +919,7 @@
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
-        var ffabOut = document.getElementById('btnFriendsFab');
-        if (ffabOut) ffabOut.classList.add('hidden');
+        updateFriendsFab(null);
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
@@ -965,8 +968,7 @@
         if (accLogged) accLogged.classList.add('hidden');
         if (accGuest) accGuest.classList.remove('hidden');
         if (fab) fab.classList.add('hidden');
-        var ffabErr = document.getElementById('btnFriendsFab');
-        if (ffabErr) ffabErr.classList.add('hidden');
+        updateFriendsFab(null);
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -1882,6 +1884,7 @@
       });
     }
 
+    updateFriendsFab(null);
     if (getToken()) void refreshPanel();
   }
 

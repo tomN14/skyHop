@@ -3185,7 +3185,17 @@
     loadStage(stageIndex);
   }
 
+  function isTypingInFormField() {
+    const el = document.activeElement;
+    if (!el || el === document.body) return false;
+    const tag = el.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
   window.addEventListener('keydown', (e) => {
+    if (isTypingInFormField()) return;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
       e.preventDefault();
     }
@@ -3215,6 +3225,7 @@
     }
   });
   window.addEventListener('keyup', (e) => {
+    if (isTypingInFormField()) return;
     keys[e.key] = false;
     if (e.code === 'KeyS') keys.KeyS = false;
     if (e.code === 'KeyB') keys.KeyB = false;
