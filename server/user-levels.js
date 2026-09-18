@@ -191,6 +191,28 @@ export async function levelsMarkBeaten(userId, levelId) {
   return { ok: true };
 }
 
+export async function levelsDeleteOwned(userId, levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: e1 } = await sb
+      .from('skyhop_user_levels')
+      .select('author_id')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!row || row.author_id !== userId) throw new Error('Not found');
+    const { error } = await sb.from('skyhop_user_levels').delete().eq('id', levelId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  }
+  const db = fileLoad();
+  const idx = db.levels.findIndex((L) => L.id === levelId);
+  if (idx < 0 || db.levels[idx].author_id !== userId) throw new Error('Not found');
+  db.levels.splice(idx, 1);
+  fileSave(db);
+  return { ok: true };
+}
+
 export async function levelsPublish(userId, levelId) {
   if (useSupabase()) {
     const sb = sbClient();

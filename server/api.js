@@ -2133,6 +2133,40 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/levels/delete' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    const author = await store.findUserById(uid);
+    try {
+      assertAccountActive(author);
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const levelId = String(body.id || body.levelId || '').trim();
+    if (!uuidRe.test(levelId)) {
+      json(res, 400, { error: 'Invalid level id' });
+      return true;
+    }
+    try {
+      await UserLevels.levelsDeleteOwned(uid, levelId);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/levels/save' && req.method === 'POST') {
     const uid = await bearerUserId(req);
     if (!uid) {

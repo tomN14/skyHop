@@ -635,14 +635,47 @@
           '<button type="button" class="lvl-row-edit rounded-lg border border-violet-500/50 px-2 py-1 text-xs text-violet-100 hover:bg-violet-950/50" data-id="' +
           row.id +
           '">Edit</button>' +
-          (row.published ? '' : '') +
+          '<button type="button" class="lvl-row-delete rounded-lg border border-rose-500/50 px-2 py-1 text-xs text-rose-100 hover:bg-rose-950/50">Delete</button>' +
           '</div>';
         li.querySelector('.lvl-row-edit').addEventListener('click', () => openEditorForId(row.id));
+        li.querySelector('.lvl-row-delete').addEventListener('click', () => void deleteOwnLevel(row.id, row.title));
         mineList.appendChild(li);
       }
     } catch (e) {
       mineErr.textContent = String(e.message || e);
       mineErr.classList.remove('hidden');
+    }
+  }
+
+  async function deleteOwnLevel(levelId, titleHint) {
+    const name = String(titleHint || 'this level').trim() || 'this level';
+    if (
+      !window.confirm(
+        'Permanently delete "' +
+          name +
+          '"?\n\nThis cannot be undone. Published levels are removed from browse/search too.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await api('/api/levels/delete', {
+        method: 'POST',
+        body: JSON.stringify({ id: levelId }),
+      });
+      if (editorState.id === levelId) {
+        editorState.id = null;
+        showEditorScreen(false);
+        showMine(true);
+      }
+      await refreshMineList();
+    } catch (e) {
+      if (mineErr) {
+        mineErr.textContent = String(e.message || e);
+        mineErr.classList.remove('hidden');
+      } else {
+        window.alert(String(e.message || e));
+      }
     }
   }
 
@@ -732,7 +765,12 @@
     const te = document.getElementById('btnLvlEdTest');
     const rt = document.getElementById('btnLvlEdRotate');
     const del = document.getElementById('btnLvlEdDelete');
+    const delLvl = document.getElementById('btnLvlEdDeleteLevel');
     const tit = document.getElementById('lvlEdTitle');
+    if (delLvl) {
+      const showDelLvl = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.id;
+      delLvl.classList.toggle('hidden', !showDelLvl);
+    }
     if (editorState.staffEdit) {
       if (sv) sv.disabled = !!ro;
       if (te) te.disabled = !!ro;
@@ -1299,6 +1337,14 @@
       showMine(true);
       refreshMineList();
     });
+    const btnDelLvl = document.getElementById('btnLvlEdDeleteLevel');
+    if (btnDelLvl) {
+      btnDelLvl.addEventListener('click', () => {
+        if (!editorState.id || editorState.staffEdit || ownerBuiltinArr) return;
+        const tit = (document.getElementById('lvlEdTitle').value || editorState.title || '').trim();
+        void deleteOwnLevel(editorState.id, tit);
+      });
+    }
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
     document.getElementById('btnLvlEdTest').addEventListener('click', () => runTestPlay());
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
