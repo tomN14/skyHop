@@ -78,10 +78,12 @@ function squashSpacedLetters(text) {
   return String(text || '').replace(/\b((?:[a-zA-Z0-9]\s+){2,}[a-zA-Z0-9])\b/g, (m) => m.replace(/\s+/g, ''));
 }
 
-function tokenizeForScan(text) {
-  const squashed = squashSpacedLetters(text);
-  const parts = squashed.split(/[^a-zA-Z0-9']+/).filter(Boolean);
-  return parts;
+function stripObfuscation(text) {
+  return squashSpacedLetters(String(text || '')).replace(/[*._\-~]/g, '');
+}
+
+function prepareForScan(raw) {
+  return normalizeToken(stripObfuscation(raw).replace(/\s+/g, ''));
 }
 
 function isBlockedWord(normalized) {
@@ -96,6 +98,20 @@ function isBlockedWord(normalized) {
   return false;
 }
 
+/** @param {string} chunk */
+export function textContainsProfanity(chunk) {
+  const raw = String(chunk || '').trim();
+  if (!raw) return false;
+  if (isBlockedWord(prepareForScan(raw))) return true;
+  const parts = stripObfuscation(raw)
+    .split(/[^a-zA-Z0-9@#']+/i)
+    .filter(Boolean);
+  for (const p of parts) {
+    if (isBlockedWord(prepareForScan(p))) return true;
+  }
+  return false;
+}
+
 /**
  * @param {string} text
  * @returns {{ text: string, flagged: boolean }}
@@ -104,27 +120,22 @@ export function censorProfanity(text) {
   const raw = String(text ?? '');
   if (!raw.trim()) return { text: raw, flagged: false };
 
+  if (!textContainsProfanity(raw)) return { text: raw, flagged: false };
+
   let flagged = false;
-  const replaced = raw.replace(/[a-zA-Z0-9@#€$+!|()<']+(?:\s+[a-zA-Z0-9@#€$+!|()<']+)*/g, (segment) => {
-    const tokens = tokenizeForScan(segment);
-    let hit = false;
-    for (const t of tokens) {
-      const n = normalizeToken(t);
-      if (isBlockedWord(n)) {
-        hit = true;
-        break;
-      }
-    }
-    if (!hit) {
-      const whole = normalizeToken(segment.replace(/\s+/g, ''));
-      if (isBlockedWord(whole)) hit = true;
-    }
-    if (hit) {
+  const replaced = raw.replace(/\S+/g, (word) => {
+    if (textContainsProfanity(word)) {
       flagged = true;
-      return '*'.repeat(Math.min(Math.max(segment.length, 3), 24));
+      return '*'.repeat(Math.min(Math.max(word.length, 3), 24));
     }
-    return segment;
+    return word;
   });
 
-  return { text: replaced, flagged };
+  if (!flagged) {
+    flagged = true;
+    const masked = '*'.repeat(Math.min(Math.max(raw.trim().length, 3), 48));
+    return { text: masked, flagged: true };
+  }
+
+  return { text: replaced, flagged: true };
 }

@@ -852,24 +852,31 @@
     }
   }
 
+  function applyLevelTitleCensor(showStatus) {
+    const el = document.getElementById('lvlEdTitle');
+    if (!el) return '';
+    if (typeof window.SkyHopCensorProfanity === 'function') {
+      const cens = window.SkyHopCensorProfanity(el.value || '');
+      if (cens.flagged) {
+        el.value = cens.text.trim() || '***';
+        if (showStatus && lvlEdStatus) {
+          lvlEdStatus.textContent = 'Profanity in the title was censored.';
+        }
+      }
+    }
+    return String(el.value || '').trim();
+  }
+
   async function saveDraft() {
     if (editorState.readOnly && !editorState.staffEdit) {
       lvlEdStatus.textContent = 'Cannot edit a published level.';
       return;
     }
     if (editorState.staffEdit && editorState.id && !editorState.readOnly) {
-      let title = (document.getElementById('lvlEdTitle').value || '').trim();
+      let title = applyLevelTitleCensor(true);
       if (!title) {
         lvlEdStatus.textContent = 'Level name required.';
         return;
-      }
-      if (typeof window.SkyHopCensorProfanity === 'function') {
-        const cens = window.SkyHopCensorProfanity(title);
-        if (cens.flagged) {
-          title = cens.text.trim();
-          const titEl = document.getElementById('lvlEdTitle');
-          if (titEl) titEl.value = title;
-        }
       }
       const data = stagePayloadFromEditor(editorState.data);
       try {
@@ -930,21 +937,13 @@
       syncEditorUi();
       return;
     }
-    let title = (document.getElementById('lvlEdTitle').value || '').trim();
+    const titleBefore = (document.getElementById('lvlEdTitle').value || '').trim();
+    let title = applyLevelTitleCensor(true);
     if (!title) {
       lvlEdStatus.textContent = 'Level name required.';
       return;
     }
-    let titleWasCensored = false;
-    if (typeof window.SkyHopCensorProfanity === 'function') {
-      const cens = window.SkyHopCensorProfanity(title);
-      if (cens.flagged) {
-        titleWasCensored = true;
-        title = cens.text.trim();
-        const titEl = document.getElementById('lvlEdTitle');
-        if (titEl) titEl.value = title;
-      }
-    }
+    const titleWasCensored = title !== titleBefore || (typeof window.SkyHopTextContainsProfanity === 'function' && window.SkyHopTextContainsProfanity(titleBefore));
     const data = stagePayloadFromEditor(editorState.data);
     try {
       if (editorState.id) {
@@ -1324,6 +1323,12 @@
     });
 
     bindEditorCanvas();
+    var lvlEdTitleInput = document.getElementById('lvlEdTitle');
+    if (lvlEdTitleInput) {
+      lvlEdTitleInput.addEventListener('blur', function () {
+        applyLevelTitleCensor(true);
+      });
+    }
     window.addEventListener('skyhop-auth-changed', syncMyLevelsNav);
   }
 

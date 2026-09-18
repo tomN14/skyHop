@@ -5,6 +5,13 @@ import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { effectiveRole } from './moderation.js';
+import { censorProfanity } from './profanity-filter.js';
+
+function censoredTitle(title) {
+  const out = censorProfanity(String(title || '')).text.trim().slice(0, 80);
+  if (!out) throw new Error('Title required');
+  return out;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LEVELS_PATH = path.join(__dirname, 'data', 'user_levels.json');
@@ -92,8 +99,7 @@ async function enrichAuthorMeta(items) {
 
 export async function levelsCreate(userId, title, data) {
   const clean = validateLevelData(data);
-  const t = String(title || '').trim().slice(0, 80);
-  if (t.length < 1) throw new Error('Title required');
+  const t = censoredTitle(title);
   const now = Date.now();
 
   if (useSupabase()) {
@@ -135,8 +141,7 @@ export async function levelsCreate(userId, title, data) {
 
 export async function levelsUpdateDraft(userId, levelId, title, data) {
   const clean = validateLevelData(data);
-  const t = String(title || '').trim().slice(0, 80);
-  if (t.length < 1) throw new Error('Title required');
+  const t = censoredTitle(title);
 
   if (useSupabase()) {
     const sb = sbClient();
@@ -466,8 +471,7 @@ export async function levelsStaffUpdate(levelId, title, data) {
   if (!row) throw new Error('Level not found');
   if (await authorIsSiteOwner(row.authorId)) throw new Error('Site owner levels cannot be edited.');
   const clean = validateLevelData(data);
-  const t = String(title || '').trim().slice(0, 80);
-  if (t.length < 1) throw new Error('Title required');
+  const t = censoredTitle(title);
 
   if (useSupabase()) {
     const sb = sbClient();

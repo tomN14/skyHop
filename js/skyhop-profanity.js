@@ -1,5 +1,5 @@
 /**
- * Client-side profanity censor (matches server/profanity-filter.js). Server still re-censors on save.
+ * Client-side profanity censor (keep in sync with server/profanity-filter.js).
  */
 (function () {
   const LEET = {
@@ -51,8 +51,8 @@
   ]);
 
   function collapseRepeats(s) {
-    let out = '';
-    let prev = '';
+    var out = '';
+    var prev = '';
     for (var i = 0; i < s.length; i++) {
       var ch = s[i];
       if (ch !== prev) out += ch;
@@ -78,10 +78,12 @@
     });
   }
 
-  function tokenizeForScan(text) {
-    return squashSpacedLetters(text)
-      .split(/[^a-zA-Z0-9']+/)
-      .filter(Boolean);
+  function stripObfuscation(text) {
+    return squashSpacedLetters(String(text || '')).replace(/[*._\-~]/g, '');
+  }
+
+  function prepareForScan(raw) {
+    return normalizeToken(stripObfuscation(raw).replace(/\s+/g, ''));
   }
 
   function isBlockedWord(normalized) {
@@ -97,30 +99,44 @@
     return false;
   }
 
+  function textContainsProfanity(chunk) {
+    var raw = String(chunk || '').trim();
+    if (!raw) return false;
+    if (isBlockedWord(prepareForScan(raw))) return true;
+    var parts = stripObfuscation(raw)
+      .split(/[^a-zA-Z0-9@#']+/i)
+      .filter(Boolean);
+    for (var i = 0; i < parts.length; i++) {
+      if (isBlockedWord(prepareForScan(parts[i]))) return true;
+    }
+    return false;
+  }
+
   function censorProfanity(text) {
     var raw = String(text != null ? text : '');
     if (!raw.trim()) return { text: raw, flagged: false };
 
+    if (!textContainsProfanity(raw)) return { text: raw, flagged: false };
+
     var flagged = false;
-    var replaced = raw.replace(/[a-zA-Z0-9@#€$+!|()<']+(?:\s+[a-zA-Z0-9@#€$+!|()<']+)*/g, function (segment) {
-      var tokens = tokenizeForScan(segment);
-      var hit = false;
-      for (var i = 0; i < tokens.length; i++) {
-        if (isBlockedWord(normalizeToken(tokens[i]))) {
-          hit = true;
-          break;
-        }
-      }
-      if (!hit && isBlockedWord(normalizeToken(segment.replace(/\s+/g, '')))) hit = true;
-      if (hit) {
+    var replaced = raw.replace(/\S+/g, function (word) {
+      if (textContainsProfanity(word)) {
         flagged = true;
-        return '*'.repeat(Math.min(Math.max(segment.length, 3), 24));
+        return '*'.repeat(Math.min(Math.max(word.length, 3), 24));
       }
-      return segment;
+      return word;
     });
 
-    return { text: replaced, flagged: flagged };
+    if (!flagged) {
+      return {
+        text: '*'.repeat(Math.min(Math.max(raw.trim().length, 3), 48)),
+        flagged: true,
+      };
+    }
+
+    return { text: replaced, flagged: true };
   }
 
   window.SkyHopCensorProfanity = censorProfanity;
+  window.SkyHopTextContainsProfanity = textContainsProfanity;
 })();
