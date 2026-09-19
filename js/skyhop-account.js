@@ -951,6 +951,11 @@
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
+        try {
+          window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
+        } catch {
+          /* */
+        }
         return;
       }
       try {
@@ -990,6 +995,11 @@
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
         var btnOpenOwnerPage = document.getElementById('btnOpenOwnerPage');
         if (btnOpenOwnerPage) btnOpenOwnerPage.classList.toggle('hidden', me.role !== 'owner');
+        try {
+          window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
+        } catch {
+          /* */
+        }
         try {
           if (typeof window.SkyHopTosGateIfNeeded === 'function') {
             await window.SkyHopTosGateIfNeeded();
