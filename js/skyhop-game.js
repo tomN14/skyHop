@@ -2124,6 +2124,9 @@
     const tSec = now * 0.001;
     const sens = getSensitivity();
     const solidRects = PHY.buildSolidRects(stage, tSec);
+    const solidRectsX = PHY.buildSolidRectsForXResolve
+      ? PHY.buildSolidRectsForXResolve(stage, tSec, player)
+      : solidRects;
     const wallJumpRects = PHY.buildWallJumpRects(stage, tSec);
 
     projectileBurstFx = projectileBurstFx.filter((f) => now - f.t0 < 420);
@@ -2185,7 +2188,7 @@
     const wasFalling = player.vy * gravityDir > 0;
 
     player.x += player.vx * dt;
-    let hitX = PHY.solidCollide(solidRects, player.x, player.y, player.w, player.h);
+    let hitX = PHY.solidCollide(solidRectsX, player.x, player.y, player.w, player.h);
     let xIter = 0;
     while (hitX && xIter < 28) {
       xIter++;
@@ -2201,7 +2204,7 @@
         else player.x = hitX.x + hitX.w + 0.01;
       }
       player.vx = 0;
-      hitX = PHY.solidCollide(solidRects, player.x, player.y, player.w, player.h);
+      hitX = PHY.solidCollide(solidRectsX, player.x, player.y, player.w, player.h);
     }
 
     player.y += player.vy * dt;
@@ -2253,7 +2256,7 @@
       hitY = PHY.solidCollide(solidRects, player.x, player.y, player.w, player.h);
     }
 
-    if (player.onGround && gravityDir > 0) {
+    if (gravityDir > 0) {
       PHY.snapRiderToYMoverTopIfClose(stage, tSec, player);
     }
 

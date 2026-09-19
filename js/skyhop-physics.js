@@ -20,6 +20,59 @@
       return { x: p.x + off, y: p.y, w: p.w, h: p.h };
     },
 
+    moverAxisVelocity(p, tSec) {
+      const m = p.move;
+      if (!m) return { vx: 0, vy: 0 };
+      const phase = tSec * m.omega + (m.phase || 0);
+      const v = Math.cos(phase) * m.omega * m.amp;
+      if (m.axis === 'y') return { vx: 0, vy: v };
+      return { vx: v, vy: 0 };
+    },
+
+    rectsMatch(a, b) {
+      return (
+        Math.abs(a.x - b.x) < 0.5 &&
+        Math.abs(a.y - b.y) < 0.5 &&
+        Math.abs(a.w - b.w) < 0.5 &&
+        Math.abs(a.h - b.h) < 0.5
+      );
+    },
+
+    isRidingTopOfYMoverRect(player, r, slackX, slackYTop, slackYBelow) {
+      const pw = player.w;
+      const ph = player.h;
+      const feet = player.y + ph;
+      const midx = player.x + pw / 2;
+      const sx = slackX != null ? slackX : 14;
+      const syT = slackYTop != null ? slackYTop : 18;
+      const syB = slackYBelow != null ? slackYBelow : 44;
+      return (
+        midx >= r.x - sx &&
+        midx <= r.x + r.w + sx &&
+        feet >= r.y - syT &&
+        feet <= r.y + syB
+      );
+    },
+
+    /** Y-movers the player is standing on — skip their sides for horizontal resolve (prevents being shoved off). */
+    buildSolidRectsForXResolve(stage, tSec, player) {
+      const all = P.buildSolidRects(stage, tSec);
+      const skip = [];
+      const list = [];
+      for (const p of stage.platforms || []) {
+        if (p.move && p.move.axis === 'y') list.push(p);
+      }
+      for (const p of stage.movingPlatforms || []) {
+        if (p.move && p.move.axis === 'y') list.push(p);
+      }
+      for (const p of list) {
+        const r = P.resolveMovingRect(p, tSec);
+        if (P.isRidingTopOfYMoverRect(player, r)) skip.push(r);
+      }
+      if (!skip.length) return all;
+      return all.filter((r) => !skip.some((s) => P.rectsMatch(r, s)));
+    },
+
     buildSolidRects(stage, tSec) {
       const out = [];
       for (const p of stage.platforms) {
@@ -109,15 +162,21 @@
         const r0 = P.resolveMovingRect(p, t0);
         const r1 = P.resolveMovingRect(p, tSec);
         const yMover = p.move && p.move.axis === 'y';
-        const ySlackTop = yMover ? 12 : 3;
-        const ySlackIn = yMover ? 36 : 14;
-        const xPad = yMover ? 10 : 4;
-        const onTop =
+        const ySlackTop = yMover ? 18 : 3;
+        const ySlackIn = yMover ? 52 : 14;
+        const xPad = yMover ? 14 : 4;
+        const onR0 =
           midx >= r0.x - xPad &&
           midx <= r0.x + r0.w + xPad &&
           feet >= r0.y - ySlackTop &&
           feet <= r0.y + ySlackIn;
-        if (onTop) {
+        const onR1 =
+          yMover &&
+          midx >= r1.x - xPad &&
+          midx <= r1.x + r1.w + xPad &&
+          feet >= r1.y - ySlackTop &&
+          feet <= r1.y + ySlackIn;
+        if (onR0 || onR1) {
           dx += r1.x - r0.x;
           dy += r1.y - r0.y;
         }
@@ -133,18 +192,11 @@
     snapRiderToYMoverTopIfClose(stage, tSec, player) {
       const pw = player.w;
       const ph = player.h;
-      const feet = player.y + ph;
-      const midx = player.x + pw / 2;
       const edge = 2;
       const tryRider = (p) => {
         if (!p.move || p.move.axis !== 'y') return false;
         const r1 = P.resolveMovingRect(p, tSec);
-        const onTop =
-          midx >= r1.x - 12 &&
-          midx <= r1.x + r1.w + 12 &&
-          feet >= r1.y - 16 &&
-          feet <= r1.y + 40;
-        if (!onTop) return false;
+        if (!P.isRidingTopOfYMoverRect(player, r1)) return false;
         player.y = r1.y - ph - 0.01;
         const xMin = r1.x + edge;
         const xMax = r1.x + r1.w - pw - edge;
@@ -152,6 +204,9 @@
           if (player.x < xMin) player.x = xMin;
           else if (player.x > xMax) player.x = xMax;
         }
+        const mv = P.moverAxisVelocity(p, tSec);
+        if (mv.vy !== 0) player.vy = mv.vy;
+        player.onGround = true;
         return true;
       };
       for (const p of stage.platforms || []) {
