@@ -519,8 +519,20 @@
       }
     }
 
-    function showBanScreen(sh) {
+    var lastBanAppealCreds = null;
+
+    function showBanScreen(sh, creds) {
+      lastBanAppealCreds = creds || null;
       const el = document.getElementById('screenBan');
+      const appealBlock = document.getElementById('banAppealBlock');
+      const appealMsg = document.getElementById('banAppealMsg');
+      if (appealMsg) {
+        appealMsg.textContent = '';
+        appealMsg.classList.add('hidden');
+      }
+      if (appealBlock) {
+        appealBlock.classList.toggle('hidden', !lastBanAppealCreds);
+      }
       const perm = document.getElementById('banBodyPermanent');
       const temp = document.getElementById('banBodyTemp');
       const untilL = document.getElementById('banUntilLabel');
@@ -557,6 +569,45 @@
       if (!el) return;
       el.classList.add('hidden');
       el.classList.remove('flex');
+      lastBanAppealCreds = null;
+    }
+
+    var btnBanAppealSubmit = document.getElementById('btnBanAppealSubmit');
+    if (btnBanAppealSubmit) {
+      btnBanAppealSubmit.addEventListener('click', async function () {
+        var msgEl = document.getElementById('banAppealMsg');
+        var reasonEl = document.getElementById('banAppealReason');
+        if (!lastBanAppealCreds) {
+          if (msgEl) {
+            msgEl.textContent = 'Sign in with the banned account first (failed login).';
+            msgEl.classList.remove('hidden');
+            msgEl.classList.add('text-rose-300');
+          }
+          return;
+        }
+        var reason = reasonEl ? String(reasonEl.value || '').trim() : '';
+        try {
+          await api('/api/ban-appeal/submit', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: lastBanAppealCreds.username,
+              password: lastBanAppealCreds.password,
+              reason: reason,
+            }),
+          });
+          if (msgEl) {
+            msgEl.textContent = 'Appeal submitted. Moderators and the owner will vote.';
+            msgEl.classList.remove('hidden', 'text-rose-300');
+            msgEl.classList.add('text-emerald-200');
+          }
+        } catch (e) {
+          if (msgEl) {
+            msgEl.textContent = String(e.message || e);
+            msgEl.classList.remove('hidden');
+            msgEl.classList.add('text-rose-300');
+          }
+        }
+      });
     }
 
     async function refreshOwnerModList() {
@@ -627,12 +678,51 @@
           headers: { Authorization: 'Bearer ' + tok },
         });
         const reports = data.reports || [];
-        if (!reports.length) {
+        const appeals = data.appeals || [];
+        if (!reports.length && !appeals.length) {
           listEl.innerHTML =
             '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-500">No items.</li>';
           return;
         }
-        listEl.innerHTML = reports
+        var appealHtml = appeals
+          .map(function (a) {
+            var safe = function (s) {
+              return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/"/g, '&quot;');
+            };
+            var votes = a.votes || {};
+            return (
+              '<li class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-left text-sm">' +
+              '<p class="text-[11px] font-sem uppercase tracking-wide text-amber-300/90">Ban appeal</p>' +
+              '<p class="mt-1 text-slate-200"><strong>' +
+              safe(a.username) +
+              '</strong> <span class="text-slate-500">(user #' +
+              String(a.userId) +
+              ')</span></p>' +
+              '<p class="mt-2 whitespace-pre-wrap text-xs text-slate-300">' +
+              safe(a.reason) +
+              '</p>' +
+              '<p class="mt-2 text-[11px] text-slate-500">Votes — unban: ' +
+              String(votes.unban || 0) +
+              ' · keep ban: ' +
+              String(votes.keep_ban || 0) +
+              '</p>' +
+              '<div class="mt-2 flex flex-wrap gap-2">' +
+              '<button type="button" data-appeal-vote="unban" data-appeal-id="' +
+              safe(a.id) +
+              '" class="rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600">Vote unban</button>' +
+              '<button type="button" data-appeal-vote="keep_ban" data-appeal-id="' +
+              safe(a.id) +
+              '" class="rounded-lg bg-rose-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-600">Vote keep ban</button>' +
+              '</div></li>'
+            );
+          })
+          .join('');
+        listEl.innerHTML =
+          appealHtml +
+          reports
           .map(function (r) {
             var safe = function (s) {
               return String(s || '')
@@ -686,6 +776,29 @@
             );
           })
           .join('');
+
+        listEl.querySelectorAll('button[data-appeal-vote]').forEach(function (btn) {
+          btn.addEventListener('click', async function () {
+            var vote = btn.getAttribute('data-appeal-vote');
+            var aid = btn.getAttribute('data-appeal-id');
+            try {
+              var res = await api('/api/mod/appeals/' + encodeURIComponent(aid) + '/vote', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vote: vote }),
+              });
+              if (res.resolved === 'lifted') {
+                setModErr('Appeal resolved: user unbanned.', false);
+              } else if (res.resolved === 'upheld') {
+                setModErr('Appeal resolved: ban upheld.', false);
+              }
+              await refreshPanel();
+              await loadModInboxList();
+            } catch (err) {
+              setModErr(String(err.message || err));
+            }
+          });
+        });
 
         listEl.querySelectorAll('button[data-act]').forEach(function (btn) {
           btn.addEventListener('click', async function () {
@@ -1220,7 +1333,7 @@
           await refreshPanel();
         } catch (e) {
           if (e.skyhop && e.skyhop.banned) {
-            showBanScreen(e.skyhop);
+            showBanScreen(e.skyhop, { username: loginUser, password: loginPass });
             return;
           }
           setErr(String(e.message || e));

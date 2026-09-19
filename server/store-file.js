@@ -24,6 +24,8 @@ function defaultStore() {
     friendRequests: [],
     friendChat: [],
     siteContent: {},
+    banAppeals: [],
+    banAppealVotes: [],
     nextUserId: 1,
     nextRunId: 1,
   };
@@ -35,6 +37,8 @@ function migrateUsersAndReports(s) {
   if (!Array.isArray(s.friendRequests)) s.friendRequests = [];
   if (!Array.isArray(s.friendChat)) s.friendChat = [];
   if (!s.siteContent || typeof s.siteContent !== 'object') s.siteContent = {};
+  if (!Array.isArray(s.banAppeals)) s.banAppeals = [];
+  if (!Array.isArray(s.banAppealVotes)) s.banAppealVotes = [];
   for (const u of s.users) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
@@ -172,6 +176,15 @@ export function createFileStore() {
         u.banReason = null;
         saveStore();
       }
+    },
+
+    async clearUserBan(userId) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.banUntilMs = null;
+      u.banReason = null;
+      saveStore();
     },
 
     async applyBan(userId, banUntilMs, reason) {
@@ -851,6 +864,74 @@ export function createFileStore() {
       if (!k) throw new Error('Invalid content key');
       const s = loadStore();
       s.siteContent[k] = payload;
+      saveStore();
+    },
+
+    async createBanAppeal(userId, reason) {
+      const s = loadStore();
+      const open = s.banAppeals.find((a) => a.userId === userId && a.status === 'open');
+      if (open) throw new Error('You already have an open appeal.');
+      const row = {
+        id: crypto.randomUUID(),
+        userId,
+        reason: String(reason).slice(0, 4000),
+        status: 'open',
+        outcome: null,
+        createdAt: Date.now(),
+        resolvedAt: null,
+      };
+      s.banAppeals.push(row);
+      saveStore();
+      return row;
+    },
+
+    async getBanAppealById(id) {
+      const s = loadStore();
+      return s.banAppeals.find((a) => a.id === id) || null;
+    },
+
+    async listOpenBanAppeals() {
+      const s = loadStore();
+      return s.banAppeals
+        .filter((a) => a.status === 'open')
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async countOpenBanAppeals() {
+      const s = loadStore();
+      return s.banAppeals.filter((a) => a.status === 'open').length;
+    },
+
+    async listBanAppealVotes(appealId) {
+      const s = loadStore();
+      return s.banAppealVotes
+        .filter((v) => v.appealId === appealId)
+        .map((v) => ({
+          voterUserId: v.voterUserId,
+          vote: v.vote,
+          createdAt: v.createdAt,
+          username: s.users.find((u) => u.id === v.voterUserId)?.username || 'unknown',
+        }));
+    },
+
+    async upsertBanAppealVote(appealId, voterUserId, vote) {
+      const s = loadStore();
+      const v = vote === 'unban' ? 'unban' : 'keep_ban';
+      const idx = s.banAppealVotes.findIndex((x) => x.appealId === appealId && x.voterUserId === voterUserId);
+      const row = { appealId, voterUserId, vote: v, createdAt: Date.now() };
+      if (idx >= 0) s.banAppealVotes[idx] = row;
+      else s.banAppealVotes.push(row);
+      saveStore();
+      return row;
+    },
+
+    async setBanAppealResolved(appealId, status, outcome) {
+      const s = loadStore();
+      const a = s.banAppeals.find((x) => x.id === appealId);
+      if (!a) throw new Error('Appeal not found');
+      a.status = status;
+      a.outcome = outcome;
+      a.resolvedAt = Date.now();
       saveStore();
     },
   };

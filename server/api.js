@@ -29,6 +29,7 @@ import {
   validateTosPages,
   TOS_PAGE_SEP,
 } from './site-content.js';
+import { validateAppealReason, enrichAppeals, tryResolveAppeal, banStatusForUser as appealBanStatus } from './ban-appeals.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -221,6 +222,15 @@ async function buildMePayload(userId, req = null) {
       /* */
     }
   }
+  if (typeof store.countOpenBanAppeals === 'function') {
+    try {
+      const ac = await store.countOpenBanAppeals();
+      if (role === 'moderator') modInboxCount += ac;
+      if (role === 'owner') ownerInboxCount += ac;
+    } catch {
+      /* */
+    }
+  }
   const coinsInfinite = role === 'owner';
   let unlockedTextures = [];
   if (typeof store.listTextureGrantsForUser === 'function') {
@@ -301,6 +311,40 @@ export async function handleApi(req, res) {
       const user = await store.createUser(body.username, body.password);
       const { token } = await store.createSession(user.id);
       json(res, 201, { token, username: user.username });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/ban-appeal/submit' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    if (typeof store.createBanAppeal !== 'function') {
+      json(res, 501, { error: 'Appeals not configured.' });
+      return true;
+    }
+    try {
+      const user = await store.verifyUser(body.username, body.password);
+      if (!user) {
+        json(res, 401, { error: 'Invalid username or password.' });
+        return true;
+      }
+      if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(user.id);
+      const fresh = await store.findUserById(user.id);
+      const bs = appealBanStatus(fresh);
+      if (!bs.banned) {
+        json(res, 400, { error: 'This account is not suspended.' });
+        return true;
+      }
+      const reason = validateAppealReason(body.reason);
+      const row = await store.createBanAppeal(user.id, reason);
+      json(res, 200, { ok: true, appealId: row.id });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -1497,6 +1541,53 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  {
+    const m = /^\/api\/mod\/appeals\/([^/]+)\/vote$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const appealId = m[1];
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      const role = effectiveRole(sess.user);
+      if (role !== 'moderator' && role !== 'owner') {
+        json(res, 403, { error: 'Not allowed' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const voteRaw = String(body.vote || '').toLowerCase();
+      const vote = voteRaw === 'unban' || voteRaw === 'lift' ? 'unban' : 'keep_ban';
+      if (typeof store.upsertBanAppealVote !== 'function') {
+        json(res, 501, { error: 'Not available' });
+        return true;
+      }
+      try {
+        const appeal = await store.getBanAppealById(appealId);
+        if (!appeal || appeal.status !== 'open') {
+          json(res, 400, { error: 'Appeal not open.' });
+          return true;
+        }
+        if (appeal.userId === sess.userId) {
+          json(res, 400, { error: 'You cannot vote on your own appeal.' });
+          return true;
+        }
+        await store.upsertBanAppealVote(appealId, sess.userId, vote);
+        const resolved = await tryResolveAppeal(store, appealId);
+        json(res, 200, { ok: true, resolved: resolved || null });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
   if (pathname === '/api/mod/reports' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
@@ -1513,13 +1604,20 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
+      let reports = [];
+      let scope = 'pending';
       if (role === 'moderator') {
-        const rows = await store.listReportsByStatus('pending');
-        json(res, 200, { scope: 'pending', reports: await enrichReports(rows) });
+        scope = 'pending';
+        reports = await enrichReports(await store.listReportsByStatus('pending'));
       } else {
-        const rows = await store.listReportsByStatus('escalated');
-        json(res, 200, { scope: 'escalated', reports: await enrichReports(rows) });
+        scope = 'escalated';
+        reports = await enrichReports(await store.listReportsByStatus('escalated'));
       }
+      let appeals = [];
+      if (typeof store.listOpenBanAppeals === 'function') {
+        appeals = await enrichAppeals(store, await store.listOpenBanAppeals());
+      }
+      json(res, 200, { scope, reports, appeals });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }

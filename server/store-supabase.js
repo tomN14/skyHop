@@ -147,6 +147,11 @@ export function createSupabaseStore() {
       }
     },
 
+    async clearUserBan(userId) {
+      const { error } = await sb.from('skyhop_users').update({ ban_until_ms: null, ban_reason: null }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
     async applyBan(userId, banUntilMs, reason) {
       const u = await this.findUserById(userId);
       if (!u) throw new Error('User not found');
@@ -912,6 +917,113 @@ export function createSupabaseStore() {
       const { error } = await sb
         .from('skyhop_site_content')
         .upsert({ key: k, payload, updated_at: now }, { onConflict: 'key' });
+      if (error) throw new Error(error.message);
+    },
+
+    async createBanAppeal(userId, reason) {
+      const { data: open, error: e0 } = await sb
+        .from('skyhop_ban_appeals')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('status', 'open')
+        .maybeSingle();
+      if (e0) throw new Error(e0.message);
+      if (open) throw new Error('You already have an open appeal.');
+      const now = Date.now();
+      const { data, error } = await sb
+        .from('skyhop_ban_appeals')
+        .insert({ user_id: userId, reason: String(reason).slice(0, 4000), status: 'open', created_at: now })
+        .select('id, user_id, reason, status, outcome, created_at, resolved_at')
+        .single();
+      if (error) throw new Error(error.message);
+      return {
+        id: data.id,
+        userId: Number(data.user_id),
+        reason: data.reason,
+        status: data.status,
+        outcome: data.outcome,
+        createdAt: Number(data.created_at),
+        resolvedAt: data.resolved_at != null ? Number(data.resolved_at) : null,
+      };
+    },
+
+    async getBanAppealById(id) {
+      const { data, error } = await sb.from('skyhop_ban_appeals').select('*').eq('id', id).maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return null;
+      return {
+        id: data.id,
+        userId: Number(data.user_id),
+        reason: data.reason,
+        status: data.status,
+        outcome: data.outcome,
+        createdAt: Number(data.created_at),
+        resolvedAt: data.resolved_at != null ? Number(data.resolved_at) : null,
+      };
+    },
+
+    async listOpenBanAppeals() {
+      const { data, error } = await sb
+        .from('skyhop_ban_appeals')
+        .select('id, user_id, reason, status, outcome, created_at, resolved_at')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({
+        id: r.id,
+        userId: Number(r.user_id),
+        reason: r.reason,
+        status: r.status,
+        outcome: r.outcome,
+        createdAt: Number(r.created_at),
+        resolvedAt: r.resolved_at != null ? Number(r.resolved_at) : null,
+      }));
+    },
+
+    async countOpenBanAppeals() {
+      const { count, error } = await sb
+        .from('skyhop_ban_appeals')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'open');
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+
+    async listBanAppealVotes(appealId) {
+      const { data, error } = await sb
+        .from('skyhop_ban_appeal_votes')
+        .select('voter_user_id, vote, created_at')
+        .eq('appeal_id', appealId);
+      if (error) throw new Error(error.message);
+      const out = [];
+      for (const r of data || []) {
+        const u = await this.findUserById(Number(r.voter_user_id));
+        out.push({
+          voterUserId: Number(r.voter_user_id),
+          vote: r.vote,
+          createdAt: Number(r.created_at),
+          username: u ? u.username : 'unknown',
+        });
+      }
+      return out;
+    },
+
+    async upsertBanAppealVote(appealId, voterUserId, vote) {
+      const v = vote === 'unban' ? 'unban' : 'keep_ban';
+      const now = Date.now();
+      const { error } = await sb.from('skyhop_ban_appeal_votes').upsert(
+        { appeal_id: appealId, voter_user_id: voterUserId, vote: v, created_at: now },
+        { onConflict: 'appeal_id,voter_user_id' }
+      );
+      if (error) throw new Error(error.message);
+    },
+
+    async setBanAppealResolved(appealId, status, outcome) {
+      const now = Date.now();
+      const { error } = await sb
+        .from('skyhop_ban_appeals')
+        .update({ status, outcome, resolved_at: now })
+        .eq('id', appealId);
       if (error) throw new Error(error.message);
     },
   };

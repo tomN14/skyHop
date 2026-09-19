@@ -585,6 +585,22 @@
   let stageStartedAt = 0;
 
   const keys = {};
+  const keysByCode = {};
+
+  function kbDown(action) {
+    if (window.SkyHopKeybinds && typeof window.SkyHopKeybinds.isActionDown === 'function') {
+      return window.SkyHopKeybinds.isActionDown(action, keysByCode);
+    }
+    return false;
+  }
+
+  function kbCode(action, fallback) {
+    if (window.SkyHopKeybinds && typeof window.SkyHopKeybinds.getBinds === 'function') {
+      const b = window.SkyHopKeybinds.getBinds();
+      return b[action] || fallback;
+    }
+    return fallback;
+  }
 
   function bindTouchControl(id, keyNames) {
     const el = document.getElementById(id);
@@ -2159,14 +2175,15 @@
 
     const worldMinX = 0;
     const worldMaxX = Math.max(0, stage.worldW - player.w);
-    let left = keys['ArrowLeft'] || keys['a'] || keys['A'];
-    let right = keys['ArrowRight'] || keys['d'] || keys['D'];
+    let left = kbDown('left') || keys['ArrowLeft'] || keys['a'] || keys['A'];
+    let right = kbDown('right') || keys['ArrowRight'] || keys['d'] || keys['D'];
     if (player.x <= worldMinX + 0.5 && left) left = false;
     if (player.x >= worldMaxX - 0.5 && right) right = false;
     if (right && !left) facing = 1;
     if (left && !right) facing = -1;
 
     const wantJump =
+      kbDown('jump') ||
       keys[' '] ||
       keys['Space'] ||
       keys['Spacebar'] ||
@@ -2343,7 +2360,7 @@
     if (player.onGround) player.airJumpsUsed = 0;
 
     if (grappleUnlocked()) {
-      const gk = keys['Shift'] || keys['q'] || keys['Q'];
+      const gk = kbDown('grapple') || keys['Shift'] || keys['q'] || keys['Q'];
       const ox = player.x + player.w / 2;
       const oy = player.y + player.h / 2;
       const rdx = facing;
@@ -2417,8 +2434,8 @@
 
     if (tryCollectItemPickups()) return;
 
-    if (keys.KeyS) tryUseWoodenSword();
-    if (keys.KeyB) tryUseShield();
+    if (kbDown('sword') || keys.KeyS) tryUseWoodenSword();
+    if (kbDown('shield') || keys.KeyB) tryUseShield();
 
     if (spikeHit(stage, tSec)) die();
     if (lavaHit(stage)) die();
@@ -3323,6 +3340,7 @@
 
   function clearInputKeys() {
     for (const k of Object.keys(keys)) keys[k] = false;
+    for (const k of Object.keys(keysByCode)) keysByCode[k] = false;
   }
 
   function goToMenu() {
@@ -3421,7 +3439,10 @@
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
       e.preventDefault();
     }
-    if (gameState === 'weapon_modal' && (e.code === 'KeyS' || e.code === 'KeyB')) {
+    if (
+      gameState === 'weapon_modal' &&
+      (e.code === kbCode('sword', 'KeyS') || e.code === kbCode('shield', 'KeyB'))
+    ) {
       e.preventDefault();
     }
     if (gameState === 'weapon_modal' && (e.key === 'Escape' || e.key === 'Enter')) {
@@ -3430,12 +3451,16 @@
       return;
     }
     keys[e.key] = true;
-    if (e.code === 'KeyS') keys.KeyS = true;
-    if (e.code === 'KeyB') keys.KeyB = true;
+    keysByCode[e.code] = true;
+    if (e.code === kbCode('sword', 'KeyS')) keys.KeyS = true;
+    if (e.code === kbCode('shield', 'KeyB')) keys.KeyB = true;
     if (window.SkyHopInputLog && typeof window.SkyHopInputLog.noteKeyEvent === 'function') {
       window.SkyHopInputLog.noteKeyEvent(e, 'down');
     }
-    if (gameState === 'playing' && (e.code === 'KeyS' || e.code === 'KeyB')) {
+    if (
+      gameState === 'playing' &&
+      (e.code === kbCode('sword', 'KeyS') || e.code === kbCode('shield', 'KeyB'))
+    ) {
       e.preventDefault();
     }
     if (e.key === 'Escape') {
@@ -3452,8 +3477,9 @@
   window.addEventListener('keyup', (e) => {
     if (isTypingInFormField()) return;
     keys[e.key] = false;
-    if (e.code === 'KeyS') keys.KeyS = false;
-    if (e.code === 'KeyB') keys.KeyB = false;
+    keysByCode[e.code] = false;
+    if (e.code === kbCode('sword', 'KeyS')) keys.KeyS = false;
+    if (e.code === kbCode('shield', 'KeyB')) keys.KeyB = false;
     if (window.SkyHopInputLog && typeof window.SkyHopInputLog.noteKeyEvent === 'function') {
       window.SkyHopInputLog.noteKeyEvent(e, 'up');
     }
