@@ -130,6 +130,25 @@ async function bearerUserId(req) {
   return s ? s.userId : null;
 }
 
+/** @returns {Promise<{ friendUserIds: Set<number> } | { error: string, status: number }>} */
+async function resolveLeaderboardFriends(req, scope) {
+  const sc = String(scope || 'global').toLowerCase();
+  if (sc !== 'friends') return { friendUserIds: null };
+  const uid = await bearerUserId(req);
+  if (!uid) {
+    return { error: 'Sign in to view the friends leaderboard.', status: 401 };
+  }
+  if (typeof store.listFriendsBundle !== 'function') {
+    return { error: 'Friends leaderboard unavailable.', status: 501 };
+  }
+  const bundle = await store.listFriendsBundle(uid);
+  const friendUserIds = new Set([uid]);
+  for (const f of bundle.friends || []) {
+    if (f.userId != null) friendUserIds.add(Number(f.userId));
+  }
+  return { friendUserIds };
+}
+
 function resolveProfileAvatarUrl(user, req) {
   const p = user?.profileAvatarPath ?? user?.profile_avatar_path ?? null;
   if (!p) return null;
@@ -753,9 +772,65 @@ export async function handleApi(req, res) {
       json(res, 501, { error: 'Leaderboard not configured on this server.' });
       return true;
     }
+    const scope = String(u.searchParams.get('scope') || 'global').toLowerCase();
     try {
-      const rows = await store.listCampaignLeaderboard(diff, 10);
-      json(res, 200, { difficulty: diff, entries: rows });
+      const fr = await resolveLeaderboardFriends(req, scope);
+      if (fr.error) {
+        json(res, fr.status || 400, { error: fr.error });
+        return true;
+      }
+      const rows = await store.listCampaignLeaderboard(diff, 10, fr.friendUserIds);
+      json(res, 200, { difficulty: diff, scope: scope === 'friends' ? 'friends' : 'global', entries: rows });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/leaderboard/metric' && req.method === 'GET') {
+    const metric = String(u.searchParams.get('metric') || 'coins').toLowerCase();
+    const scope = String(u.searchParams.get('scope') || 'global').toLowerCase();
+    const diff = String(u.searchParams.get('difficulty') || 'normal').toLowerCase();
+    if (metric !== 'coins' && metric !== 'runs' && metric !== 'deaths') {
+      json(res, 400, { error: 'metric must be coins, runs, or deaths' });
+      return true;
+    }
+    if (metric === 'deaths' && diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+      json(res, 400, { error: 'difficulty must be easy, normal, or hard' });
+      return true;
+    }
+    try {
+      const fr = await resolveLeaderboardFriends(req, scope);
+      if (fr.error) {
+        json(res, fr.status || 400, { error: fr.error });
+        return true;
+      }
+      let entries = [];
+      if (metric === 'coins') {
+        if (typeof store.listLeaderboardCoins !== 'function') {
+          json(res, 501, { error: 'Leaderboard not configured on this server.' });
+          return true;
+        }
+        entries = await store.listLeaderboardCoins(10, fr.friendUserIds);
+      } else if (metric === 'runs') {
+        if (typeof store.listLeaderboardRunCount !== 'function') {
+          json(res, 501, { error: 'Leaderboard not configured on this server.' });
+          return true;
+        }
+        entries = await store.listLeaderboardRunCount(10, fr.friendUserIds);
+      } else {
+        if (typeof store.listLeaderboardFewestDeaths !== 'function') {
+          json(res, 501, { error: 'Leaderboard not configured on this server.' });
+          return true;
+        }
+        entries = await store.listLeaderboardFewestDeaths(diff, 10, fr.friendUserIds);
+      }
+      json(res, 200, {
+        metric,
+        scope: scope === 'friends' ? 'friends' : 'global',
+        difficulty: metric === 'deaths' ? diff : null,
+        entries,
+      });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

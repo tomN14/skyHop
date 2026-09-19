@@ -282,7 +282,7 @@ export function createFileStore() {
       return { ok: true };
     },
 
-    async listCampaignLeaderboard(difficulty, limit = 10) {
+    async listCampaignLeaderboard(difficulty, limit = 10, friendUserIds = null) {
       const diff = String(difficulty || '').toLowerCase();
       if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
         throw new Error('difficulty must be easy, normal, or hard');
@@ -292,6 +292,7 @@ export function createFileStore() {
       const best = new Map();
       for (const r of s.runs) {
         if (r.source !== 'campaign' || r.difficulty !== diff) continue;
+        if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) continue;
         const prev = best.get(r.userId);
         if (!prev || r.timeMs < prev.timeMs) {
           best.set(r.userId, { userId: r.userId, timeMs: r.timeMs, deaths: r.deaths });
@@ -306,6 +307,77 @@ export function createFileStore() {
           timeMs: row.timeMs,
           deaths: row.deaths,
         });
+      }
+      return out;
+    },
+
+    async listLeaderboardFewestDeaths(difficulty, limit = 10, friendUserIds = null) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const s = loadStore();
+      const best = new Map();
+      for (const r of s.runs) {
+        if (r.source !== 'campaign' || r.difficulty !== diff) continue;
+        if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) continue;
+        const prev = best.get(r.userId);
+        if (!prev || r.deaths < prev.deaths || (r.deaths === prev.deaths && r.timeMs < prev.timeMs)) {
+          best.set(r.userId, { userId: r.userId, timeMs: r.timeMs, deaths: r.deaths });
+        }
+      }
+      const rows = [...best.values()].sort((a, b) => a.deaths - b.deaths || a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of rows) {
+        const u = s.users.find((x) => x.id === row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
+    },
+
+    async listLeaderboardRunCount(limit = 10, friendUserIds = null) {
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const s = loadStore();
+      const counts = new Map();
+      for (const r of s.runs) {
+        if (r.source !== 'campaign') continue;
+        if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) continue;
+        counts.set(r.userId, (counts.get(r.userId) || 0) + 1);
+      }
+      const rows = [...counts.entries()]
+        .map(([userId, runCount]) => ({ userId, runCount }))
+        .sort((a, b) => b.runCount - a.runCount)
+        .slice(0, cap);
+      const out = [];
+      for (const row of rows) {
+        const u = s.users.find((x) => x.id === row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          runCount: row.runCount,
+        });
+      }
+      return out;
+    },
+
+    async listLeaderboardCoins(limit = 10, friendUserIds = null) {
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const s = loadStore();
+      let users = s.users.slice();
+      if (friendUserIds && friendUserIds.size) {
+        users = users.filter((u) => friendUserIds.has(u.id));
+      }
+      users.sort((a, b) => (b.coins || 0) - (a.coins || 0));
+      const out = [];
+      for (const u of users) {
+        const coins = u.coins != null ? Number(u.coins) : 0;
+        if (coins <= 0) continue;
+        out.push({ username: u.username, coins });
+        if (out.length >= cap) break;
       }
       return out;
     },

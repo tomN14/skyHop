@@ -219,19 +219,23 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
     },
 
-    async listCampaignLeaderboard(difficulty, limit = 10) {
+    async listCampaignLeaderboard(difficulty, limit = 10, friendUserIds = null) {
       const diff = String(difficulty || '').toLowerCase();
       if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
         throw new Error('difficulty must be easy, normal, or hard');
       }
       const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
-      const { data, error } = await sb
+      let q = sb
         .from('skyhop_runs')
         .select('user_id, time_ms, deaths')
         .eq('source', 'campaign')
         .eq('difficulty', diff)
         .order('time_ms', { ascending: true })
         .limit(8000);
+      if (friendUserIds && friendUserIds.size) {
+        q = q.in('user_id', [...friendUserIds]);
+      }
+      const { data, error } = await q;
       if (error) throw new Error(error.message);
       const best = new Map();
       for (const r of data || []) {
@@ -253,6 +257,92 @@ export function createSupabaseStore() {
         });
       }
       return out;
+    },
+
+    async listLeaderboardFewestDeaths(difficulty, limit = 10, friendUserIds = null) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      let q = sb
+        .from('skyhop_runs')
+        .select('user_id, time_ms, deaths')
+        .eq('source', 'campaign')
+        .eq('difficulty', diff)
+        .limit(8000);
+      if (friendUserIds && friendUserIds.size) {
+        q = q.in('user_id', [...friendUserIds]);
+      }
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const best = new Map();
+      for (const r of data || []) {
+        const uid = Number(r.user_id);
+        const tm = Number(r.time_ms);
+        const d = Number(r.deaths);
+        const prev = best.get(uid);
+        if (!prev || d < prev.deaths || (d === prev.deaths && tm < prev.timeMs)) {
+          best.set(uid, { userId: uid, timeMs: tm, deaths: d });
+        }
+      }
+      const sorted = [...best.values()].sort((a, b) => a.deaths - b.deaths || a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of sorted) {
+        const u = await this.findUserById(row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
+    },
+
+    async listLeaderboardRunCount(limit = 10, friendUserIds = null) {
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      let q = sb.from('skyhop_runs').select('user_id').eq('source', 'campaign').limit(12000);
+      if (friendUserIds && friendUserIds.size) {
+        q = q.in('user_id', [...friendUserIds]);
+      }
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const counts = new Map();
+      for (const r of data || []) {
+        const uid = Number(r.user_id);
+        counts.set(uid, (counts.get(uid) || 0) + 1);
+      }
+      const sorted = [...counts.entries()]
+        .map(([userId, runCount]) => ({ userId, runCount }))
+        .sort((a, b) => b.runCount - a.runCount)
+        .slice(0, cap);
+      const out = [];
+      for (const row of sorted) {
+        const u = await this.findUserById(row.userId);
+        out.push({
+          username: u ? u.username : 'unknown',
+          runCount: row.runCount,
+        });
+      }
+      return out;
+    },
+
+    async listLeaderboardCoins(limit = 10, friendUserIds = null) {
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      let q = sb.from('skyhop_users').select('id, username, coins').order('coins', { ascending: false }).limit(500);
+      if (friendUserIds && friendUserIds.size) {
+        q = q.in('id', [...friendUserIds]);
+      }
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      const rows = (data || [])
+        .map((r) => ({
+          username: r.username,
+          coins: r.coins != null ? Number(r.coins) : 0,
+        }))
+        .filter((r) => r.coins > 0)
+        .slice(0, cap);
+      return rows;
     },
 
     async listOwnerCampaignLeaderboardEntries(difficulty, limit = 50) {

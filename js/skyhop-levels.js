@@ -1088,6 +1088,52 @@
     }
   }
 
+  async function loadOwnerBuiltinStagesForEdit() {
+    const pick = document.getElementById('ownerBuiltinWorldPick');
+    const edSel = document.getElementById('ownerBuiltinWorldSelect');
+    if (pick && edSel && !ownerBuiltinArr) edSel.value = pick.value;
+    ownerBuiltinWorld = Number(edSel?.value || pick?.value) || 1;
+    if (ownerBuiltinWorld !== 2) ownerBuiltinWorld = 1;
+    if (pick) pick.value = String(ownerBuiltinWorld);
+    const getPath = ownerBuiltinWorld === 2 ? '/api/builtin-stages-world2' : '/api/builtin-stages';
+    const data = await api(getPath, { noAuth: true });
+    let arr = data.stages && data.stages.length ? data.stages : null;
+    const fallback =
+      ownerBuiltinWorld === 2 ? window.SKYHOP_WORLD2_STAGES || [] : window.SKYHOP_STAGES || [];
+    if (!arr || !arr.length) {
+      arr = JSON.parse(JSON.stringify(fallback));
+    } else {
+      arr = JSON.parse(JSON.stringify(data.stages));
+    }
+    if (!arr.length) {
+      throw new Error('No stages loaded.');
+    }
+    return arr;
+  }
+
+  function openOwnerBuiltinEditorAtIndex(arr, idx) {
+    ownerBuiltinArr = arr;
+    ownerBuiltinIdx = Math.max(0, Math.min(arr.length - 1, idx));
+    editorState.id = null;
+    editorState.published = false;
+    editorState.readOnly = false;
+    editorState.staffEdit = false;
+    editorState.beatenOk = true;
+    const n = ownerBuiltinIdx + 1;
+    editorState.title = 'Builtin ' + n;
+    editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
+    normalizeEditorLevelInPlace(editorState.data);
+    const titEl = document.getElementById('lvlEdTitle');
+    if (titEl) titEl.value = 'Builtin ' + n;
+    showMine(false);
+    showOnline(false);
+    showEditorScreen(true);
+    scheduleEditorRedraw();
+    syncEditorUi();
+    document.getElementById('screenModInbox')?.classList.add('hidden');
+    document.getElementById('screenModInbox')?.classList.remove('flex');
+  }
+
   async function startOwnerBuiltinEdit() {
     if (!hasAuth()) {
       window.alert('Log in as the site owner.');
@@ -1099,44 +1145,37 @@
         window.alert('Only the site owner can edit the built-in campaign.');
         return;
       }
-      const pick = document.getElementById('ownerBuiltinWorldPick');
-      const edSel = document.getElementById('ownerBuiltinWorldSelect');
-      if (pick && edSel && !ownerBuiltinArr) edSel.value = pick.value;
-      ownerBuiltinWorld = Number(edSel?.value || pick?.value) || 1;
-      if (ownerBuiltinWorld !== 2) ownerBuiltinWorld = 1;
-      if (pick) pick.value = String(ownerBuiltinWorld);
-      const getPath =
-        ownerBuiltinWorld === 2 ? '/api/builtin-stages-world2' : '/api/builtin-stages';
-      const data = await api(getPath, { noAuth: true });
-      let arr = data.stages && data.stages.length ? data.stages : null;
-      const fallback =
-        ownerBuiltinWorld === 2 ? window.SKYHOP_WORLD2_STAGES || [] : window.SKYHOP_STAGES || [];
-      if (!arr || !arr.length) {
-        arr = JSON.parse(JSON.stringify(fallback));
-      } else {
-        arr = JSON.parse(JSON.stringify(data.stages));
-      }
-      if (!arr.length) {
-        window.alert('No stages loaded.');
+      const arr = await loadOwnerBuiltinStagesForEdit();
+      openOwnerBuiltinEditorAtIndex(arr, 0);
+    } catch (e) {
+      window.alert(String(e.message || e));
+    }
+  }
+
+  async function startOwnerBuiltinAddStage() {
+    if (!hasAuth()) {
+      window.alert('Log in as the site owner.');
+      return;
+    }
+    try {
+      const me = await api('/api/me');
+      if (me.role !== 'owner') {
+        window.alert('Only the site owner can edit the built-in campaign.');
         return;
       }
-      ownerBuiltinArr = arr;
-      ownerBuiltinIdx = 0;
-      editorState.id = null;
-      editorState.published = false;
-      editorState.readOnly = false;
-      editorState.beatenOk = true;
-      editorState.title = 'Builtin 1';
-      editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[0]));
-      normalizeEditorLevelInPlace(editorState.data);
-      document.getElementById('lvlEdTitle').value = 'Builtin 1';
-      showMine(false);
-      showOnline(false);
-      showEditorScreen(true);
-      scheduleEditorRedraw();
-      syncEditorUi();
-      document.getElementById('screenModInbox')?.classList.add('hidden');
-      document.getElementById('screenModInbox')?.classList.remove('flex');
+      const arr = await loadOwnerBuiltinStagesForEdit();
+      arr.push(defaultLevelData());
+      const newIdx = arr.length - 1;
+      openOwnerBuiltinEditorAtIndex(arr, newIdx);
+      const st = document.getElementById('lvlEdStatus');
+      if (st) {
+        st.textContent =
+          'New stage ' +
+          arr.length +
+          ' appended for World ' +
+          ownerBuiltinWorld +
+          '. Save, then type ALL when prompted to upload.';
+      }
     } catch (e) {
       window.alert(String(e.message || e));
     }
@@ -1201,7 +1240,7 @@
       const next = window.prompt(
         'Next: stage number 1–' +
           ownerBuiltinArr.length +
-          ' to edit, type ALL to upload full campaign to server, or Cancel.',
+          ', ADD for a new stage, ALL to upload full campaign to server, or Cancel.',
         String(ownerBuiltinIdx + 1)
       );
       if (next == null) {
@@ -1211,6 +1250,17 @@
       const u = String(next).trim().toUpperCase();
       if (u === 'ALL') {
         await publishOwnerBuiltin();
+        return;
+      }
+      if (u === 'ADD') {
+        ownerBuiltinArr.push(defaultLevelData());
+        ownerBuiltinIdx = ownerBuiltinArr.length - 1;
+        editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
+        normalizeEditorLevelInPlace(editorState.data);
+        const titAdd = document.getElementById('lvlEdTitle');
+        if (titAdd) titAdd.value = 'Builtin ' + (ownerBuiltinIdx + 1);
+        scheduleEditorRedraw();
+        syncEditorUi();
         return;
       }
       const n = parseInt(next, 10);
@@ -1630,6 +1680,8 @@
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
     const btnOb = document.getElementById('btnOwnerEditBuiltin');
     if (btnOb) btnOb.addEventListener('click', () => void startOwnerBuiltinEdit());
+    const btnObAdd = document.getElementById('btnOwnerAddBuiltin');
+    if (btnObAdd) btnObAdd.addEventListener('click', () => void startOwnerBuiltinAddStage());
     const ownerWorldSel = document.getElementById('ownerBuiltinWorldSelect');
     if (ownerWorldSel) {
       ownerWorldSel.addEventListener('change', () => {
