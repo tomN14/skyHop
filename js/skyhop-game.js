@@ -2257,7 +2257,7 @@
     }
 
     if (gravityDir > 0) {
-      PHY.snapRiderToYMoverTopIfClose(stage, tSec, player);
+      PHY.snapRiderToYMoverTopIfClose(stage, tSec, player, gravityDir);
     }
 
     const arrows = stage.gravityArrows;

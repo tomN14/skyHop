@@ -163,19 +163,19 @@
         const r1 = P.resolveMovingRect(p, tSec);
         const yMover = p.move && p.move.axis === 'y';
         const ySlackTop = yMover ? 18 : 3;
-        const ySlackIn = yMover ? 52 : 14;
+        const ySlackBelow = yMover ? 6 : 14;
         const xPad = yMover ? 14 : 4;
         const onR0 =
           midx >= r0.x - xPad &&
           midx <= r0.x + r0.w + xPad &&
           feet >= r0.y - ySlackTop &&
-          feet <= r0.y + ySlackIn;
+          feet <= r0.y + ySlackBelow;
         const onR1 =
           yMover &&
           midx >= r1.x - xPad &&
           midx <= r1.x + r1.w + xPad &&
           feet >= r1.y - ySlackTop &&
-          feet <= r1.y + ySlackIn;
+          feet <= r1.y + ySlackBelow;
         if (onR0 || onR1) {
           dx += r1.x - r0.x;
           dy += r1.y - r0.y;
@@ -189,14 +189,16 @@
      * inside the platform so input / friction can’t walk you off the edge, and x-resolves can’t
      * spill you over the short ledge.
      */
-    snapRiderToYMoverTopIfClose(stage, tSec, player) {
+    snapRiderToYMoverTopIfClose(stage, tSec, player, gravityDir) {
+      const gDir = gravityDir != null && gravityDir < 0 ? -1 : 1;
+      if (player.vy * gDir < -28) return;
       const pw = player.w;
       const ph = player.h;
       const edge = 2;
       const tryRider = (p) => {
         if (!p.move || p.move.axis !== 'y') return false;
         const r1 = P.resolveMovingRect(p, tSec);
-        if (!P.isRidingTopOfYMoverRect(player, r1)) return false;
+        if (!P.isRidingTopOfYMoverRect(player, r1, 14, 16, 8)) return false;
         player.y = r1.y - ph - 0.01;
         const xMin = r1.x + edge;
         const xMax = r1.x + r1.w - pw - edge;
@@ -204,8 +206,10 @@
           if (player.x < xMin) player.x = xMin;
           else if (player.x > xMax) player.x = xMax;
         }
-        const mv = P.moverAxisVelocity(p, tSec);
-        if (mv.vy !== 0) player.vy = mv.vy;
+        if (player.vy * gDir >= -8) {
+          const mv = P.moverAxisVelocity(p, tSec);
+          if (mv.vy !== 0) player.vy = mv.vy;
+        }
         player.onGround = true;
         return true;
       };
