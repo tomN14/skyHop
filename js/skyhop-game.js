@@ -171,6 +171,7 @@
     if (window.SKYHOP_EXTERNAL_LEVEL) return;
     if (inRace || inCollab) return;
     if (isDebugStartStageActive()) return;
+    if (pauseDiscardProgressChecked()) return;
     if (gameState === 'menu' || gameState === 'win') return;
     const s0 = progressStage0ForStorage();
     const payload = {
@@ -1387,8 +1388,10 @@
     if (!screenWeapon) return;
     screenWeapon.classList.add('hidden');
     screenWeapon.classList.remove('flex');
-    if (gameState === 'weapon_modal') gameState = 'playing';
-    saveRunProgress();
+    if (gameState === 'weapon_modal') {
+      gameState = 'playing';
+      saveRunProgress();
+    }
     syncLevelsTopNav();
     setTouchHudVisible(gameState === 'playing');
   }
@@ -3339,9 +3342,9 @@
         }
       }
     }
+    gameState = 'menu';
     resetPauseDiscardProgress();
     closeWeaponScreen();
-    gameState = 'menu';
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
     setTouchHudVisible(false);
