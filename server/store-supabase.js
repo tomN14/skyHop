@@ -35,6 +35,8 @@ function mapUser(row) {
     profileBio: row.profile_bio ?? null,
     profileAvatarPath: row.profile_avatar_path ?? null,
     createdAt: row.created_at != null ? Number(row.created_at) : null,
+    campaignWorld1ClearedAt:
+      row.campaign_world1_cleared_at != null ? Number(row.campaign_world1_cleared_at) : null,
   };
 }
 
@@ -77,6 +79,16 @@ export function createSupabaseStore() {
       const { data, error } = await sb.from('skyhop_users').select('*').eq('id', id).maybeSingle();
       if (error) throw new Error(error.message);
       return mapUser(data);
+    },
+
+    async setCampaignWorld1ClearedAt(userId, atMs) {
+      const at = Math.floor(Number(atMs) || Date.now());
+      const { error } = await sb
+        .from('skyhop_users')
+        .update({ campaign_world1_cleared_at: at })
+        .eq('id', userId)
+        .is('campaign_world1_cleared_at', null);
+      if (error) throw new Error(error.message);
     },
 
     async createUser(username, password) {

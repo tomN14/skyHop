@@ -17,8 +17,25 @@
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.getPlayStages === 'function') {
       const wst = window.SkyHopWorlds.getPlayStages();
       if (wst && wst.length) return wst;
+      const wid =
+        typeof window.SkyHopWorlds.getActiveWorldId === 'function'
+          ? window.SkyHopWorlds.getActiveWorldId()
+          : 1;
+      const cs =
+        typeof window.SkyHopWorlds.getCollabScope === 'function'
+          ? window.SkyHopWorlds.getCollabScope()
+          : null;
+      if (wid === 2 || cs === 'w2') {
+        const w2 = window.SKYHOP_WORLD2_STAGES;
+        if (w2 && w2.length) return w2;
+      }
     }
     return builtinCampaign();
+  }
+
+  function campaignStageCount() {
+    const s = stagesNow();
+    return s && s.length ? s.length : builtinCampaign().length;
   }
 
   function progressLsKey() {
@@ -57,7 +74,7 @@
     const n = Math.floor(Number(raw));
     if (!Number.isFinite(n)) return 0;
     const idx = n - 1;
-    return Math.max(0, Math.min(builtinCampaign().length - 1, idx));
+    return Math.max(0, Math.min(campaignStageCount() - 1, idx));
   }
 
   const RUN_PROGRESS_LS = 'SKYHOP_RUN_PROGRESS';
@@ -76,9 +93,10 @@
       const j = JSON.parse(localStorage.getItem(runProgressStorageKey()) || 'null');
       if (!j || j.v !== 1) return null;
       const s0 = Math.floor(Number(j.s0));
-      if (!Number.isFinite(s0) || s0 < 0 || s0 >= builtinCampaign().length) return null;
+      const n = campaignStageCount();
+      if (!Number.isFinite(s0) || s0 < 0 || s0 >= n) return null;
       return {
-        s0: Math.max(0, Math.min(builtinCampaign().length - 1, s0)),
+        s0: Math.max(0, Math.min(n - 1, s0)),
         deaths: Math.max(0, Math.floor(Number(j.deaths) || 0)),
         sword: !!j.sword,
         shield: !!j.shield,
@@ -98,8 +116,9 @@
 
   function progressStage0ForStorage() {
     if (window.SKYHOP_EXTERNAL_LEVEL) return stageIndex;
-    if (gameState === 'stage_clear' && stageIndex < builtinCampaign().length - 1) {
-      return Math.min(stageIndex + 1, builtinCampaign().length - 1);
+    const n = campaignStageCount();
+    if (gameState === 'stage_clear' && stageIndex < n - 1) {
+      return Math.min(stageIndex + 1, n - 1);
     }
     return stageIndex;
   }
@@ -131,7 +150,7 @@
         menuProgressHint.classList.add('hidden');
         menuProgressHint.textContent = '';
       }
-      if (btnPlay) btnPlay.textContent = 'Play (debug start)';
+      if (btnPlay) btnPlay.textContent = 'Play';
       return;
     }
     const p = loadRunProgress();

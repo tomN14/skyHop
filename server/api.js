@@ -180,6 +180,8 @@ async function buildMePayload(userId, req = null) {
     unlocked: uaMap.has(def.id),
     unlockedAt: uaMap.get(def.id) ?? null,
   }));
+  const world2Unlocked =
+    !!(user.campaignWorld1ClearedAt && user.campaignWorld1ClearedAt > 0) || uaMap.has('first_clear');
   const role = effectiveRole(user);
   let modInboxCount = 0;
   let ownerInboxCount = 0;
@@ -230,6 +232,7 @@ async function buildMePayload(userId, req = null) {
       avgTimeMs: agg.avgTimeMs,
       avgDeaths: agg.avgDeaths,
     },
+    world2Unlocked,
     achievements,
   };
 }
@@ -323,6 +326,24 @@ export async function handleApi(req, res) {
       return true;
     }
     json(res, 200, me);
+    return true;
+  }
+
+  if (pathname === '/api/me/campaign-world1-cleared' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      if (typeof store.setCampaignWorld1ClearedAt === 'function') {
+        await store.setCampaignWorld1ClearedAt(uid, Date.now());
+      }
+      const me = await buildMePayload(uid, req);
+      json(res, 200, { ok: true, world2Unlocked: !!(me && me.world2Unlocked) });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
     return true;
   }
 

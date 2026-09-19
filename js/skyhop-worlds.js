@@ -19,19 +19,55 @@
 
   function isWorld2Unlocked() {
     try {
+      const me = window.__skyhopLastMe;
+      if (me && me.world2Unlocked) return true;
+    } catch {
+      /* */
+    }
+    try {
       return localStorage.getItem(LS_UNLOCK) === '1';
     } catch {
       return false;
     }
   }
 
-  function markWorld1Complete() {
+  function cacheWorld2UnlockedLocal(on) {
     try {
-      localStorage.setItem(LS_UNLOCK, '1');
+      if (on) localStorage.setItem(LS_UNLOCK, '1');
+      else localStorage.removeItem(LS_UNLOCK);
     } catch {
       /* */
     }
+  }
+
+  function applyWorld2UnlockFromMe(me) {
+    if (me && me.world2Unlocked) cacheWorld2UnlockedLocal(true);
     syncMenuWorldArrow();
+  }
+
+  function markWorld1Complete() {
+    cacheWorld2UnlockedLocal(true);
+    syncMenuWorldArrow();
+    if (typeof window.SkyHopApiRequest === 'function') {
+      try {
+        if (localStorage.getItem('SKYHOP_AUTH_TOKEN')) {
+          void window
+            .SkyHopApiRequest('/api/me/campaign-world1-cleared', { method: 'POST', body: '{}' })
+            .then(function (data) {
+              if (data && data.world2Unlocked && window.__skyhopLastMe) {
+                window.__skyhopLastMe.world2Unlocked = true;
+              }
+              window.dispatchEvent(new CustomEvent('skyhop-world2-unlocked'));
+            })
+            .catch(function () {
+              /* offline — local cache still works on this device */
+            });
+        }
+      } catch {
+        /* */
+      }
+    }
+    window.dispatchEvent(new CustomEvent('skyhop-world2-unlocked'));
   }
 
   function progressKeyForWorld(worldId) {
@@ -120,6 +156,10 @@
     }
     syncMenuWorldArrow();
     window.addEventListener('skyhop-world2-unlocked', syncMenuWorldArrow);
+    window.addEventListener('skyhop-auth-changed', function () {
+      applyWorld2UnlockFromMe(window.__skyhopLastMe || null);
+    });
+    applyWorld2UnlockFromMe(window.__skyhopLastMe || null);
   }
 
   window.SkyHopWorlds = {

@@ -41,6 +41,7 @@ function migrateUsersAndReports(s) {
     if (!('disabledAt' in u)) u.disabledAt = null;
     if (!('profileBio' in u)) u.profileBio = null;
     if (!('profileAvatarPath' in u)) u.profileAvatarPath = null;
+    if (!('campaignWorld1ClearedAt' in u)) u.campaignWorld1ClearedAt = null;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -112,6 +113,15 @@ export function createFileStore() {
     async findUserById(id) {
       const s = loadStore();
       return s.users.find((u) => u.id === id) || null;
+    },
+
+    async setCampaignWorld1ClearedAt(userId, atMs) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) return;
+      if (u.campaignWorld1ClearedAt != null && u.campaignWorld1ClearedAt > 0) return;
+      u.campaignWorld1ClearedAt = Math.floor(Number(atMs) || Date.now());
+      saveStore();
     },
 
     async createUser(username, password) {
