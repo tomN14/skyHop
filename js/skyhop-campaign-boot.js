@@ -22,10 +22,11 @@
 
   function applyServerStages(stages) {
     if (!stages || !Array.isArray(stages) || !stages.length) return;
-    var prepared =
-      typeof window.SkyHopPrepareBuiltinStagesForPlay === 'function'
-        ? window.SkyHopPrepareBuiltinStagesForPlay(stages)
-        : null;
+    if (typeof window.SkyHopPrepareBuiltinStagesForPlay !== 'function') {
+      console.warn('Sky Hop: stage validator not loaded; keeping bundled stages.js');
+      return;
+    }
+    var prepared = window.SkyHopPrepareBuiltinStagesForPlay(stages);
     if (!prepared) {
       console.warn('Sky Hop: ignoring invalid server campaign; using bundled stages.js');
       if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {

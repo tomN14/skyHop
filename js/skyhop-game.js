@@ -1491,11 +1491,24 @@
     }
     i = Math.max(0, Math.min(list.length - 1, Math.floor(Number(i) || 0)));
     stageIndex = i;
-    const s = list[i];
+    let s = list[i];
     if (!s || !s.spawn) {
       console.error('Sky Hop: invalid stage at index', i);
       goToMenu();
       return;
+    }
+    if (!s.platforms || !s.platforms.length) {
+      console.warn('Sky Hop: stage has no platforms — restoring bundled campaign');
+      restoreBundledCampaignIfEmpty();
+      const list2 = stagesNow();
+      i = Math.max(0, Math.min(list2.length - 1, i));
+      stageIndex = i;
+      s = list2[i];
+      if (!s || !s.platforms || !s.platforms.length) {
+        window.alert('Campaign stages failed to load. Hard refresh the page (Cmd+Shift+R).');
+        goToMenu();
+        return;
+      }
     }
     player.x = s.spawn.x;
     player.y = s.spawn.y - player.h;

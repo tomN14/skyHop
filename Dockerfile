@@ -7,7 +7,7 @@ RUN cd server && npm ci --omit=dev
 
 COPY server ./server
 COPY textures ./textures
-COPY index.html stages.js stages-extra.js stages-36-50.js ./
+COPY index.html stages.js stages-extra.js stages-36-50.js stages-world2.js ./
 COPY js ./js
 
 WORKDIR /app/server

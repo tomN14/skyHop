@@ -11,10 +11,11 @@
 
   function apply(stages) {
     if (!stages || !stages.length) return;
-    var prepared =
-      typeof window.SkyHopPrepareBuiltinStagesForPlay === 'function'
-        ? window.SkyHopPrepareBuiltinStagesForPlay(stages)
-        : null;
+    if (typeof window.SkyHopPrepareBuiltinStagesForPlay !== 'function') {
+      console.warn('Sky Hop: stage validator not loaded; keeping bundled World 2 stages');
+      return;
+    }
+    var prepared = window.SkyHopPrepareBuiltinStagesForPlay(stages);
     if (!prepared) {
       console.warn('Sky Hop: ignoring invalid server World 2 campaign; using bundled stages-world2.js');
       return;
