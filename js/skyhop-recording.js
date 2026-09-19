@@ -85,7 +85,7 @@
     if (typeof window.SkyHopApiRequest !== 'function') {
       throw new Error('Sign in and reload the page to view recordings.');
     }
-    const data = await window.SkyHopApiRequest('/api/recordings/mine');
+    const data = await window.SkyHopApiRequest('/api/recordings/mine', {});
     return (data && data.recordings) || [];
   }
 

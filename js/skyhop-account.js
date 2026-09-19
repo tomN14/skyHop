@@ -138,11 +138,12 @@
   }
 
   async function api(path, opts) {
+    const o = opts || {};
     const url = apiOrigin() + path;
-    const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    const headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
     let r;
     try {
-      r = await fetch(url, Object.assign({}, opts, { headers }));
+      r = await fetch(url, Object.assign({}, o, { headers }));
     } catch (e) {
       const origin = apiOrigin();
       const isHttpsPage =
