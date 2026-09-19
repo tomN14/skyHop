@@ -452,6 +452,24 @@ export function createFileStore() {
       fs.writeFileSync(p, JSON.stringify({ stages: stagesJson, updatedAt: Date.now() }), 'utf8');
     },
 
+    async getBuiltinWorld2Stages() {
+      const p = path.join(DATA_DIR, 'builtin_world2.json');
+      if (!fs.existsSync(p)) return null;
+      try {
+        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (!j.stages || !Array.isArray(j.stages) || !j.stages.length) return null;
+        return j.stages;
+      } catch {
+        return null;
+      }
+    },
+
+    async setBuiltinWorld2Stages(stagesJson) {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      const p = path.join(DATA_DIR, 'builtin_world2.json');
+      fs.writeFileSync(p, JSON.stringify({ stages: stagesJson, updatedAt: Date.now() }), 'utf8');
+    },
+
     async listOnlineCoinClaimIndices(userId, levelId) {
       const p = path.join(DATA_DIR, 'coin_claims.json');
       if (!fs.existsSync(p)) return new Set();

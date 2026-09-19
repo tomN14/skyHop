@@ -40,6 +40,7 @@
   /** When non-null, editor is editing built-in campaign slots (owner). */
   let ownerBuiltinArr = null;
   let ownerBuiltinIdx = 0;
+  let ownerBuiltinWorld = 1;
 
   function defaultLevelData() {
     return {
@@ -1012,6 +1013,11 @@
       }
       return;
     }
+    const wsel = document.getElementById('ownerBuiltinWorldSelect');
+    if (wsel) {
+      wsel.classList.toggle('hidden', !ownerBuiltinArr);
+      if (ownerBuiltinArr) wsel.value = String(ownerBuiltinWorld);
+    }
     if (ownerBuiltinArr) {
       if (sv) sv.disabled = false;
       if (te) te.disabled = false;
@@ -1022,7 +1028,16 @@
         up.classList.add('opacity-40');
         up.disabled = true;
       }
-      if (st) st.textContent = 'Owner: built-in slot ' + (ownerBuiltinIdx + 1) + ' / ' + ownerBuiltinArr.length + ' — Save, then follow prompts.';
+      if (st) {
+        st.textContent =
+          'Owner: World ' +
+          ownerBuiltinWorld +
+          ' built-in slot ' +
+          (ownerBuiltinIdx + 1) +
+          ' / ' +
+          ownerBuiltinArr.length +
+          ' — Save, then follow prompts.';
+      }
       return;
     }
     const ro = editorState.readOnly;
@@ -1055,11 +1070,14 @@
   async function publishOwnerBuiltin() {
     if (!ownerBuiltinArr || !ownerBuiltinArr.length) return;
     try {
-      await api('/api/owner/builtin-stages', {
+      const postPath =
+        ownerBuiltinWorld === 2 ? '/api/owner/builtin-stages-world2' : '/api/owner/builtin-stages';
+      await api(postPath, {
         method: 'POST',
         body: JSON.stringify({ stages: ownerBuiltinArr }),
       });
-      lvlEdStatus.textContent = 'Uploaded ' + ownerBuiltinArr.length + ' built-in stages. Reload to play.';
+      lvlEdStatus.textContent =
+        'Uploaded ' + ownerBuiltinArr.length + ' World ' + ownerBuiltinWorld + ' stages. Reload to play.';
       ownerBuiltinArr = null;
       showEditorScreen(false);
       showMine(true);
@@ -1081,10 +1099,20 @@
         window.alert('Only the site owner can edit the built-in campaign.');
         return;
       }
-      const data = await api('/api/builtin-stages', { noAuth: true });
+      const pick = document.getElementById('ownerBuiltinWorldPick');
+      const edSel = document.getElementById('ownerBuiltinWorldSelect');
+      if (pick && edSel && !ownerBuiltinArr) edSel.value = pick.value;
+      ownerBuiltinWorld = Number(edSel?.value || pick?.value) || 1;
+      if (ownerBuiltinWorld !== 2) ownerBuiltinWorld = 1;
+      if (pick) pick.value = String(ownerBuiltinWorld);
+      const getPath =
+        ownerBuiltinWorld === 2 ? '/api/builtin-stages-world2' : '/api/builtin-stages';
+      const data = await api(getPath, { noAuth: true });
       let arr = data.stages && data.stages.length ? data.stages : null;
+      const fallback =
+        ownerBuiltinWorld === 2 ? window.SKYHOP_WORLD2_STAGES || [] : window.SKYHOP_STAGES || [];
       if (!arr || !arr.length) {
-        arr = JSON.parse(JSON.stringify(window.SKYHOP_STAGES || []));
+        arr = JSON.parse(JSON.stringify(fallback));
       } else {
         arr = JSON.parse(JSON.stringify(data.stages));
       }
@@ -1490,6 +1518,7 @@
 
   function syncMyLevelsNav() {
     const btn = document.getElementById('btnNavMyLevels');
+    const modsBtn = document.getElementById('btnNavMyMods');
     const submitBtn = document.getElementById('btnNavSubmitRun');
     const authed = hasAuth();
     if (btn) {
@@ -1500,6 +1529,10 @@
         btn.classList.add('hidden');
         btn.classList.remove('inline-flex');
       }
+    }
+    if (modsBtn) {
+      modsBtn.classList.toggle('hidden', !authed);
+      modsBtn.classList.toggle('inline-flex', authed);
     }
     if (submitBtn) {
       submitBtn.classList.toggle('hidden', !authed);
@@ -1597,6 +1630,27 @@
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
     const btnOb = document.getElementById('btnOwnerEditBuiltin');
     if (btnOb) btnOb.addEventListener('click', () => void startOwnerBuiltinEdit());
+    const ownerWorldSel = document.getElementById('ownerBuiltinWorldSelect');
+    if (ownerWorldSel) {
+      ownerWorldSel.addEventListener('change', () => {
+        if (!ownerBuiltinArr) return;
+        const next = Number(ownerWorldSel.value) || 1;
+        if (next === ownerBuiltinWorld) return;
+        if (
+          !window.confirm(
+            'Switch to World ' +
+              next +
+              '? Reload built-in stages from the server (upload first if you need to save World ' +
+              ownerBuiltinWorld +
+              ').'
+          )
+        ) {
+          ownerWorldSel.value = String(ownerBuiltinWorld);
+          return;
+        }
+        void startOwnerBuiltinEdit();
+      });
+    }
     document.getElementById('btnLvlEdRotate').addEventListener('click', () => {
       if (!editorSelection || editorSelection.kind !== 'platform') return;
       const p = editorState.data.platforms[editorSelection.index];

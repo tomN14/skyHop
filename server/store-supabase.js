@@ -480,6 +480,22 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
     },
 
+    async getBuiltinWorld2Stages() {
+      const { data, error } = await sb.from('skyhop_builtin_world2').select('stages').eq('id', 1).maybeSingle();
+      if (error) throw new Error(error.message);
+      const raw = data?.stages;
+      if (!raw || !Array.isArray(raw) || !raw.length) return null;
+      return raw;
+    },
+
+    async setBuiltinWorld2Stages(stagesJson) {
+      const now = Date.now();
+      const { error } = await sb
+        .from('skyhop_builtin_world2')
+        .upsert({ id: 1, stages: stagesJson, updated_at: now }, { onConflict: 'id' });
+      if (error) throw new Error(error.message);
+    },
+
     async listOnlineCoinClaimIndices(userId, levelId) {
       const { data, error } = await sb
         .from('skyhop_online_coin_claims')

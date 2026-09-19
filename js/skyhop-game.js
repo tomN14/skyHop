@@ -13,7 +13,35 @@
   }
 
   function stagesNow() {
-    return window.SKYHOP_ACTIVE_STAGES != null ? window.SKYHOP_ACTIVE_STAGES : builtinCampaign();
+    if (window.SKYHOP_ACTIVE_STAGES != null) return window.SKYHOP_ACTIVE_STAGES;
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.getPlayStages === 'function') {
+      const wst = window.SkyHopWorlds.getPlayStages();
+      if (wst && wst.length) return wst;
+    }
+    return builtinCampaign();
+  }
+
+  function progressLsKey() {
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.progressKeyForWorld === 'function') {
+      if (window.__skyhopCollabActive) {
+        const cs =
+          typeof window.SkyHopWorlds.getCollabScope === 'function'
+            ? window.SkyHopWorlds.getCollabScope()
+            : 'w1';
+        return 'SKYHOP_RUN_PROGRESS_COLLAB_' + String(cs || 'w1');
+      }
+      const w =
+        typeof window.SkyHopWorlds.getActiveWorldId === 'function' ? window.SkyHopWorlds.getActiveWorldId() : 1;
+      return window.SkyHopWorlds.progressKeyForWorld(w === 2 ? 2 : 1);
+    }
+    return RUN_PROGRESS_LS;
+  }
+
+  function onCampaignFullyComplete() {
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.markWorld1Complete === 'function') {
+      const w = window.SkyHopWorlds.getActiveWorldId ? window.SkyHopWorlds.getActiveWorldId() : 1;
+      if (w === 1 || w === '1') window.SkyHopWorlds.markWorld1Complete();
+    }
   }
 
   /** 0-based index of first stage that introduces grapple in the active stage list. */
@@ -33,6 +61,9 @@
   }
 
   const RUN_PROGRESS_LS = 'SKYHOP_RUN_PROGRESS';
+  function runProgressStorageKey() {
+    return progressLsKey();
+  }
   function isDebugStartStageActive() {
     const r = window.SKYHOP_DEBUG_START_STAGE;
     if (r == null || r === '' || r === 'false' || r === false) return false;
@@ -42,7 +73,7 @@
 
   function loadRunProgress() {
     try {
-      const j = JSON.parse(localStorage.getItem(RUN_PROGRESS_LS) || 'null');
+      const j = JSON.parse(localStorage.getItem(runProgressStorageKey()) || 'null');
       if (!j || j.v !== 1) return null;
       const s0 = Math.floor(Number(j.s0));
       if (!Number.isFinite(s0) || s0 < 0 || s0 >= builtinCampaign().length) return null;
@@ -59,7 +90,7 @@
 
   function clearRunProgress() {
     try {
-      localStorage.removeItem(RUN_PROGRESS_LS);
+      localStorage.removeItem(runProgressStorageKey());
     } catch {
       /* ignore */
     }
@@ -75,7 +106,7 @@
 
   function saveRunProgress() {
     if (window.SKYHOP_EXTERNAL_LEVEL) return;
-    if (inRace) return;
+    if (inRace || inCollab) return;
     if (isDebugStartStageActive()) return;
     if (gameState === 'menu' || gameState === 'win') return;
     const s0 = progressStage0ForStorage();
@@ -87,7 +118,7 @@
       shield: hasShield,
     };
     try {
-      localStorage.setItem(RUN_PROGRESS_LS, JSON.stringify(payload));
+      localStorage.setItem(runProgressStorageKey(), JSON.stringify(payload));
     } catch {
       /* private mode, quota */
     }
@@ -324,6 +355,7 @@
 
   let gameState = 'menu';
   let inRace = false;
+  let inCollab = false;
   /** @type {'easy'|'normal'|'hard'|'custom'} */
   let menuDifficulty = 'normal';
   let runtimeOpts = window.SKYHOP_enrichRuntimeWithProjectileOpts(
@@ -1327,7 +1359,11 @@
     if (hit) {
       crit = Math.random() < 0.1;
       const dmg = crit ? 20 : 10;
-      bossState.hp -= dmg;
+      if (inCollab && window.SkyHopCollabNotifyBossHit) {
+        window.SkyHopCollabNotifyBossHit(stageIndex, dmg, bossState.hp);
+      } else {
+        bossState.hp -= dmg;
+      }
       syncEpicBossHud();
     }
     woodenSwordReadyAt = now + WOODEN_SWORD_CD_MS;
@@ -1383,6 +1419,9 @@
           : 0;
       } else {
         if (runtimeOpts.bossHpOverride != null) bossState.hp = runtimeOpts.bossHpOverride;
+      }
+      if (inCollab && window.SkyHopCollabNotifyBossInit) {
+        window.SkyHopCollabNotifyBossInit(stageIndex, bossState.hp);
       }
     }
     itemPickups = (s.itemPickups || []).map((p) => ({ ...p, collected: false }));
@@ -1499,6 +1538,12 @@
     if (window.SkyHopInputLog && typeof window.SkyHopInputLog.setGameplayActive === 'function') {
       window.SkyHopInputLog.setGameplayActive(true, meta);
     }
+  }
+
+  function beginCollab(opts) {
+    inCollab = true;
+    inRace = true;
+    beginRacing(opts);
   }
 
   function beginRacing(opts) {
@@ -1924,7 +1969,11 @@
         ? epicPlayerStompsEpicBoss(b)
         : player.vy * gravityDir > 0 && player.y + player.h <= b.y + 18;
       if (stomp && nowT >= (b.stompCd || 0)) {
-        b.hp--;
+        if (inCollab && window.SkyHopCollabNotifyBossHit) {
+          window.SkyHopCollabNotifyBossHit(stageIndex, 1, b.hp);
+        } else {
+          b.hp--;
+        }
         b.stompCd = performance.now() + 500;
         player.vy = -380 * gravityDir * runtimeOpts.jumpMul;
         player.hazardIFrameUntil = performance.now() + C.BOSS_STOMP_IFRAME_MS;
@@ -2361,8 +2410,16 @@
           syncLevelsTopNav();
           return;
         }
+        if (inCollab) {
+          sealRunClockSegment();
+          if (window.SkyHopCollabNotifyFinish) {
+            window.SkyHopCollabNotifyFinish(getRunElapsedMs(), deaths);
+          }
+          return;
+        }
         clearRunProgress();
         sealRunClockSegment();
+        onCampaignFullyComplete();
         gameState = 'win';
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
@@ -2446,8 +2503,16 @@
           syncLevelsTopNav();
           return;
         }
+        if (inCollab) {
+          sealRunClockSegment();
+          if (window.SkyHopCollabNotifyFinish) {
+            window.SkyHopCollabNotifyFinish(getRunElapsedMs(), deaths);
+          }
+          return;
+        }
         clearRunProgress();
         sealRunClockSegment();
+        onCampaignFullyComplete();
         gameState = 'win';
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
@@ -2937,7 +3002,7 @@
       ctx.restore();
     }
 
-    if (inRace) {
+    if (inRace || inCollab) {
       const peers = window.__skyhopMpPeers;
       const myId = window.__skyhopMyPlayerId;
       if (peers && typeof peers === 'object') {
@@ -3197,6 +3262,9 @@
 
   function goToMenu() {
     const wasRacing = inRace;
+    const wasCollab = inCollab;
+    if (wasCollab && window.SkyHopCollabReset) window.SkyHopCollabReset();
+    inCollab = false;
     if (wasRacing) {
       inRace = false;
       if (window.SkyHopRaceReset) window.SkyHopRaceReset();
@@ -3224,6 +3292,16 @@
     if (btnSkipStage) btnSkipStage.classList.add('hidden');
     screenMenu.classList.remove('hidden');
     screenMenu.classList.add('flex');
+    const menuMain = document.getElementById('screenMenuMain');
+    const menuW2 = document.getElementById('screenMenuWorld2');
+    if (menuMain) menuMain.classList.remove('hidden');
+    if (menuW2) {
+      menuW2.classList.add('hidden');
+      menuW2.classList.remove('flex');
+    }
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
+      window.SkyHopWorlds.setActiveWorld(1);
+    }
     syncDifficultyMenuUI();
     applyCustomFormFromStore();
     syncProjOptsUI();
@@ -3316,7 +3394,7 @@
     if (document.visibilityState === 'hidden') clearInputKeys();
   });
 
-  btnPlay.addEventListener('click', () => {
+  function startCampaignPlay() {
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;
     shieldItemReadyAt = 0;
@@ -3349,6 +3427,11 @@
     resetRunClock();
     screenMenu.classList.add('hidden');
     screenMenu.classList.remove('flex');
+    const menuW2 = document.getElementById('screenMenuWorld2');
+    if (menuW2) {
+      menuW2.classList.add('hidden');
+      menuW2.classList.remove('flex');
+    }
     hud.classList.remove('hidden');
     loadStage(stageIndex);
     if (resume) {
@@ -3357,7 +3440,39 @@
     }
     syncWeaponHud(performance.now());
     updateSkipHud();
+  }
+  window.SkyHopStartCampaignPlay = startCampaignPlay;
+
+  btnPlay.addEventListener('click', () => {
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
+      window.SkyHopWorlds.setActiveWorld(1);
+    }
+    startCampaignPlay();
   });
+
+  window.SkyHopApplyCollabBossHp = function (stage0, hp) {
+    if (!inCollab || !bossState) return;
+    if (Number(stage0) !== stageIndex) return;
+    bossState.hp = Math.max(0, Number(hp) || 0);
+    syncEpicBossHud();
+  };
+
+  window.SkyHopTriggerCollabWin = function (timeMs, deathsArg) {
+    if (!inCollab && !inRace) return;
+    inCollab = false;
+    inRace = false;
+    clearRunProgress();
+    sealRunClockSegment();
+    gameState = 'win';
+    hud.classList.add('hidden');
+    screenWin.classList.remove('hidden');
+    screenWin.classList.add('flex');
+    winDeaths.textContent = String(deathsArg != null ? deathsArg : deaths);
+    if (winTime) winTime.textContent = formatTotalRunTime(timeMs != null ? timeMs : getRunElapsedMs());
+    setTouchHudVisible(false);
+    syncLevelsTopNav();
+    if (window.SkyHopCollabReset) window.SkyHopCollabReset();
+  };
 
   function startUserLevel(stagesArr, meta) {
     if (!stagesArr || !stagesArr.length) return;
@@ -3474,6 +3589,7 @@
 
   window.SKYHOP = {
     beginRacing,
+    beginCollab,
     startUserLevel,
     ensureGameShellVisible,
     goToMenu,

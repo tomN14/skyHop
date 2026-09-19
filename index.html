@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sky Hop 2.7 — 50 Stages</title>
+  <title>Sky Hop 3.0 — Worlds & Collab</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -153,14 +153,21 @@
 
     <!-- Levels nav: fixed above main menu (z-20) so visible + clickable; tooltips on hover -->
     <div id="levelsTopNav" class="flex justify-between gap-2 px-3 md:px-4">
-      <button id="btnNavOnlineLevels" type="button" title="Online Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
-        <span aria-hidden="true">🌐</span><span class="text-xs font-semibold text-cyan-100">Online</span>
-      </button>
+      <div class="flex flex-col items-start gap-2">
+        <button id="btnNavOnlineLevels" type="button" title="Online Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
+          <span aria-hidden="true">🌐</span><span class="text-xs font-semibold text-cyan-100">Online</span>
+        </button>
+      </div>
       <span class="flex-1 sm:flex-none"></span>
       <div class="flex flex-col items-end gap-2">
-        <button id="btnNavMyLevels" type="button" title="My Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-violet-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
-          <span aria-hidden="true">✏️</span><span class="text-xs font-semibold text-violet-100">My levels</span>
-        </button>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button id="btnNavMyMods" type="button" title="My Mods" class="pointer-events-auto hidden inline-flex items-center gap-2 rounded-2xl border border-fuchsia-500/40 bg-slate-900/90 px-3 py-1.5 text-sm shadow-lg backdrop-blur-md hover:bg-slate-800">
+            <span aria-hidden="true">🧩</span><span class="text-xs font-semibold text-fuchsia-100">My Mods</span>
+          </button>
+          <button id="btnNavMyLevels" type="button" title="My Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-violet-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
+            <span aria-hidden="true">✏️</span><span class="text-xs font-semibold text-violet-100">My levels</span>
+          </button>
+        </div>
         <button id="btnNavSubmitRun" type="button" title="Submit run for leaderboard review" class="pointer-events-auto hidden inline-flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-slate-900/90 px-3 py-1.5 text-sm shadow-lg backdrop-blur-md hover:bg-slate-800">
           <span aria-hidden="true">🏁</span><span class="text-xs font-semibold text-amber-100">Submit Run</span>
         </button>
@@ -181,9 +188,10 @@
       </div>
     </div>
     <div id="screenMenu" class="absolute inset-0 z-20 flex items-center justify-center overflow-y-auto overscroll-y-contain bg-slate-950/90 px-6 pb-6 pt-[4.5rem] backdrop-blur-sm max-[480px]:items-start max-[480px]:pt-[4.25rem]">
-      <div class="my-auto w-full max-w-xl rounded-3xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 to-indigo-950/80 p-8 shadow-2xl shadow-indigo-900/40">
+      <button id="btnMenuWorldNext" type="button" title="World 2" class="pointer-events-auto absolute right-4 top-[5rem] z-[21] hidden h-12 w-12 items-center justify-center rounded-full border border-teal-500/50 bg-teal-950/80 text-2xl font-bold text-teal-100 shadow-lg hover:bg-teal-900/80 md:right-8">→</button>
+      <div id="screenMenuMain" class="my-auto w-full max-w-xl rounded-3xl border border-indigo-500/30 bg-gradient-to-br from-slate-900 to-indigo-950/80 p-8 shadow-2xl shadow-indigo-900/40">
         <p class="text-center text-sm font-sem uppercase tracking-[0.2em] text-indigo-400">Platformer</p>
-        <h1 class="mt-2 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">Sky Hop <span class="text-2xl font-semibold text-indigo-300/95 md:text-3xl">2.7</span></h1>
+        <h1 class="mt-2 text-center text-4xl font-bold tracking-tight text-white md:text-5xl">Sky Hop <span class="text-2xl font-semibold text-indigo-300/95 md:text-3xl">3.0</span></h1>
         <p class="mt-4 text-center text-slate-400">Thirty-five stages — spikes, lava, moving ledges, gravity arrows, grapple, a boss, and more. Reach each goal (or defeat the boss).</p>
         <p class="mt-3 text-center text-xs text-slate-500">Difficulty: Easy · Normal · Hard · Custom — 50 stages, two boss fights, weapons on stage 49.</p>
         <p id="menuProgressHint" class="mt-2 hidden text-center text-sm text-indigo-200/90"></p>
@@ -275,12 +283,20 @@
             Racing
           </button>
         </div>
+        <button id="btnOpenCollabMenu" type="button" class="mt-2 w-full rounded-2xl border-2 border-teal-500/45 bg-teal-950/50 px-6 py-3 text-sm font-semibold text-teal-100 shadow-lg hover:bg-teal-900/60">Collab (both worlds)</button>
           <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Account &amp; cloud stats
         </button>
         <button id="btnOpenOwnerPage" type="button" class="mt-2 hidden w-full rounded-2xl border border-rose-500/45 bg-rose-950/40 px-6 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Owner administration
         </button>
+      </div>
+      <div id="screenMenuWorld2" class="my-auto hidden w-full max-w-md flex-col items-center rounded-3xl border border-teal-500/35 bg-gradient-to-br from-slate-900 to-teal-950/50 p-8 shadow-2xl">
+        <button id="btnMenuWorldBack" type="button" class="mb-4 self-start rounded-xl border border-white/15 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">← World 1</button>
+        <p class="text-center text-sm font-sem uppercase tracking-[0.2em] text-teal-300">Campaign</p>
+        <h2 class="mt-2 text-center text-3xl font-bold text-white">World 2</h2>
+        <p class="mt-3 text-center text-sm text-slate-400">Harder stages — moving platforms. Beat all 50 World 1 stages to unlock.</p>
+        <button id="btnPlayWorld2" type="button" class="mt-8 w-full rounded-2xl bg-teal-600 px-6 py-4 text-lg font-semibold text-white shadow-lg hover:bg-teal-500">Play</button>
       </div>
     </div>
 
@@ -544,8 +560,13 @@
             <button id="ownerBtnGiftTex" type="button" class="rounded-lg bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-600">Grant</button>
           </div>
           <p id="ownerGiftTexMsg" class="mt-2 hidden text-xs"></p>
-          <p class="mt-4 text-[11px] font-sem text-amber-200/90">Built-in campaign (50 stages)</p>
+          <p class="mt-4 text-[11px] font-sem text-amber-200/90">Built-in campaign</p>
           <p class="mt-1 text-[11px] text-slate-500">Edit one stage at a time in the level editor, then push the full list to the server. Players fetch it on load.</p>
+          <label class="mt-2 block text-[11px] text-slate-500">World</label>
+          <select id="ownerBuiltinWorldPick" class="mt-1 w-full max-w-xs rounded-lg border border-amber-500/40 bg-slate-950 px-2 py-1.5 text-xs text-amber-100">
+            <option value="1">World 1 (50 stages)</option>
+            <option value="2">World 2</option>
+          </select>
           <button id="btnOwnerEditBuiltin" type="button" class="mt-2 rounded-lg border border-amber-500/50 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Edit built-in stages…</button>
           <p class="mt-4 text-[11px] font-sem text-rose-300/90">Ban any user (by username)</p>
           <button id="btnOwnerBanUser" type="button" class="mt-2 rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-950/40">Open ban dialog…</button>
@@ -854,6 +875,10 @@
     <div id="screenLevelEditor" class="absolute inset-0 z-[30] hidden flex flex-col bg-slate-950 text-slate-100">
       <div class="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900/95 px-3 py-2">
         <button id="btnLvlEdExit" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:bg-white/10">Exit</button>
+        <select id="ownerBuiltinWorldSelect" class="hidden rounded-lg border border-amber-500/40 bg-slate-950 px-2 py-1 text-xs text-amber-100">
+          <option value="1">World 1</option>
+          <option value="2">World 2</option>
+        </select>
         <button id="btnLvlEdDeleteLevel" type="button" class="hidden rounded-lg border border-rose-600/55 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete level…</button>
         <input id="lvlEdTitle" type="text" maxlength="80" class="min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-950 px-2 py-1 text-sm" placeholder="Level name" />
         <span class="text-[10px] text-slate-500">Tools:</span>
@@ -876,6 +901,55 @@
         <canvas id="lvlEditorCanvas" class="block w-full max-w-full touch-none border border-white/10 bg-slate-900" style="min-height:220px"></canvas>
       </div>
       <p class="px-3 py-2 text-center text-[10px] text-slate-500">Block tool places single platforms (no auto support beams). Click: place · drag: move · Rotate 90°: with a block selected. Beat Test play before Upload.</p>
+    </div>
+
+    <div id="screenMyMods" class="pointer-events-auto fixed inset-0 z-[36] hidden flex-col bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
+      <div class="mx-auto flex w-full max-w-lg shrink-0 items-center justify-between pb-3">
+        <h2 class="text-lg font-bold text-fuchsia-100">My Mods</h2>
+        <button id="btnMyModsClose" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">Close</button>
+      </div>
+      <p id="myModsErr" class="mx-auto mb-2 hidden max-w-lg text-center text-sm text-rose-300"></p>
+      <ul id="myModsList" class="mx-auto w-full max-w-lg flex-1 list-none space-y-2 overflow-y-auto p-0 pb-28"></ul>
+      <button id="myModsActivate" type="button" class="pointer-events-auto fixed bottom-4 left-4 z-[37] rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-lg hover:bg-violet-500">Activate</button>
+      <div class="pointer-events-auto fixed bottom-4 right-4 z-[37] flex max-w-[min(100vw-5rem,20rem)] flex-col items-stretch gap-2">
+        <p id="myModsPendingName" class="hidden truncate text-right text-xs text-fuchsia-200"></p>
+        <div id="myModsDropZone" class="cursor-pointer rounded-2xl border-2 border-dashed border-fuchsia-500/40 bg-slate-900/90 px-4 py-3 text-center text-xs text-slate-300 hover:border-fuchsia-400">
+          Drop .js here or click to select (max 5 MB)
+          <input id="myModsFileInput" type="file" accept=".js,application/javascript" class="hidden" />
+        </div>
+        <button id="myModsUpload" type="button" disabled class="rounded-xl border border-fuchsia-500/50 bg-fuchsia-950/80 px-4 py-2 text-sm font-semibold text-fuchsia-100 opacity-50 hover:bg-fuchsia-900/60 disabled:pointer-events-none">Upload</button>
+      </div>
+    </div>
+
+    <div id="screenCollabMenu" class="absolute inset-0 z-[25] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-6 backdrop-blur-sm">
+      <div class="my-auto w-full max-w-md rounded-3xl border border-teal-500/30 bg-gradient-to-br from-slate-900 to-teal-950/40 p-6 shadow-2xl">
+        <p class="text-center text-sm font-sem uppercase tracking-widest text-teal-400">Team up</p>
+        <h2 class="mt-1 text-center text-2xl font-bold text-white">Collab</h2>
+        <p class="mt-2 text-center text-sm text-slate-400">No race — shared boss HP, no stage catch-up. When anyone finishes, everyone wins.</p>
+        <label class="mt-4 block text-left text-xs text-slate-500">World scope</label>
+        <select id="collabWorldScope" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-white">
+          <option value="w1">World 1</option>
+          <option value="w2">World 2</option>
+          <option value="both" selected>Both worlds</option>
+        </select>
+        <input id="collabWsUrl" type="hidden" />
+        <label class="mt-3 block text-left text-xs text-slate-500">Display name</label>
+        <input id="collabName" type="text" maxlength="20" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-slate-200" placeholder="Player" />
+        <div class="mt-4 grid gap-2">
+          <button id="collabBtnHost" type="button" class="rounded-2xl bg-teal-600 px-4 py-3 text-sm font-semibold text-white hover:bg-teal-500">Host session</button>
+          <button id="collabBtnJoin" type="button" class="rounded-2xl border border-white/20 bg-slate-800/80 px-4 py-3 text-sm font-semibold text-slate-200">Join with ID</button>
+        </div>
+        <div id="collabHostPanel" class="mt-4 hidden rounded-2xl border border-teal-500/20 bg-slate-950/60 p-4">
+          <p class="font-sem text-teal-200">Session ID</p>
+          <p id="collabRoomIdText" class="mt-2 font-mono text-xl font-bold text-white">—</p>
+          <button id="collabBtnStart" type="button" class="mt-3 rounded-xl bg-teal-500 px-4 py-2 text-xs font-semibold text-slate-900">Start collab</button>
+        </div>
+        <div id="collabJoinPanel" class="mt-4 hidden">
+          <input id="collabRoomInput" type="text" maxlength="8" class="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono uppercase text-white" placeholder="SESSION ID" />
+        </div>
+        <p id="collabMpStatus" class="mt-3 text-center text-sm text-slate-400"></p>
+        <button id="btnCollabClose" type="button" class="mt-5 w-full rounded-2xl border border-white/20 py-2.5 text-sm text-slate-300 hover:bg-white/5">Back</button>
+      </div>
     </div>
 
     <!-- Racing: lobby (over main menu) -->
@@ -952,11 +1026,14 @@
   <script src="stages.js"></script>
   <script src="stages-extra.js"></script>
   <script src="stages-36-50.js"></script>
+  <script src="stages-world2.js"></script>
   <script src="js/skyhop-options.js"></script>
   <script src="js/skyhop-constants.js"></script>
   <script src="js/skyhop-physics.js"></script>
   <script src="js/skyhop-stage-prep.js"></script>
   <script src="js/skyhop-campaign-boot.js"></script>
+  <script src="js/skyhop-campaign-boot-world2.js"></script>
+  <script src="js/skyhop-worlds.js"></script>
   <script src="js/skyhop-recording.js"></script>
   <script src="js/skyhop-input-log.js"></script>
   <script src="js/skyhop-game.js"></script>
@@ -970,6 +1047,8 @@
   <script src="js/skyhop-submitted-runs-staff.js"></script>
   <script src="js/skyhop-owner-reviewed-runs.js"></script>
   <script src="js/skyhop-submit-run.js"></script>
+  <script src="js/skyhop-collab.js"></script>
+  <script src="js/skyhop-mods.js"></script>
   <script src="js/skyhop-levels.js"></script>
 </body>
 </html>

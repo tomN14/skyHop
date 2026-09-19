@@ -200,10 +200,14 @@ wss.on('connection', (ws) => {
         let roomId = makeRoomId();
         while (rooms.has(roomId)) roomId = makeRoomId();
         const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
+        const isCollab = String(msg.mode || '').toLowerCase() === 'collab';
         const room = {
           id: roomId,
           host: ws,
           started: false,
+          collab: isCollab,
+          worldScope: 'w1',
+          bossHpByStage: {},
           clients: new Set([ws]),
           names: { [playerId]: name },
           progress: { [playerId]: { stage: 0, finished: false } },
@@ -240,7 +244,7 @@ wss.on('connection', (ws) => {
         return;
       }
       if (room.started) {
-        send(ws, { type: 'error', message: 'Race already started' });
+        send(ws, { type: 'error', message: room.collab ? 'Session already started' : 'Race already started' });
         return;
       }
       if (room.clients.size >= 8) {
@@ -311,9 +315,50 @@ wss.on('connection', (ws) => {
           customOpts = null;
         }
       }
+      if (room.collab) {
+        const scopeRaw = msg.worldScope != null ? String(msg.worldScope).toLowerCase() : 'w1';
+        const worldScope = scopeRaw === 'w2' || scopeRaw === 'both' ? scopeRaw : 'w1';
+        room.worldScope = worldScope;
+        const sc = Number(msg.stageCount);
+        const nStages = Number.isFinite(sc) && sc >= 1 ? Math.min(200, Math.floor(sc)) : 50;
+        room.maxStage0 = Math.max(0, nStages - 1);
+        const pack = { type: 'collabStart', startAt, roomId: room.id, worldScope, difficulty };
+        if (customOpts) pack.customOpts = customOpts;
+        for (const c of room.clients) send(c, pack);
+        return;
+      }
       const pack = { type: 'raceStart', startAt, roomId: room.id, difficulty };
       if (customOpts) pack.customOpts = customOpts;
       for (const c of room.clients) send(c, pack);
+      return;
+    }
+
+    if (msg.type === 'collabBossInit') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !room.started || !room.collab) return;
+      const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
+      const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
+      if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
+      for (const c of room.clients) {
+        send(c, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
+      }
+      return;
+    }
+
+    if (msg.type === 'collabBossHit') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !room.started || !room.collab) return;
+      const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
+      const dmg = Math.max(0, Math.min(500, Math.floor(Number(msg.damage) || 0)));
+      if (dmg < 1) return;
+      const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
+      if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
+      room.bossHpByStage[key] = Math.max(0, room.bossHpByStage[key] - dmg);
+      for (const c of room.clients) {
+        send(c, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
+      }
       return;
     }
 
@@ -321,7 +366,11 @@ wss.on('connection', (ws) => {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
       if (!room || !room.started) return;
-      const st = msg.stage0 != null ? Math.max(0, Math.min(49, Math.floor(msg.stage0))) : 0;
+      const cap =
+        room.maxStage0 != null && Number.isFinite(room.maxStage0)
+          ? Math.max(0, Math.floor(room.maxStage0))
+          : 49;
+      const st = msg.stage0 != null ? Math.max(0, Math.min(cap, Math.floor(msg.stage0))) : 0;
       let nx = null;
       let ny = null;
       let ng = null;
@@ -383,6 +432,17 @@ wss.on('connection', (ws) => {
       if (room.progress[playerId]) {
         room.progress[playerId].finished = true;
         room.progress[playerId].finalTimeMs = msg.timeMs != null ? msg.timeMs : 0;
+      }
+      if (room.collab) {
+        const pack = {
+          type: 'collabWin',
+          playerId,
+          name: room.names[playerId] || '?',
+          timeMs: msg.timeMs != null ? msg.timeMs : 0,
+          deaths: msg.deaths != null ? msg.deaths : 0,
+        };
+        for (const c of room.clients) send(c, pack);
+        return;
       }
       for (const c of room.clients) {
         if (c === ws) continue;

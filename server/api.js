@@ -19,6 +19,7 @@ import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
 import * as SubmittedRuns from './submitted-runs.js';
+import * as UserMods from './user-mods.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -1205,6 +1206,20 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/builtin-stages-world2' && req.method === 'GET') {
+    try {
+      if (typeof store.getBuiltinWorld2Stages !== 'function') {
+        json(res, 200, { stages: null });
+        return true;
+      }
+      const stages = await store.getBuiltinWorld2Stages();
+      json(res, 200, { stages: stages && stages.length ? stages : null });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/owner/builtin-stages' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {
@@ -2382,6 +2397,144 @@ export async function handleApi(req, res) {
       json(res, 400, { error: String(e.message || e) });
     }
     return true;
+  }
+
+  if (pathname === '/api/owner/builtin-stages-world2' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    if (typeof store.setBuiltinWorld2Stages !== 'function') {
+      json(res, 501, { error: 'Not configured' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const stages = body.stages;
+    if (!Array.isArray(stages) || stages.length < 1) {
+      json(res, 400, { error: 'stages array required' });
+      return true;
+    }
+    const raw = JSON.stringify(stages);
+    if (raw.length > 2_000_000) {
+      json(res, 400, { error: 'World 2 data too large' });
+      return true;
+    }
+    try {
+      await store.setBuiltinWorld2Stages(stages);
+      json(res, 200, { ok: true, count: stages.length });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/user-mods/upload' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    try {
+      const buf = await readBinaryBody(req, UserMods.MAX_USER_MOD_BYTES + 65536);
+      const titleRaw = String(req.headers['x-mod-title'] || 'Mod');
+      let title = titleRaw;
+      try {
+        title = decodeURIComponent(titleRaw);
+      } catch {
+        title = titleRaw;
+      }
+      const saved = await UserMods.userModsCreate(uid, buf, { title: title.slice(0, 120) });
+      json(res, 201, { ok: true, mod: saved });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/user-mods/mine' && req.method === 'GET') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const list = await UserMods.userModsListForUser(uid);
+      json(res, 200, { mods: list });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/user-mods/delete' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    try {
+      await UserMods.userModsDelete(uid, id);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/user-mods\/([^/]+)\/script$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const buffer = await UserMods.userModsRead(uid, m[1]);
+        res.writeHead(200, {
+          'Content-Type': 'application/javascript',
+          'Content-Length': buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+        });
+        res.end(buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
   }
 
   if (pathname === '/api/staff/submitted-runs' && req.method === 'GET') {
