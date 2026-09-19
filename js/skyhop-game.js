@@ -141,6 +141,23 @@
     }
   }
 
+  function pauseDiscardProgressChecked() {
+    const el = document.getElementById('pauseDiscardProgress');
+    return !!(el && el.checked);
+  }
+
+  function resetPauseDiscardProgress() {
+    const el = document.getElementById('pauseDiscardProgress');
+    if (el) el.checked = false;
+  }
+
+  function syncPauseDiscardUi() {
+    const wrap = document.getElementById('pauseDiscardWrap');
+    if (!wrap) return;
+    const campaign = !window.SKYHOP_EXTERNAL_LEVEL && !inRace && !inCollab;
+    wrap.classList.toggle('hidden', !campaign);
+  }
+
   function progressStage0ForStorage() {
     if (window.SKYHOP_EXTERNAL_LEVEL) return stageIndex;
     const n = campaignStageCount();
@@ -3270,6 +3287,7 @@
         runFrozenMs += performance.now() - runSegmentStart;
       }
       gameState = 'paused';
+      syncPauseDiscardUi();
       screenPause.classList.remove('hidden');
       screenPause.classList.add('flex');
     } else {
@@ -3314,9 +3332,14 @@
       if (window.SkyHopRaceReset) window.SkyHopRaceReset();
     } else {
       if (gameState !== 'win' && gameState !== 'menu') {
-        saveRunProgress();
+        if (pauseDiscardProgressChecked()) {
+          clearRunProgress();
+        } else {
+          saveRunProgress();
+        }
       }
     }
+    resetPauseDiscardProgress();
     closeWeaponScreen();
     gameState = 'menu';
     window.SKYHOP_ACTIVE_STAGES = null;
@@ -3439,6 +3462,7 @@
   });
 
   function startCampaignPlay() {
+    resetPauseDiscardProgress();
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;
     shieldItemReadyAt = 0;
@@ -3670,7 +3694,8 @@
     if (window.SKYHOP_EXTERNAL_LEVEL) return;
     if (isDebugStartStageActive()) return;
     if (gameState !== 'menu' && gameState !== 'win') {
-      saveRunProgress();
+      if (pauseDiscardProgressChecked()) clearRunProgress();
+      else saveRunProgress();
     }
   });
 
