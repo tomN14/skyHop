@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { effectiveRole } from './moderation.js';
 import { store } from './store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,8 @@ export async function submittedRunCreate(userId, payload) {
     player_note: note || null,
     reviewed_by: null,
     reviewed_at: null,
+    decline_reason: null,
+    status_locked: false,
     created_at: createdAt,
   });
   fileSave(db);
@@ -136,7 +139,7 @@ async function usernameFor(userId) {
   return u ? u.username : 'unknown';
 }
 
-function mapRow(r, username) {
+function mapRow(r, username, extra) {
   return {
     id: r.id,
     userId: Number(r.user_id),
@@ -150,9 +153,15 @@ function mapRow(r, username) {
     playerNote: r.player_note || null,
     reviewedBy: r.reviewed_by != null ? Number(r.reviewed_by) : null,
     reviewedAt: r.reviewed_at != null ? Number(r.reviewed_at) : null,
+    declineReason: r.decline_reason || null,
+    statusLocked: !!r.status_locked,
     createdAt: Number(r.created_at),
+    ...(extra || {}),
   };
 }
+
+const RUN_SELECT_COLS =
+  'id, user_id, recording_id, input_log_id, status, difficulty, time_ms, deaths, player_note, reviewed_by, reviewed_at, decline_reason, status_locked, created_at';
 
 export async function submittedRunsStaffList({ username, status }) {
   const st = String(status || 'unreviewed').toLowerCase();
@@ -163,9 +172,7 @@ export async function submittedRunsStaffList({ username, status }) {
     const sb = sbClient();
     let q = sb
       .from('skyhop_submitted_runs')
-      .select(
-        'id, user_id, recording_id, input_log_id, status, difficulty, time_ms, deaths, player_note, reviewed_by, reviewed_at, created_at'
-      )
+      .select(RUN_SELECT_COLS)
       .order('created_at', { ascending: false })
       .limit(100);
     if (st !== 'all') q = q.eq('status', st);
@@ -206,30 +213,50 @@ export async function submittedRunsStaffList({ username, status }) {
   return out;
 }
 
-export async function submittedRunStaffReview(staffUserId, submissionId, newStatus) {
+export async function submittedRunStaffReview(staffUserId, staffRole, submissionId, newStatus, declineReason) {
   const status = String(newStatus || '').toLowerCase();
   if (!['approved', 'declined', 'unreviewed'].includes(status)) throw new Error('Invalid status');
+  const role = String(staffRole || 'player').toLowerCase();
+  const isOwner = role === 'owner';
+  const reason = String(declineReason || '').trim().slice(0, 1000);
+  if (status === 'declined' && !reason) throw new Error('Reason for Denial is required.');
   const now = Date.now();
+
+  async function applyReview(row) {
+    if (row.status_locked && !isOwner) {
+      throw new Error('This run’s status is locked by the site owner.');
+    }
+    const wasApproved = row.status === 'approved';
+    row.status = status;
+    row.reviewed_by = staffUserId;
+    row.reviewed_at = now;
+    if (status === 'declined') row.decline_reason = reason;
+    else row.decline_reason = null;
+    if (status === 'approved' && !wasApproved && typeof store.addRun === 'function') {
+      await store.addRun(row.user_id, row.time_ms, row.deaths, 'campaign', row.difficulty);
+    }
+    return { ok: true, status };
+  }
 
   if (useSupabase()) {
     const sb = sbClient();
     const { data: row, error: e1 } = await sb
       .from('skyhop_submitted_runs')
-      .select('id, user_id, difficulty, time_ms, deaths, status')
+      .select('id, user_id, difficulty, time_ms, deaths, status, status_locked')
       .eq('id', submissionId)
       .maybeSingle();
     if (e1) throw new Error(e1.message);
     if (!row) throw new Error('Not found');
-    const { error: e2 } = await sb
-      .from('skyhop_submitted_runs')
-      .update({
-        status,
-        reviewed_by: staffUserId,
-        reviewed_at: now,
-      })
-      .eq('id', submissionId);
-    if (e2) throw new Error(e2.message);
+    if (row.status_locked && !isOwner) throw new Error('This run’s status is locked by the site owner.');
     const wasApproved = row.status === 'approved';
+    const patch = {
+      status,
+      reviewed_by: staffUserId,
+      reviewed_at: now,
+      decline_reason: status === 'declined' ? reason : null,
+    };
+    const { error: e2 } = await sb.from('skyhop_submitted_runs').update(patch).eq('id', submissionId);
+    if (e2) throw new Error(e2.message);
     if (status === 'approved' && !wasApproved && typeof store.addRun === 'function') {
       await store.addRun(row.user_id, row.time_ms, row.deaths, 'campaign', row.difficulty);
     }
@@ -239,13 +266,81 @@ export async function submittedRunStaffReview(staffUserId, submissionId, newStat
   const db = fileLoad();
   const row = db.items.find((r) => r.id === submissionId);
   if (!row) throw new Error('Not found');
-  const wasApproved = row.status === 'approved';
-  row.status = status;
-  row.reviewed_by = staffUserId;
-  row.reviewed_at = now;
+  if (row.status_locked == null) row.status_locked = false;
+  if (row.decline_reason == null) row.decline_reason = null;
+  const out = await applyReview(row);
   fileSave(db);
-  if (status === 'approved' && !wasApproved && typeof store.addRun === 'function') {
-    await store.addRun(row.user_id, row.time_ms, row.deaths, 'campaign', row.difficulty);
+  return out;
+}
+
+export async function submittedRunOwnerLockStatus(submissionId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: e1 } = await sb
+      .from('skyhop_submitted_runs')
+      .select('id, status')
+      .eq('id', submissionId)
+      .maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!row) throw new Error('Not found');
+    if (row.status !== 'approved' && row.status !== 'declined') {
+      throw new Error('Only approved or declined runs can be locked.');
+    }
+    const { error: e2 } = await sb.from('skyhop_submitted_runs').update({ status_locked: true }).eq('id', submissionId);
+    if (e2) throw new Error(e2.message);
+    return { ok: true, statusLocked: true };
   }
-  return { ok: true, status };
+  const db = fileLoad();
+  const row = db.items.find((r) => r.id === submissionId);
+  if (!row) throw new Error('Not found');
+  if (row.status !== 'approved' && row.status !== 'declined') {
+    throw new Error('Only approved or declined runs can be locked.');
+  }
+  row.status_locked = true;
+  fileSave(db);
+  return { ok: true, statusLocked: true };
+}
+
+/** Runs approved by a moderator (owner oversight queue). */
+export async function submittedRunsOwnerModApprovedList() {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data, error } = await sb
+      .from('skyhop_submitted_runs')
+      .select(RUN_SELECT_COLS)
+      .eq('status', 'approved')
+      .not('reviewed_by', 'is', null)
+      .order('reviewed_at', { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    const out = [];
+    for (const r of data || []) {
+      const reviewer = r.reviewed_by != null ? await store.findUserById(r.reviewed_by) : null;
+      const revRole = reviewer ? effectiveRole(reviewer) : 'player';
+      if (revRole !== 'moderator') continue;
+      out.push(
+        mapRow(r, await usernameFor(r.user_id), {
+          reviewedByUsername: reviewer ? reviewer.username : 'unknown',
+        })
+      );
+    }
+    return out;
+  }
+  const db = fileLoad();
+  const rows = db.items
+    .filter((r) => r.status === 'approved' && r.reviewed_by != null)
+    .sort((a, b) => (b.reviewed_at || 0) - (a.reviewed_at || 0))
+    .slice(0, 100);
+  const out = [];
+  for (const r of rows) {
+    const reviewer = await store.findUserById(r.reviewed_by);
+    const revRole = reviewer ? effectiveRole(reviewer) : 'player';
+    if (revRole !== 'moderator') continue;
+    out.push(
+      mapRow(r, await usernameFor(r.user_id), {
+        reviewedByUsername: reviewer ? reviewer.username : 'unknown',
+      })
+    );
+  }
+  return out;
 }

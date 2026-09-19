@@ -38,11 +38,26 @@
   function updateFab(me) {
     var fab = document.getElementById('btnModDashboardFab');
     if (!fab) return;
-    var role = me && me.role ? me.role : 'player';
-    var show = role === 'moderator' || role === 'owner';
+    var show = !!(me && me.username);
     fab.classList.toggle('hidden', !show);
     if (show) fab.style.display = 'flex';
   }
+
+  function showAccessDenied() {
+    var screen = document.getElementById('screenModAccessDenied');
+    if (!screen) return;
+    screen.classList.remove('hidden');
+    screen.classList.add('flex');
+  }
+
+  function closeAccessDenied() {
+    var screen = document.getElementById('screenModAccessDenied');
+    if (!screen) return;
+    screen.classList.add('hidden');
+    screen.classList.remove('flex');
+  }
+
+  window.SkyHopCloseModAccessDenied = closeAccessDenied;
 
   window.SkyHopUpdateModDashboardFab = updateFab;
 
@@ -222,6 +237,12 @@
   }
 
   function openDashboard() {
+    var me = window.__skyhopLastMe;
+    var role = me && me.role ? me.role : 'player';
+    if (role !== 'moderator' && role !== 'owner') {
+      showAccessDenied();
+      return;
+    }
     var screen = document.getElementById('screenModDashboard');
     if (!screen) return;
     screen.classList.remove('hidden');
@@ -247,6 +268,8 @@
 
     if (fab) fab.addEventListener('click', openDashboard);
     if (close) close.addEventListener('click', closeDashboard);
+    var denyClose = document.getElementById('btnModAccessDeniedClose');
+    if (denyClose) denyClose.addEventListener('click', closeAccessDenied);
     if (lookup) lookup.addEventListener('click', function () {
       void lookupUser();
     });

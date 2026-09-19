@@ -81,10 +81,21 @@
     return res.json();
   }
 
-  async function review(id, status) {
+  function promptDeclineReason() {
+    var r = window.prompt('Reason for Denial (required):');
+    if (r === null) return null;
+    r = String(r).trim();
+    if (!r) {
+      window.alert('Reason for Denial is required.');
+      return null;
+    }
+    return r.slice(0, 1000);
+  }
+
+  async function review(id, status, declineReason) {
     await api('/api/staff/submitted-runs/review', {
       method: 'POST',
-      body: JSON.stringify({ id: id, status: status }),
+      body: JSON.stringify({ id: id, status: status, declineReason: declineReason || '' }),
     });
   }
 
@@ -128,7 +139,9 @@
             row.username.replace(/</g, '&lt;') +
             ' · <span class="text-violet-300">' +
             statusLabel(row.status) +
-            '</span></p>' +
+            '</span>' +
+            (row.statusLocked ? ' · <span class="text-amber-300">Locked</span>' : '') +
+            '</p>' +
             '<p class="mt-1 text-xs text-slate-400">' +
             String(row.difficulty || '').toUpperCase() +
             ' · time ' +
@@ -185,7 +198,12 @@
             b.textContent = label;
             b.addEventListener('click', async function () {
               try {
-                await review(row.id, st);
+                var reason = '';
+                if (st === 'declined') {
+                  reason = promptDeclineReason();
+                  if (reason === null) return;
+                }
+                await review(row.id, st, reason);
                 await runSearch();
               } catch (e) {
                 window.alert(String(e.message || e));
@@ -194,7 +212,12 @@
             actions.appendChild(b);
           }
 
-          if (row.status === 'unreviewed') {
+          if (row.statusLocked) {
+            var note = document.createElement('p');
+            note.className = 'mt-2 text-xs text-amber-200/90';
+            note.textContent = 'Status locked by the site owner — moderators cannot change this run.';
+            actions.appendChild(note);
+          } else if (row.status === 'unreviewed') {
             addBtn('Approve', 'approved');
             addBtn('Decline', 'declined');
           } else if (row.status === 'approved') {

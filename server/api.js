@@ -2424,8 +2424,57 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'Invalid id' });
       return true;
     }
+    const declineReason = body.declineReason != null ? String(body.declineReason) : '';
     try {
-      const out = await SubmittedRuns.submittedRunStaffReview(staff.userId, id, status);
+      const out = await SubmittedRuns.submittedRunStaffReview(
+        staff.userId,
+        staff.role,
+        id,
+        status,
+        declineReason
+      );
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/submitted-runs/mod-approved' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    try {
+      const rows = await SubmittedRuns.submittedRunsOwnerModApprovedList();
+      json(res, 200, { submissions: rows });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/submitted-runs/lock' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    try {
+      const out = await SubmittedRuns.submittedRunOwnerLockStatus(id);
       json(res, 200, out);
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });

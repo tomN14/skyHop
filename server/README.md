@@ -55,6 +55,8 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Input logs + submitted runs:** Run **`server/supabase/extend_v8_input_logs_submitted_runs.sql`** after v7 — `skyhop_input_logs`, `skyhop_submitted_runs`, and private **`skyhop-input-logs`** bucket (max 5 MB per log).
 
+**Submitted run locks + decline reasons:** Run **`server/supabase/extend_v9_submitted_run_lock_decline_reason.sql`** after v8 — `decline_reason`, `status_locked` on `skyhop_submitted_runs`.
+
 **Custom profiles (avatars):** Run **`server/supabase/extend_v6_profiles_storage.sql`** — adds `profile_bio` / `profile_avatar_path`, creates the **`skyhop-profiles`** Storage bucket, and RLS so authenticated users may only write under **`{skyhop_user_id}/`** (see `user_metadata.skyhop_user_id` when using Supabase Auth). The game uploads via the Node server (service role) or signed upload URLs scoped to your folder.
 
 **Moderation (reports / bans):** Run **`server/supabase/moderation.sql`** in the SQL Editor if you already created tables from an older `schema.sql`. New installs: `schema.sql` already includes `role`, `ban_until_ms`, `ban_reason` on `skyhop_users` and the `skyhop_reports` table. Set **`SKYHOP_OWNER_USERNAME`** in `server/.env.local` to your username (letters match login; case-insensitive). That account is always treated as **owner** (ban users, dismiss escalations, promote moderators). **Moderators** are normal accounts with `role = moderator` in the DB; the owner grants that from the reports inbox (“Make mod” / “Remove mod”).

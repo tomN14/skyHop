@@ -1505,6 +1505,9 @@
       submitBtn.classList.toggle('hidden', !authed);
       submitBtn.classList.toggle('inline-flex', authed);
     }
+    if (typeof window.SkyHopOwnerReviewedRuns === 'object' && window.SkyHopOwnerReviewedRuns.syncNav) {
+      window.SkyHopOwnerReviewedRuns.syncNav(window.__skyhopLastMe || null);
+    }
   }
 
   function init() {
