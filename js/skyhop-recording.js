@@ -19,6 +19,11 @@
     }
   }
 
+  function apiBase() {
+    if (typeof window.SkyHopApiOrigin === 'function') return window.SkyHopApiOrigin();
+    return window.location.origin;
+  }
+
   function pickMimeType() {
     const types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
     for (var i = 0; i < types.length; i++) {
@@ -58,7 +63,7 @@
   async function uploadClip(blob, meta) {
     const tok = authToken();
     if (!tok) throw new Error('Sign in to save recordings to your account.');
-    const res = await fetch('/api/recordings/upload', {
+    const res = await fetch(apiBase() + '/api/recordings/upload', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + tok,
@@ -102,7 +107,7 @@
   async function fetchVideoBlob(recordingId) {
     const tok = authToken();
     if (!tok) throw new Error('Not signed in');
-    const res = await fetch('/api/recordings/' + encodeURIComponent(recordingId) + '/video', {
+    const res = await fetch(apiBase() + '/api/recordings/' + encodeURIComponent(recordingId) + '/video', {
       headers: { Authorization: 'Bearer ' + tok },
     });
     if (!res.ok) {

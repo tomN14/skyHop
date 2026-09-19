@@ -141,6 +141,10 @@
     const o = opts || {};
     const url = apiOrigin() + path;
     const headers = Object.assign({ 'Content-Type': 'application/json' }, o.headers || {});
+    if (!o.noAuth && !headers.Authorization) {
+      const tok = getToken();
+      if (tok) headers.Authorization = 'Bearer ' + tok;
+    }
     let r;
     try {
       r = await fetch(url, Object.assign({}, o, { headers }));
@@ -203,6 +207,7 @@
   }
 
   window.SkyHopApiRequest = api;
+  window.SkyHopApiOrigin = apiOrigin;
 
   function getToken() {
     try {
