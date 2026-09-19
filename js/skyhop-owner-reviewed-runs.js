@@ -125,7 +125,7 @@
       ul.innerHTML = '';
       if (!rows.length) {
         ul.innerHTML =
-          '<li class="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400">No mod-approved runs yet.</li>';
+          '<li class="rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400">No approved submitted runs yet. A mod (or owner) must approve a submission first.</li>';
         return;
       }
       for (var i = 0; i < rows.length; i++) {
@@ -141,8 +141,9 @@
             '</span>' +
             (row.statusLocked ? ' · <span class="text-amber-300">Locked</span>' : '') +
             '</p>' +
-            '<p class="mt-1 text-xs text-slate-400">Mod: ' +
+            '<p class="mt-1 text-xs text-slate-400">Reviewed by: ' +
             String(row.reviewedByUsername || '—').replace(/</g, '&lt;') +
+            (row.reviewedByRole ? ' (' + String(row.reviewedByRole).replace(/</g, '&lt;') + ')' : '') +
             ' · ' +
             String(row.difficulty || '').toUpperCase() +
             ' · ' +

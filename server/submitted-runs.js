@@ -301,7 +301,7 @@ export async function submittedRunOwnerLockStatus(submissionId) {
   return { ok: true, statusLocked: true };
 }
 
-/** Runs approved by a moderator (owner oversight queue). */
+/** Approved submitted runs that staff have reviewed (owner oversight queue). */
 export async function submittedRunsOwnerModApprovedList() {
   if (useSupabase()) {
     const sb = sbClient();
@@ -317,10 +317,11 @@ export async function submittedRunsOwnerModApprovedList() {
     for (const r of data || []) {
       const reviewer = r.reviewed_by != null ? await store.findUserById(r.reviewed_by) : null;
       const revRole = reviewer ? effectiveRole(reviewer) : 'player';
-      if (revRole !== 'moderator') continue;
+      if (revRole !== 'moderator' && revRole !== 'owner') continue;
       out.push(
         mapRow(r, await usernameFor(r.user_id), {
           reviewedByUsername: reviewer ? reviewer.username : 'unknown',
+          reviewedByRole: revRole,
         })
       );
     }
@@ -335,10 +336,11 @@ export async function submittedRunsOwnerModApprovedList() {
   for (const r of rows) {
     const reviewer = await store.findUserById(r.reviewed_by);
     const revRole = reviewer ? effectiveRole(reviewer) : 'player';
-    if (revRole !== 'moderator') continue;
+    if (revRole !== 'moderator' && revRole !== 'owner') continue;
     out.push(
       mapRow(r, await usernameFor(r.user_id), {
         reviewedByUsername: reviewer ? reviewer.username : 'unknown',
+        reviewedByRole: revRole,
       })
     );
   }
