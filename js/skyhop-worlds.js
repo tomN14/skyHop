@@ -17,10 +17,20 @@
     return world1Stages().concat(world2Stages());
   }
 
+  function hasAuthToken() {
+    try {
+      return !!localStorage.getItem('SKYHOP_AUTH_TOKEN');
+    } catch {
+      return false;
+    }
+  }
+
   function isWorld2Unlocked() {
     try {
-      const me = window.__skyhopLastMe;
-      if (me && me.world2Unlocked) return true;
+      if (hasAuthToken()) {
+        const me = window.__skyhopLastMe;
+        return !!(me && me.world2Unlocked);
+      }
     } catch {
       /* */
     }
@@ -42,6 +52,7 @@
 
   function applyWorld2UnlockFromMe(me) {
     if (me && me.world2Unlocked) cacheWorld2UnlockedLocal(true);
+    else cacheWorld2UnlockedLocal(false);
     syncMenuWorldArrow();
   }
 
@@ -153,6 +164,10 @@
     }
     if (playW2) {
       playW2.addEventListener('click', function () {
+        if (!isWorld2Unlocked()) {
+          window.alert('Beat all World 1 stages on this account to unlock World 2.');
+          return;
+        }
         setActiveWorld(2);
         if (typeof window.SkyHopStartCampaignPlay === 'function') {
           window.SkyHopStartCampaignPlay();
