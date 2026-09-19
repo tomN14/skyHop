@@ -2152,8 +2152,22 @@ export async function handleApi(req, res) {
     try {
       const buf = await readBinaryBody(req, Recordings.MAX_RECORDING_BYTES + 65536);
       const contentType = String(req.headers['content-type'] || 'video/webm');
-      const title = String(req.headers['x-recording-title'] || 'Run').slice(0, 120);
-      const source = String(req.headers['x-recording-source'] || 'campaign').slice(0, 40);
+      const titleRaw = String(req.headers['x-recording-title'] || 'Run');
+      const sourceRaw = String(req.headers['x-recording-source'] || 'campaign');
+      let title = titleRaw;
+      let source = sourceRaw;
+      try {
+        title = decodeURIComponent(titleRaw);
+      } catch {
+        title = titleRaw;
+      }
+      try {
+        source = decodeURIComponent(sourceRaw);
+      } catch {
+        source = sourceRaw;
+      }
+      title = title.slice(0, 120);
+      source = source.slice(0, 40);
       const saved = await Recordings.recordingsCreate(uid, buf, contentType, { title, source });
       json(res, 201, { ok: true, recording: saved });
     } catch (e) {

@@ -63,8 +63,8 @@
       headers: {
         Authorization: 'Bearer ' + tok,
         'Content-Type': blob.type || meta.mimeType || 'video/webm',
-        'X-Recording-Title': String(meta.title || 'Run').slice(0, 120),
-        'X-Recording-Source': String(meta.source || 'campaign').slice(0, 40),
+        'X-Recording-Title': encodeURIComponent(String(meta.title || 'Run').slice(0, 120)),
+        'X-Recording-Source': encodeURIComponent(String(meta.source || 'campaign').slice(0, 40)),
       },
       body: blob,
     });
