@@ -1,12 +1,7 @@
 /**
- * Local run recordings (canvas capture → IndexedDB). No server upload.
+ * Run recordings — canvas capture, uploaded to the signed-in account (server storage).
  */
 (function () {
-  const DB_NAME = 'skyhop-recordings-v1';
-  const DB_VER = 1;
-  const STORE = 'clips';
-
-  let dbPromise = null;
   let mediaRecorder = null;
   let recordChunks = [];
   let captureStream = null;
@@ -16,24 +11,12 @@
 
   const btn = () => document.getElementById('btnRecordRun');
 
-  function openDb() {
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise(function (resolve, reject) {
-      const req = indexedDB.open(DB_NAME, DB_VER);
-      req.onerror = function () {
-        reject(req.error || new Error('IndexedDB unavailable'));
-      };
-      req.onupgradeneeded = function () {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE)) {
-          db.createObjectStore(STORE, { keyPath: 'id' });
-        }
-      };
-      req.onsuccess = function () {
-        resolve(req.result);
-      };
-    });
-    return dbPromise;
+  function authToken() {
+    try {
+      return localStorage.getItem('SKYHOP_AUTH_TOKEN');
+    } catch {
+      return null;
+    }
   }
 
   function pickMimeType() {
@@ -47,7 +30,7 @@
   function syncRecordButton() {
     var el = btn();
     if (!el) return;
-    var show = gameplayActive && typeof MediaRecorder !== 'undefined';
+    var show = gameplayActive && typeof MediaRecorder !== 'undefined' && !!authToken();
     el.classList.toggle('hidden', !show);
     if (!show) return;
     if (recording) {
@@ -72,74 +55,61 @@
     captureStream = null;
   }
 
-  async function saveClip(blob, meta) {
-    var db = await openDb();
-    var id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'rec-' + Date.now();
-    var entry = {
-      id: id,
-      title: String(meta.title || 'Run').slice(0, 120),
-      source: String(meta.source || 'campaign'),
-      createdAt: Date.now(),
-      mimeType: blob.type || meta.mimeType || 'video/webm',
-      blob: blob,
-    };
-    await new Promise(function (resolve, reject) {
-      var tx = db.transaction(STORE, 'readwrite');
-      tx.oncomplete = function () {
-        resolve();
-      };
-      tx.onerror = function () {
-        reject(tx.error);
-      };
-      tx.objectStore(STORE).put(entry);
+  async function uploadClip(blob, meta) {
+    const tok = authToken();
+    if (!tok) throw new Error('Sign in to save recordings to your account.');
+    const res = await fetch('/api/recordings/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + tok,
+        'Content-Type': blob.type || meta.mimeType || 'video/webm',
+        'X-Recording-Title': String(meta.title || 'Run').slice(0, 120),
+        'X-Recording-Source': String(meta.source || 'campaign').slice(0, 40),
+      },
+      body: blob,
     });
-    return entry;
+    const text = await res.text();
+    let data = null;
+    try {
+      if (text) data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      throw new Error((data && data.error) || text || 'Upload failed');
+    }
+    return data && data.recording ? data.recording : data;
   }
 
   async function listClips() {
-    var db = await openDb();
-    return new Promise(function (resolve, reject) {
-      var tx = db.transaction(STORE, 'readonly');
-      var req = tx.objectStore(STORE).getAll();
-      req.onsuccess = function () {
-        var rows = req.result || [];
-        rows.sort(function (a, b) {
-          return (b.createdAt || 0) - (a.createdAt || 0);
-        });
-        resolve(rows);
-      };
-      req.onerror = function () {
-        reject(req.error);
-      };
-    });
+    if (typeof window.SkyHopApiRequest !== 'function') {
+      throw new Error('Sign in and reload the page to view recordings.');
+    }
+    const data = await window.SkyHopApiRequest('/api/recordings/mine');
+    return (data && data.recordings) || [];
   }
 
   async function deleteClip(id) {
-    var db = await openDb();
-    await new Promise(function (resolve, reject) {
-      var tx = db.transaction(STORE, 'readwrite');
-      tx.oncomplete = function () {
-        resolve();
-      };
-      tx.onerror = function () {
-        reject(tx.error);
-      };
-      tx.objectStore(STORE).delete(id);
+    if (typeof window.SkyHopApiRequest !== 'function') {
+      throw new Error('Not signed in');
+    }
+    await window.SkyHopApiRequest('/api/recordings/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id: id }),
     });
   }
 
-  async function getClip(id) {
-    var db = await openDb();
-    return new Promise(function (resolve, reject) {
-      var tx = db.transaction(STORE, 'readonly');
-      var req = tx.objectStore(STORE).get(id);
-      req.onsuccess = function () {
-        resolve(req.result || null);
-      };
-      req.onerror = function () {
-        reject(req.error);
-      };
+  async function fetchVideoBlob(recordingId) {
+    const tok = authToken();
+    if (!tok) throw new Error('Not signed in');
+    const res = await fetch('/api/recordings/' + encodeURIComponent(recordingId) + '/video', {
+      headers: { Authorization: 'Bearer ' + tok },
     });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t || 'Could not load video');
+    }
+    return res.blob();
   }
 
   function getCanvas() {
@@ -148,6 +118,10 @@
 
   async function startRecording() {
     if (recording || !gameplayActive) return false;
+    if (!authToken()) {
+      window.alert('Sign in to record runs — clips save to your account.');
+      return false;
+    }
     var canvas = getCanvas();
     if (!canvas || typeof canvas.captureStream !== 'function') {
       window.alert('Recording is not supported in this browser.');
@@ -204,9 +178,14 @@
     recordChunks = [];
     stopCaptureTracks();
     if (!blob.size) return null;
-    var saved = await saveClip(blob, { title: meta.title, source: meta.source, mimeType: mimeType });
-    window.dispatchEvent(new CustomEvent('skyhop-recording-saved', { detail: { id: saved.id } }));
-    return saved;
+    try {
+      var saved = await uploadClip(blob, { title: meta.title, source: meta.source, mimeType: mimeType });
+      window.dispatchEvent(new CustomEvent('skyhop-recording-saved', { detail: { id: saved && saved.id } }));
+      return saved;
+    } catch (e) {
+      window.alert(String(e.message || e));
+      return null;
+    }
   }
 
   function setGameplayActive(active, meta) {
@@ -233,6 +212,8 @@
     });
   }
 
+  window.addEventListener('skyhop-auth-changed', syncRecordButton);
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindButton);
   } else {
@@ -245,7 +226,7 @@
     stopRecording: stopRecording,
     listClips: listClips,
     deleteClip: deleteClip,
-    getClip: getClip,
+    fetchVideoBlob: fetchVideoBlob,
     isRecording: function () {
       return recording;
     },

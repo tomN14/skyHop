@@ -607,6 +607,12 @@ export function createFileStore() {
       s.reports = s.reports.filter((r) => r.reporterId !== userId && r.reportedUserId !== userId);
       saveStore();
       try {
+        const { recordingsDeleteAllForUser } = await import('./recordings.js');
+        await recordingsDeleteAllForUser(userId);
+      } catch {
+        /* */
+      }
+      try {
         const avDir = path.join(DATA_DIR, 'profile-avatars');
         for (const ext of ['png', 'jpg', 'jpeg', 'webp', 'gif']) {
           const fp = path.join(avDir, `${userId}.${ext}`);

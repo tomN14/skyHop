@@ -16,6 +16,7 @@ import { sendOwnerMail } from './mail.js';
 import { getShopItemById, SHOP_ITEMS, SHOP_PAGES, SHOP_SLOTS_PER_PAGE } from './shop-catalog.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
+import * as Recordings from './recordings.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -72,6 +73,24 @@ function readBody(req) {
       }
     });
     req.on('end', () => resolve(b));
+    req.on('error', reject);
+  });
+}
+
+function readBinaryBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let len = 0;
+    req.on('data', (c) => {
+      len += c.length;
+      if (len > maxBytes) {
+        req.destroy();
+        reject(new Error('too large'));
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -2116,6 +2135,100 @@ export async function handleApi(req, res) {
       json(res, 400, { error: String(e.message || e) });
     }
     return true;
+  }
+
+  if (pathname === '/api/recordings/upload' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    try {
+      const buf = await readBinaryBody(req, Recordings.MAX_RECORDING_BYTES + 65536);
+      const contentType = String(req.headers['content-type'] || 'video/webm');
+      const title = String(req.headers['x-recording-title'] || 'Run').slice(0, 120);
+      const source = String(req.headers['x-recording-source'] || 'campaign').slice(0, 40);
+      const saved = await Recordings.recordingsCreate(uid, buf, contentType, { title, source });
+      json(res, 201, { ok: true, recording: saved });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/recordings/mine' && req.method === 'GET') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const list = await Recordings.recordingsListForUser(uid);
+      json(res, 200, { recordings: list });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/recordings/delete' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    try {
+      await Recordings.recordingsDelete(uid, id);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/recordings\/([^/]+)\/video$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const { buffer, mimeType } = await Recordings.recordingsReadVideo(uid, m[1]);
+        res.writeHead(200, {
+          'Content-Type': mimeType || 'video/webm',
+          'Content-Length': buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+        });
+        res.end(buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
   }
 
   if (pathname === '/api/levels/mine' && req.method === 'GET') {

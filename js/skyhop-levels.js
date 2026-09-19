@@ -663,9 +663,16 @@
     revokeRecordingUrls();
     levelsRecordingsList.innerHTML = '';
     if (levelsRecordingsErr) levelsRecordingsErr.classList.add('hidden');
+    if (!hasAuth()) {
+      const li = document.createElement('li');
+      li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+      li.textContent = 'Sign in to view recordings saved to your account.';
+      levelsRecordingsList.appendChild(li);
+      return;
+    }
     if (!window.SkyHopRecording || typeof window.SkyHopRecording.listClips !== 'function') {
       if (levelsRecordingsErr) {
-        levelsRecordingsErr.textContent = 'Recordings are not available in this browser.';
+        levelsRecordingsErr.textContent = 'Recordings are not available yet — reload the page.';
         levelsRecordingsErr.classList.remove('hidden');
       }
       return;
@@ -682,9 +689,7 @@
       for (const clip of clips) {
         const li = document.createElement('li');
         li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3';
-        const url = URL.createObjectURL(clip.blob);
-        recordingObjectUrls.push(url);
-        const when = new Date(clip.createdAt || Date.now()).toLocaleString();
+        const when = new Date(clip.created_at || clip.createdAt || Date.now()).toLocaleString();
         const srcLabel =
           clip.source === 'user-level'
             ? 'Online level'
@@ -703,12 +708,23 @@
           ' · ' +
           escapeHtml(when) +
           '</span></div>' +
-          '<video class="w-full rounded-lg border border-white/10 bg-black" controls playsinline preload="metadata" src="' +
-          url +
-          '"></video>' +
+          '<video class="rec-video w-full rounded-lg border border-white/10 bg-black" controls playsinline preload="metadata"></video>' +
+          '<p class="rec-load mt-1 text-center text-xs text-slate-500">Loading video…</p>' +
           '<div class="mt-2 flex justify-end">' +
           '<button type="button" class="rec-del rounded-lg border border-rose-500/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete</button>' +
           '</div>';
+        const videoEl = li.querySelector('.rec-video');
+        const loadEl = li.querySelector('.rec-load');
+        void window.SkyHopRecording.fetchVideoBlob(clip.id)
+          .then(function (blob) {
+            const url = URL.createObjectURL(blob);
+            recordingObjectUrls.push(url);
+            videoEl.src = url;
+            if (loadEl) loadEl.classList.add('hidden');
+          })
+          .catch(function (err) {
+            if (loadEl) loadEl.textContent = String(err.message || err);
+          });
         li.querySelector('.rec-del').addEventListener('click', function () {
           if (!window.confirm('Delete this recording?')) return;
           void window.SkyHopRecording.deleteClip(clip.id).then(function () {
@@ -1384,8 +1400,13 @@
   function syncMyLevelsNav() {
     const btn = document.getElementById('btnNavMyLevels');
     if (!btn) return;
-    btn.classList.remove('hidden');
-    btn.classList.add('inline-flex');
+    if (hasAuth()) {
+      btn.classList.remove('hidden');
+      btn.classList.add('inline-flex');
+    } else {
+      btn.classList.add('hidden');
+      btn.classList.remove('inline-flex');
+    }
   }
 
   function init() {
@@ -1396,8 +1417,12 @@
       onlineUserPanel.classList.add('hidden');
     });
     document.getElementById('btnNavMyLevels').addEventListener('click', () => {
+      if (!hasAuth()) {
+        alert('Create an account and sign in to use My Levels and recordings.');
+        return;
+      }
       showMine(true);
-      setMineTab(hasAuth() ? 'levels' : 'recordings');
+      setMineTab('levels');
     });
     if (mineTabLevels) mineTabLevels.addEventListener('click', () => setMineTab('levels'));
     if (mineTabRecordings) mineTabRecordings.addEventListener('click', () => setMineTab('recordings'));

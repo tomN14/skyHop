@@ -667,6 +667,12 @@ export function createSupabaseStore() {
       } catch {
         /* */
       }
+      try {
+        const { recordingsDeleteAllForUser } = await import('./recordings.js');
+        await recordingsDeleteAllForUser(userId);
+      } catch {
+        /* */
+      }
       const { error: lvlErr } = await sb.from('skyhop_user_levels').delete().eq('author_id', userId);
       if (lvlErr) throw new Error(lvlErr.message);
       const { error } = await sb.from('skyhop_users').delete().eq('id', userId);
