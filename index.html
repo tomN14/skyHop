@@ -563,6 +563,14 @@
             <button id="ownerBtnGiftCoins" type="button" class="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500">Send</button>
           </div>
           <p id="ownerGiftMsg" class="mt-2 hidden text-xs"></p>
+          <p class="mt-3 text-[11px] font-sem text-rose-200/90">Remove coins</p>
+          <p class="mt-1 text-[11px] text-slate-500">Deduct from a player (cannot go below 0).</p>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <input id="ownerTakeUsername" type="text" maxlength="24" placeholder="username" class="min-w-[7rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" autocomplete="off" />
+            <input id="ownerTakeAmount" type="number" min="1" max="1000000" step="1" placeholder="amount" class="w-28 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+            <button id="ownerBtnTakeCoins" type="button" class="rounded-lg border border-rose-500/50 bg-rose-950/60 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-900/50">Take</button>
+          </div>
+          <p id="ownerTakeMsg" class="mt-2 hidden text-xs"></p>
           <p class="mt-4 text-[11px] font-sem text-cyan-200/90">Gift skin / texture</p>
           <p class="mt-1 text-[11px] text-slate-500">Unlocks one filename for that user only (file must exist under textures/).</p>
           <div class="mt-2 flex flex-wrap items-center gap-2">
@@ -617,6 +625,17 @@
           </select>
           <button id="ownerBtnRefreshLb" type="button" class="mt-2 w-full rounded-xl border border-amber-500/45 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-950/40">Refresh leaderboard list</button>
           <ul id="ownerLbList" class="mt-2 max-h-40 list-none space-y-1 overflow-y-auto p-0 text-xs"></ul>
+          <p class="mt-3 text-[11px] font-sem text-emerald-200/90">Add main-menu fastest run</p>
+          <p class="mt-1 text-[11px] text-slate-500">Logs a campaign run for that user (uses difficulty above).</p>
+          <div class="mt-2 space-y-2">
+            <input id="ownerLbAddUser" type="text" maxlength="24" placeholder="username" class="w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" autocomplete="off" />
+            <div class="flex flex-wrap gap-2">
+              <input id="ownerLbAddMin" type="number" min="0" max="999" step="1" placeholder="min" class="w-20 rounded-xl border border-white/15 bg-slate-900 px-2 py-2 text-sm text-white" />
+              <input id="ownerLbAddSec" type="number" min="0" max="59" step="1" placeholder="sec" class="w-20 rounded-xl border border-white/15 bg-slate-900 px-2 py-2 text-sm text-white" />
+              <input id="ownerLbAddDeaths" type="number" min="0" max="999999" step="1" placeholder="deaths" class="min-w-[5rem] flex-1 rounded-xl border border-white/15 bg-slate-900 px-2 py-2 text-sm text-white" />
+            </div>
+            <button id="ownerBtnLbAddRun" type="button" class="w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Add leaderboard entry</button>
+          </div>
           <p id="ownerLbMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
@@ -750,6 +769,24 @@
         <p id="lbPanelHint" class="mt-2 text-center text-[10px] text-slate-500">Best full campaign time per player</p>
         <ol id="lbPanelList" class="mt-2 max-h-52 list-none space-y-0 overflow-y-auto p-0"></ol>
         <p id="lbPanelErr" class="mt-2 hidden text-center text-[11px] text-rose-300"></p>
+        <div id="lbPanelOwnerTools" class="mt-4 hidden rounded-xl border border-rose-500/35 bg-slate-950/70 p-3 text-left">
+          <p class="text-[11px] font-sem text-rose-300/90">Owner — add entry (this panel)</p>
+          <p id="lbPanelOwnerHint" class="mt-1 text-[10px] text-slate-500">Uses the selected category and difficulty tabs above.</p>
+          <input id="lbOwnerAddUser" type="text" maxlength="24" placeholder="username" class="mt-2 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" autocomplete="off" />
+          <div id="lbOwnerFieldsRun" class="mt-2 flex flex-wrap gap-2">
+            <input id="lbOwnerAddMin" type="number" min="0" max="999" placeholder="min" class="w-16 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+            <input id="lbOwnerAddSec" type="number" min="0" max="59" placeholder="sec" class="w-16 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+            <input id="lbOwnerAddDeaths" type="number" min="0" placeholder="deaths" class="min-w-[4rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+          </div>
+          <div id="lbOwnerFieldsCoins" class="mt-2 hidden">
+            <input id="lbOwnerAddCoins" type="number" min="0" max="1000000000" placeholder="coin balance" class="w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+          </div>
+          <div id="lbOwnerFieldsRunsCount" class="mt-2 hidden">
+            <input id="lbOwnerAddRunCount" type="number" min="1" max="500" placeholder="# of logged runs" class="w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" />
+          </div>
+          <button id="lbOwnerBtnAdd" type="button" class="mt-2 w-full rounded-lg border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Add to leaderboard</button>
+          <p id="lbOwnerAddMsg" class="mt-2 hidden text-[11px] text-slate-400"></p>
+        </div>
       </div>
     </div>
 

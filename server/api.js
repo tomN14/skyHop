@@ -795,7 +795,7 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'metric must be coins, runs, or deaths' });
       return true;
     }
-    if (metric === 'deaths' && diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+    if ((metric === 'deaths' || metric === 'runs') && diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
       json(res, 400, { error: 'difficulty must be easy, normal, or hard' });
       return true;
     }
@@ -817,7 +817,7 @@ export async function handleApi(req, res) {
           json(res, 501, { error: 'Leaderboard not configured on this server.' });
           return true;
         }
-        entries = await store.listLeaderboardRunCount(10, fr.friendUserIds);
+        entries = await store.listLeaderboardRunCount(10, fr.friendUserIds, diff);
       } else {
         if (typeof store.listLeaderboardFewestDeaths !== 'function') {
           json(res, 501, { error: 'Leaderboard not configured on this server.' });
@@ -828,7 +828,7 @@ export async function handleApi(req, res) {
       json(res, 200, {
         metric,
         scope: scope === 'friends' ? 'friends' : 'global',
-        difficulty: metric === 'deaths' ? diff : null,
+        difficulty: metric === 'deaths' || metric === 'runs' ? diff : null,
         entries,
       });
     } catch (e) {
@@ -2850,6 +2850,147 @@ export async function handleApi(req, res) {
     try {
       await store.deleteCampaignRunById(body.runId);
       json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/remove-coins' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const amount = Math.floor(Number(body.amount));
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) {
+      json(res, 400, { error: 'Amount must be between 1 and 1,000,000.' });
+      return true;
+    }
+    if (typeof store.incrementUserCoins !== 'function') {
+      json(res, 501, { error: 'Not available' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      if (effectiveRole(target) === 'owner') {
+        json(res, 400, { error: 'Cannot change owner coin balance this way.' });
+        return true;
+      }
+      await store.incrementUserCoins(target.id, -amount);
+      const fresh = await store.findUserById(target.id);
+      json(res, 200, {
+        ok: true,
+        coins: fresh && fresh.coins != null ? Number(fresh.coins) : 0,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/leaderboard/add-campaign-run' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const diffRaw = String(body.difficulty || 'normal').toLowerCase();
+    const difficulty = diffRaw === 'easy' || diffRaw === 'hard' ? diffRaw : 'normal';
+    const timeMs = Math.max(0, Math.min(Number(body.timeMs) || 0, 48 * 60 * 60 * 1000));
+    const deaths = Math.max(0, Math.min(Math.floor(Number(body.deaths) || 0), 1_000_000));
+    const runCount = Math.max(1, Math.min(500, Math.floor(Number(body.runCount) || 1)));
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (typeof store.addRun !== 'function') {
+      json(res, 501, { error: 'Not available' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      for (let i = 0; i < runCount; i++) {
+        await store.addRun(target.id, timeMs, deaths, 'campaign', difficulty);
+      }
+      json(res, 200, { ok: true, runsAdded: runCount });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/leaderboard/set-coins' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const targetName = String(body.username || '').trim();
+    const coins = Math.floor(Number(body.coins));
+    if (!targetName) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (!Number.isFinite(coins) || coins < 0 || coins > 1_000_000_000) {
+      json(res, 400, { error: 'coins must be 0–1,000,000,000' });
+      return true;
+    }
+    if (typeof store.setUserCoins !== 'function') {
+      json(res, 501, { error: 'Not available' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(targetName);
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      if (effectiveRole(target) === 'owner') {
+        json(res, 400, { error: 'Owner account uses infinite coins in UI.' });
+        return true;
+      }
+      await store.setUserCoins(target.id, coins);
+      json(res, 200, { ok: true, coins });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

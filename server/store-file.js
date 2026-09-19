@@ -340,12 +340,16 @@ export function createFileStore() {
       return out;
     },
 
-    async listLeaderboardRunCount(limit = 10, friendUserIds = null) {
+    async listLeaderboardRunCount(limit = 10, friendUserIds = null, difficulty = null) {
       const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
+      const diff = difficulty ? String(difficulty).toLowerCase() : '';
       const s = loadStore();
       const counts = new Map();
       for (const r of s.runs) {
         if (r.source !== 'campaign') continue;
+        if (diff === 'easy' || diff === 'normal' || diff === 'hard') {
+          if (r.difficulty !== diff) continue;
+        }
         if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) continue;
         counts.set(r.userId, (counts.get(r.userId) || 0) + 1);
       }
@@ -464,6 +468,14 @@ export function createFileStore() {
       const u = s.users.find((x) => x.id === userId);
       if (!u) throw new Error('User not found');
       u.coins = Math.max(0, Math.floor((u.coins || 0) + Number(delta)));
+      saveStore();
+    },
+
+    async setUserCoins(userId, coins) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.coins = Math.max(0, Math.min(1_000_000_000, Math.floor(Number(coins) || 0)));
       saveStore();
     },
 

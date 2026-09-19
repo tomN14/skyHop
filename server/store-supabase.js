@@ -299,9 +299,13 @@ export function createSupabaseStore() {
       return out;
     },
 
-    async listLeaderboardRunCount(limit = 10, friendUserIds = null) {
+    async listLeaderboardRunCount(limit = 10, friendUserIds = null, difficulty = null) {
       const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
       let q = sb.from('skyhop_runs').select('user_id').eq('source', 'campaign').limit(12000);
+      const diff = difficulty ? String(difficulty).toLowerCase() : '';
+      if (diff === 'easy' || diff === 'normal' || diff === 'hard') {
+        q = q.eq('difficulty', diff);
+      }
       if (friendUserIds && friendUserIds.size) {
         q = q.in('user_id', [...friendUserIds]);
       }
@@ -522,6 +526,12 @@ export function createSupabaseStore() {
       const u = await this.findUserById(userId);
       if (!u) throw new Error('User not found');
       const next = Math.max(0, (u.coins != null ? Number(u.coins) : 0) + d);
+      const { error } = await sb.from('skyhop_users').update({ coins: next }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async setUserCoins(userId, coins) {
+      const next = Math.max(0, Math.min(1_000_000_000, Math.floor(Number(coins) || 0)));
       const { error } = await sb.from('skyhop_users').update({ coins: next }).eq('id', userId);
       if (error) throw new Error(error.message);
     },

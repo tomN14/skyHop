@@ -1537,7 +1537,49 @@
             false
           );
         } catch (e) {
-          setFriendsErr(String(e.message || e), false);
+          setOwnerGiftMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var ownerTakeUsername = document.getElementById('ownerTakeUsername');
+    var ownerTakeAmount = document.getElementById('ownerTakeAmount');
+    var ownerBtnTakeCoins = document.getElementById('ownerBtnTakeCoins');
+    var ownerTakeMsg = document.getElementById('ownerTakeMsg');
+    function setOwnerTakeMsg(t, isErr) {
+      if (!ownerTakeMsg) return;
+      ownerTakeMsg.textContent = t || '';
+      ownerTakeMsg.classList.toggle('hidden', !t);
+      ownerTakeMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerTakeMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    if (ownerBtnTakeCoins) {
+      ownerBtnTakeCoins.addEventListener('click', async function () {
+        var tok = getToken();
+        if (!tok) return;
+        setOwnerTakeMsg('', false);
+        var un = (ownerTakeUsername && ownerTakeUsername.value) || '';
+        var amt = ownerTakeAmount ? Number(ownerTakeAmount.value) : NaN;
+        if (!String(un).trim()) {
+          setOwnerTakeMsg('Enter a username.', true);
+          return;
+        }
+        if (!Number.isFinite(amt) || amt < 1 || amt > 1000000 || Math.floor(amt) !== amt) {
+          setOwnerTakeMsg('Amount must be a whole number from 1 to 1,000,000.', true);
+          return;
+        }
+        try {
+          var data = await api('/api/owner/remove-coins', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: String(un).trim(), amount: Math.floor(amt) }),
+          });
+          setOwnerTakeMsg(
+            'Removed ' + String(Math.floor(amt)) + ' from ' + String(un).trim() + '. Balance now: ' + String(data.coins) + '.',
+            false
+          );
+        } catch (e) {
+          setOwnerTakeMsg(String(e.message || e), true);
         }
       });
     }
@@ -1676,6 +1718,7 @@
         setOwnerAdminMsg('', false);
         screenOwnerAdmin.classList.remove('hidden');
         screenOwnerAdmin.classList.add('flex');
+        void refreshOwnerLbList();
       });
     }
     if (btnOwnerAdminClose && screenOwnerAdmin) {
@@ -1865,6 +1908,50 @@
     if (ownerBtnRefreshLb) {
       ownerBtnRefreshLb.addEventListener('click', function () {
         void refreshOwnerLbList();
+      });
+    }
+    if (ownerLbDifficulty) {
+      ownerLbDifficulty.addEventListener('change', function () {
+        void refreshOwnerLbList();
+      });
+    }
+
+    function ownerLbTimeMsFromInputs(minEl, secEl) {
+      var m = minEl ? Math.max(0, Math.floor(Number(minEl.value) || 0)) : 0;
+      var s = secEl ? Math.max(0, Math.min(59, Math.floor(Number(secEl.value) || 0))) : 0;
+      return (m * 60 + s) * 1000;
+    }
+
+    var ownerBtnLbAddRun = document.getElementById('ownerBtnLbAddRun');
+    if (ownerBtnLbAddRun) {
+      ownerBtnLbAddRun.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        var unEl = document.getElementById('ownerLbAddUser');
+        var minEl = document.getElementById('ownerLbAddMin');
+        var secEl = document.getElementById('ownerLbAddSec');
+        var deathsEl = document.getElementById('ownerLbAddDeaths');
+        var un = unEl ? String(unEl.value || '').trim() : '';
+        if (!un) {
+          setOwnerLbMsg('Username required.', true);
+          return;
+        }
+        var timeMs = ownerLbTimeMsFromInputs(minEl, secEl);
+        var deaths = deathsEl ? Math.max(0, Math.floor(Number(deathsEl.value) || 0)) : 0;
+        var diff = ownerLbDifficulty ? ownerLbDifficulty.value : 'normal';
+        try {
+          await api('/api/owner/leaderboard/add-campaign-run', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: un, difficulty: diff, timeMs: timeMs, deaths: deaths, runCount: 1 }),
+          });
+          setOwnerLbMsg('Added run for ' + un + '.', false);
+          if (typeof window.SkyHopRefreshLeaderboard === 'function') window.SkyHopRefreshLeaderboard();
+          await refreshOwnerLbList();
+        } catch (e) {
+          setOwnerLbMsg(String(e.message || e), true);
+        }
       });
     }
 
