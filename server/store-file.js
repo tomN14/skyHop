@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
+import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -464,14 +465,15 @@ export function createFileStore() {
 
     async getBuiltinWorld2Stages() {
       const p = path.join(DATA_DIR, 'builtin_world2.json');
-      if (!fs.existsSync(p)) return null;
-      try {
-        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-        if (!j.stages || !Array.isArray(j.stages) || !j.stages.length) return null;
-        return j.stages;
-      } catch {
-        return null;
+      if (fs.existsSync(p)) {
+        try {
+          const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+          if (j.stages && Array.isArray(j.stages) && j.stages.length) return j.stages;
+        } catch {
+          /* fall through to bundled default */
+        }
       }
+      return loadDefaultWorld2Stages();
     },
 
     async setBuiltinWorld2Stages(stagesJson) {

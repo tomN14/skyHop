@@ -57,7 +57,7 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Submitted run locks + decline reasons:** Run **`server/supabase/extend_v9_submitted_run_lock_decline_reason.sql`** after v8 — `decline_reason`, `status_locked` on `skyhop_submitted_runs`.
 
-**World 2 built-in stages + user mods:** Run **`server/supabase/extend_v10_world2_user_mods.sql`** after v9 — `skyhop_builtin_world2`, `skyhop_user_mods`, and private **`skyhop-user-mods`** bucket (5 MB per `.js` mod).
+**World 2 built-in stages + user mods:** Run **`server/supabase/extend_v10_world2_user_mods.sql`** after v9 — `skyhop_builtin_world2`, `skyhop_user_mods`, and private **`skyhop-user-mods`** bucket (5 MB per `.js` mod). An **empty** `skyhop_builtin_world2` table is normal (same idea as World 1’s empty `[]` row): the game loads **`stages-world2.js`**, and **`GET /api/builtin-stages-world2`** returns the bundled default from **`server/world2-default-stages.json`**. Optional: run **`server/supabase/seed_world2_default_stage.sql`** to store that default row in Supabase for editing in the dashboard.
 
 **World 2 unlock on account:** Run **`server/supabase/extend_v11_world1_cleared.sql`** after v10 — `campaign_world1_cleared_at` on `skyhop_users` (also unlocks if **`first_clear`** achievement already set).
 

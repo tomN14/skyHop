@@ -8,6 +8,7 @@ import {
   removeUserProfileStorage,
   uploadProfileAvatar,
 } from './profile-storage.js';
+import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const SESSION_DAYS = 60;
 
@@ -496,8 +497,8 @@ export function createSupabaseStore() {
       const { data, error } = await sb.from('skyhop_builtin_world2').select('stages').eq('id', 1).maybeSingle();
       if (error) throw new Error(error.message);
       const raw = data?.stages;
-      if (!raw || !Array.isArray(raw) || !raw.length) return null;
-      return raw;
+      if (raw && Array.isArray(raw) && raw.length) return raw;
+      return loadDefaultWorld2Stages();
     },
 
     async setBuiltinWorld2Stages(stagesJson) {
