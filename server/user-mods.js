@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = path.join(__dirname, 'data', 'user_mods_index.json');
 const FILES_DIR = path.join(__dirname, 'data', 'user_mods_files');
+const ACTIVE_PATH = path.join(__dirname, 'data', 'user_mods_active.json');
 
 export const USER_MODS_BUCKET = 'skyhop-user-mods';
 export const MAX_USER_MOD_BYTES = 5 * 1024 * 1024;
@@ -47,6 +48,41 @@ function fileLoadIndex() {
 
 function fileSaveIndex(db) {
   fs.writeFileSync(INDEX_PATH, JSON.stringify(db), 'utf8');
+}
+
+function fileLoadActive() {
+  const dir = path.dirname(ACTIVE_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(ACTIVE_PATH)) {
+    const empty = { byUser: {} };
+    fs.writeFileSync(ACTIVE_PATH, JSON.stringify(empty), 'utf8');
+    return empty;
+  }
+  try {
+    const j = JSON.parse(fs.readFileSync(ACTIVE_PATH, 'utf8'));
+    if (!j.byUser || typeof j.byUser !== 'object') j.byUser = {};
+    return j;
+  } catch {
+    return { byUser: {} };
+  }
+}
+
+function fileSaveActive(db) {
+  fs.writeFileSync(ACTIVE_PATH, JSON.stringify(db), 'utf8');
+}
+
+function normalizeActiveIds(raw, ownedIds) {
+  const owned = new Set(ownedIds || []);
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (const x of raw) {
+    const id = String(x || '').trim();
+    if (!id || !owned.has(id)) continue;
+    if (out.indexOf(id) >= 0) continue;
+    out.push(id);
+    if (out.length >= 3) break;
+  }
+  return out;
 }
 
 function storagePath(userId, id) {
@@ -148,6 +184,46 @@ export async function userModsRead(userId, modId) {
   return fs.readFileSync(abs);
 }
 
+export async function userModsGetActiveIds(userId) {
+  const owned = (await userModsListForUser(userId)).map((m) => m.id);
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data, error } = await sb
+      .from('skyhop_users')
+      .select('active_user_mod_ids')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const raw = data?.active_user_mod_ids;
+    return normalizeActiveIds(raw, owned);
+  }
+  const db = fileLoadActive();
+  const key = String(userId);
+  return normalizeActiveIds(db.byUser[key], owned);
+}
+
+export async function userModsSetActiveIds(userId, ids) {
+  const owned = (await userModsListForUser(userId)).map((m) => m.id);
+  const next = normalizeActiveIds(ids, owned);
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { error } = await sb.from('skyhop_users').update({ active_user_mod_ids: next }).eq('id', userId);
+    if (error) throw new Error(error.message);
+    return next;
+  }
+  const db = fileLoadActive();
+  db.byUser[String(userId)] = next;
+  fileSaveActive(db);
+  return next;
+}
+
+async function userModsRemoveFromActive(userId, modId) {
+  const cur = await userModsGetActiveIds(userId);
+  const next = cur.filter((x) => x !== modId);
+  if (next.length === cur.length) return cur;
+  return userModsSetActiveIds(userId, next);
+}
+
 export async function userModsDelete(userId, modId) {
   if (useSupabase()) {
     const sb = sbClient();
@@ -161,6 +237,7 @@ export async function userModsDelete(userId, modId) {
     await sb.storage.from(USER_MODS_BUCKET).remove([row.storage_path]);
     const { error } = await sb.from('skyhop_user_mods').delete().eq('id', modId);
     if (error) throw new Error(error.message);
+    await userModsRemoveFromActive(userId, modId);
     return { ok: true };
   }
   const db = fileLoadIndex();
@@ -172,5 +249,6 @@ export async function userModsDelete(userId, modId) {
   const idx = db.mods.findIndex((r) => r.id === modId);
   if (idx >= 0) db.mods.splice(idx, 1);
   fileSaveIndex(db);
+  await userModsRemoveFromActive(userId, modId);
   return { ok: true };
 }

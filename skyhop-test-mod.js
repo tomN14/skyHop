@@ -11,6 +11,7 @@
 
   var badge = document.createElement('div');
   badge.id = 'skyhopTestModBadge';
+  badge.setAttribute('data-skyhop-mod-ui', '1');
   badge.textContent = 'Test mod active';
   badge.style.cssText =
     'pointer-events:none;position:fixed;bottom:4.5rem;left:50%;transform:translateX(-50%);' +

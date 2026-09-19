@@ -2497,9 +2497,33 @@ export async function handleApi(req, res) {
     }
     try {
       const list = await UserMods.userModsListForUser(uid);
-      json(res, 200, { mods: list });
+      const activeModIds = await UserMods.userModsGetActiveIds(uid);
+      json(res, 200, { mods: list, activeModIds });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/user-mods/active' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    try {
+      const activeModIds = await UserMods.userModsSetActiveIds(uid, ids);
+      json(res, 200, { ok: true, activeModIds });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
     }
     return true;
   }

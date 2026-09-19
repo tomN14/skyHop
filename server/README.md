@@ -61,6 +61,8 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **World 2 unlock on account:** Run **`server/supabase/extend_v11_world1_cleared.sql`** after v10 — `campaign_world1_cleared_at` on `skyhop_users` (also unlocks if **`first_clear`** achievement already set).
 
+**Active mods on account:** Run **`server/supabase/extend_v12_user_mods_active.sql`** after v11 — `active_user_mod_ids` on `skyhop_users` (replaces browser `localStorage` for which mods are enabled).
+
 **Custom profiles (avatars):** Run **`server/supabase/extend_v6_profiles_storage.sql`** — adds `profile_bio` / `profile_avatar_path`, creates the **`skyhop-profiles`** Storage bucket, and RLS so authenticated users may only write under **`{skyhop_user_id}/`** (see `user_metadata.skyhop_user_id` when using Supabase Auth). The game uploads via the Node server (service role) or signed upload URLs scoped to your folder.
 
 **Moderation (reports / bans):** Run **`server/supabase/moderation.sql`** in the SQL Editor if you already created tables from an older `schema.sql`. New installs: `schema.sql` already includes `role`, `ban_until_ms`, `ban_reason` on `skyhop_users` and the `skyhop_reports` table. Set **`SKYHOP_OWNER_USERNAME`** in `server/.env.local` to your username (letters match login; case-insensitive). That account is always treated as **owner** (ban users, dismiss escalations, promote moderators). **Moderators** are normal accounts with `role = moderator` in the DB; the owner grants that from the reports inbox (“Make mod” / “Remove mod”).

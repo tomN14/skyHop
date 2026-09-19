@@ -1,11 +1,12 @@
 /**
- * User mods — upload .js (5 MB), activate up to 3 after confirm.
+ * User mods — upload .js (5 MB), activate up to 3 (saved on account).
  */
 (function () {
   var pendingActivate = [];
   var confirmMode = false;
   var loadedScriptEls = [];
   var pendingUploadFile = null;
+  var accountActiveIds = [];
 
   function api(path, opts) {
     if (typeof window.SkyHopApiRequest !== 'function') {
@@ -38,6 +39,102 @@
     el.classList.toggle('hidden', !t);
   }
 
+  function unloadMods() {
+    for (var i = 0; i < loadedScriptEls.length; i++) {
+      try {
+        loadedScriptEls[i].remove();
+      } catch {
+        /* */
+      }
+    }
+    loadedScriptEls.length = 0;
+  }
+
+  function teardownAllModEffects() {
+    var map = window.__skyhopUserModTeardowns;
+    if (map && typeof map === 'object') {
+      for (var k of Object.keys(map)) {
+        try {
+          if (typeof map[k] === 'function') map[k]();
+        } catch {
+          /* */
+        }
+      }
+    }
+    window.__skyhopUserModTeardowns = {};
+    document.querySelectorAll('[data-skyhop-mod-ui]').forEach(function (el) {
+      try {
+        el.remove();
+      } catch {
+        /* */
+      }
+    });
+    var badge = document.getElementById('skyhopTestModBadge');
+    if (badge) badge.remove();
+    delete window.__SKYHOP_TEST_MOD__;
+    delete window.__SKYHOP_MOD_MINIMAL__;
+  }
+
+  window.SkyHopRegisterModTeardown = function (modId, fn) {
+    if (!modId || typeof fn !== 'function') return;
+    if (!window.__skyhopUserModTeardowns) window.__skyhopUserModTeardowns = {};
+    window.__skyhopUserModTeardowns[String(modId)] = fn;
+  };
+
+  window.SkyHopClearAllModEffects = teardownAllModEffects;
+
+  async function saveActiveToAccount(ids) {
+    var data = await api('/api/user-mods/active', {
+      method: 'POST',
+      body: JSON.stringify({ ids: ids.slice(0, 3) }),
+    });
+    accountActiveIds = (data && data.activeModIds) || ids.slice(0, 3);
+    pendingActivate = accountActiveIds.slice();
+    return accountActiveIds;
+  }
+
+  async function applyMods(ids) {
+    teardownAllModEffects();
+    unloadMods();
+    var tok = token();
+    if (!tok || !ids.length) {
+      accountActiveIds = [];
+      return;
+    }
+    for (var j = 0; j < ids.length; j++) {
+      var id = ids[j];
+      var res = await fetch(apiBase() + '/api/user-mods/' + encodeURIComponent(id) + '/script', {
+        headers: { Authorization: 'Bearer ' + tok },
+      });
+      if (!res.ok) continue;
+      var code = await res.text();
+      var s = document.createElement('script');
+      s.type = 'text/javascript';
+      s.dataset.skyhopUserMod = id;
+      s.text =
+        'window.__skyhopInjectedModId=' + JSON.stringify(String(id)) + ';\n' + code;
+      document.body.appendChild(s);
+      loadedScriptEls.push(s);
+    }
+  }
+
+  async function syncActiveModsFromAccount() {
+    teardownAllModEffects();
+    unloadMods();
+    pendingActivate = [];
+    accountActiveIds = [];
+    if (!token()) return;
+    try {
+      var data = await api('/api/user-mods/mine', {});
+      accountActiveIds = (data && data.activeModIds) || [];
+      pendingActivate = accountActiveIds.slice(0, 3);
+      if (pendingActivate.length) await applyMods(pendingActivate);
+    } catch {
+      teardownAllModEffects();
+      unloadMods();
+    }
+  }
+
   function show(on) {
     var el = screen();
     if (!el) return;
@@ -64,6 +161,8 @@
     try {
       var data = await api('/api/user-mods/mine', {});
       var mods = (data && data.mods) || [];
+      accountActiveIds = (data && data.activeModIds) || [];
+      pendingActivate = accountActiveIds.slice(0, 3);
       ul.innerHTML = '';
       if (!mods.length) {
         ul.innerHTML =
@@ -118,16 +217,9 @@
                   method: 'POST',
                   body: JSON.stringify({ id: mod.id }),
                 });
-                pendingActivate = pendingActivate.filter(function (x) {
-                  return x !== mod.id;
-                });
-                var remaining = activeModIdsFromStorage().filter(function (x) {
-                  return x !== mod.id;
-                });
-                pendingActivate = remaining.slice();
                 confirmMode = false;
                 syncActivateBtn();
-                await applyMods(remaining);
+                await syncActiveModsFromAccount();
                 await refreshList();
               } catch (e) {
                 setErr(String(e.message || e));
@@ -153,87 +245,6 @@
     } else {
       btn.textContent = 'Activate';
       btn.classList.remove('bg-emerald-600');
-    }
-  }
-
-  function unloadMods() {
-    for (var i = 0; i < loadedScriptEls.length; i++) {
-      try {
-        loadedScriptEls[i].remove();
-      } catch {
-        /* */
-      }
-    }
-    loadedScriptEls.length = 0;
-  }
-
-  function activeModIdsFromStorage() {
-    try {
-      var saved = JSON.parse(localStorage.getItem('SKYHOP_ACTIVE_MOD_IDS') || '[]');
-      return Array.isArray(saved) ? saved.slice(0, 3) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  function teardownAllModEffects() {
-    var map = window.__skyhopUserModTeardowns;
-    if (map && typeof map === 'object') {
-      for (var k of Object.keys(map)) {
-        try {
-          if (typeof map[k] === 'function') map[k]();
-        } catch {
-          /* */
-        }
-      }
-    }
-    window.__skyhopUserModTeardowns = {};
-    var badge = document.getElementById('skyhopTestModBadge');
-    if (badge) badge.remove();
-    delete window.__SKYHOP_TEST_MOD__;
-    delete window.__SKYHOP_MOD_MINIMAL__;
-  }
-
-  window.SkyHopRegisterModTeardown = function (modId, fn) {
-    if (!modId || typeof fn !== 'function') return;
-    if (!window.__skyhopUserModTeardowns) window.__skyhopUserModTeardowns = {};
-    window.__skyhopUserModTeardowns[String(modId)] = fn;
-  };
-
-  async function applyMods(ids) {
-    teardownAllModEffects();
-    unloadMods();
-    var tok = token();
-    if (!tok || !ids.length) {
-      try {
-        localStorage.removeItem('SKYHOP_ACTIVE_MOD_IDS');
-      } catch {
-        /* */
-      }
-      return;
-    }
-    try {
-      localStorage.setItem('SKYHOP_ACTIVE_MOD_IDS', JSON.stringify(ids));
-    } catch {
-      /* */
-    }
-    for (var j = 0; j < ids.length; j++) {
-      var id = ids[j];
-      var res = await fetch(apiBase() + '/api/user-mods/' + encodeURIComponent(id) + '/script', {
-        headers: { Authorization: 'Bearer ' + tok },
-      });
-      if (!res.ok) continue;
-      var code = await res.text();
-      var s = document.createElement('script');
-      s.type = 'text/javascript';
-      s.dataset.skyhopUserMod = id;
-      s.text =
-        'window.__skyhopInjectedModId=' +
-        JSON.stringify(String(id)) +
-        ';\n' +
-        code;
-      document.body.appendChild(s);
-      loadedScriptEls.push(s);
     }
   }
 
@@ -272,14 +283,6 @@
 
   async function uploadFile(file) {
     if (!file) return;
-    if (!/\.js$/i.test(file.name)) {
-      window.alert('Upload a .js file.');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      window.alert('Max file size is 5 MB.');
-      return;
-    }
     var tok = token();
     if (!tok) {
       window.alert('Sign in first.');
@@ -309,6 +312,13 @@
   }
 
   function bind() {
+    try {
+      localStorage.removeItem('SKYHOP_ACTIVE_MOD_IDS');
+    } catch {
+      /* legacy */
+    }
+    teardownAllModEffects();
+
     var nav = document.getElementById('btnNavMyMods');
     if (nav) nav.addEventListener('click', function () { show(true); });
     var close = document.getElementById('btnMyModsClose');
@@ -367,8 +377,10 @@
         confirmMode = false;
         syncActivateBtn();
         try {
-          await applyMods(pendingActivate.slice(0, 3));
-          window.alert('Mods active — start a run to use them.');
+          var ids = pendingActivate.slice(0, 3);
+          await saveActiveToAccount(ids);
+          await applyMods(ids);
+          window.alert('Mods active on your account — start a run to use them.');
           show(false);
         } catch (e) {
           setErr(String(e.message || e));
@@ -381,22 +393,18 @@
         if (!localStorage.getItem('SKYHOP_AUTH_TOKEN')) {
           pendingActivate = [];
           confirmMode = false;
+          accountActiveIds = [];
+          teardownAllModEffects();
           unloadMods();
+          return;
         }
+        void syncActiveModsFromAccount();
       } catch {
         /* */
       }
     });
 
-    try {
-      var saved = JSON.parse(localStorage.getItem('SKYHOP_ACTIVE_MOD_IDS') || '[]');
-      if (Array.isArray(saved) && saved.length && token()) {
-        pendingActivate = saved.slice(0, 3);
-        void applyMods(pendingActivate);
-      }
-    } catch {
-      /* */
-    }
+    void syncActiveModsFromAccount();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
