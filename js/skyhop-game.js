@@ -12,30 +12,57 @@
     return;
   }
 
+  function activePlayWorldId() {
+    if (!window.SkyHopWorlds) return 1;
+    const cs =
+      typeof window.SkyHopWorlds.getCollabScope === 'function'
+        ? window.SkyHopWorlds.getCollabScope()
+        : null;
+    if (cs === 'w2') return 2;
+    if (cs === 'both') return 'both';
+    if (cs === 'w1') return 1;
+    const w =
+      typeof window.SkyHopWorlds.getActiveWorldId === 'function'
+        ? window.SkyHopWorlds.getActiveWorldId()
+        : 1;
+    return w === 2 ? 2 : 1;
+  }
+
   function stagesNow() {
     if (window.SKYHOP_ACTIVE_STAGES != null) return window.SKYHOP_ACTIVE_STAGES;
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.getPlayStages === 'function') {
+      const wid = activePlayWorldId();
       const wst = window.SkyHopWorlds.getPlayStages();
-      if (wst && wst.length) return wst;
-      const wid =
-        typeof window.SkyHopWorlds.getActiveWorldId === 'function'
-          ? window.SkyHopWorlds.getActiveWorldId()
-          : 1;
-      const cs =
-        typeof window.SkyHopWorlds.getCollabScope === 'function'
-          ? window.SkyHopWorlds.getCollabScope()
-          : null;
-      if (wid === 2 || cs === 'w2') {
+      if (wid === 2) {
+        if (wst && wst.length) return wst;
         const w2 = window.SKYHOP_WORLD2_STAGES;
-        if (w2 && w2.length) return w2;
+        return w2 && w2.length ? w2 : [];
       }
+      if (wid === 'both' && wst && wst.length) return wst;
+      if (wst && wst.length) return wst;
     }
     return builtinCampaign();
   }
 
   function campaignStageCount() {
+    if (window.SKYHOP_ACTIVE_STAGES && window.SKYHOP_ACTIVE_STAGES.length) {
+      return window.SKYHOP_ACTIVE_STAGES.length;
+    }
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
+      const wid = activePlayWorldId();
+      if (wid === 2) return Math.max(1, window.SkyHopWorlds.stageCount(2));
+      if (wid === 'both') return window.SkyHopWorlds.bothStages().length;
+      return window.SkyHopWorlds.stageCount(1);
+    }
     const s = stagesNow();
     return s && s.length ? s.length : builtinCampaign().length;
+  }
+
+  function campaignHudStageLabel(stageIndex0) {
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    if (ext && ext.hudTitle) return ext.hudTitle;
+    const total = campaignStageCount();
+    return `${stageIndex0 + 1} / ${total}`;
   }
 
   function progressLsKey() {
@@ -157,13 +184,13 @@
     if (p && (p.s0 > 0 || p.deaths > 0 || p.sword || p.shield)) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${builtinCampaign().length} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
+        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${campaignStageCount()} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
       }
       if (btnPlay) btnPlay.textContent = `Continue — stage ${p.s0 + 1}`;
     } else if (p) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage 1 / ${builtinCampaign().length}`;
+        menuProgressHint.textContent = `Resume: stage 1 / ${campaignStageCount()}`;
       }
       if (btnPlay) btnPlay.textContent = 'Continue — stage 1';
     } else {
@@ -1478,12 +1505,7 @@
     cameraX = 0;
     cameraY = 0;
     stageStartedAt = performance.now();
-    const ext = window.SKYHOP_EXTERNAL_LEVEL;
-    if (ext && ext.hudTitle) {
-      hudStage.textContent = ext.hudTitle;
-    } else {
-      hudStage.textContent = `${i + 1} / ${stagesNow().length}`;
-    }
+    hudStage.textContent = campaignHudStageLabel(i);
     hudDeaths.textContent = String(deaths);
     if (s.bossStage) {
       currentBossPlayerMax = s.bossPlayerMax != null ? s.bossPlayerMax : runtimeOpts.bossPlayerMaxHp;

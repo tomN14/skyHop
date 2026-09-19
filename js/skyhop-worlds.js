@@ -131,16 +131,21 @@
     var main = document.getElementById('screenMenuMain');
     var w2 = document.getElementById('screenMenuWorld2');
     var playW2 = document.getElementById('btnPlayWorld2');
-    if (next && main && w2) {
-      next.addEventListener('click', function () {
-        if (!isWorld2Unlocked()) return;
-        main.classList.add('hidden');
+    function showWorld2MenuPanel() {
+      if (!isWorld2Unlocked()) return;
+      setActiveWorld(2);
+      if (main) main.classList.add('hidden');
+      if (w2) {
         w2.classList.remove('hidden');
         w2.classList.add('flex');
-      });
+      }
+    }
+    if (next && main && w2) {
+      next.addEventListener('click', showWorld2MenuPanel);
     }
     if (back && main && w2) {
       back.addEventListener('click', function () {
+        setActiveWorld(1);
         w2.classList.add('hidden');
         w2.classList.remove('flex');
         main.classList.remove('hidden');
