@@ -11,12 +11,16 @@
 
   function apply(stages) {
     if (!stages || !stages.length) return;
-    if (typeof window.SkyHopValidateBuiltinStages === 'function' && !window.SkyHopValidateBuiltinStages(stages)) {
+    var prepared =
+      typeof window.SkyHopPrepareBuiltinStagesForPlay === 'function'
+        ? window.SkyHopPrepareBuiltinStagesForPlay(stages)
+        : null;
+    if (!prepared) {
       console.warn('Sky Hop: ignoring invalid server World 2 campaign; using bundled stages-world2.js');
       return;
     }
     try {
-      const copy = JSON.parse(JSON.stringify(stages));
+      const copy = prepared;
       if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(copy);
       window.SKYHOP_WORLD2_STAGES = copy;
     } catch (e) {

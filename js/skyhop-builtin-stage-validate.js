@@ -1,25 +1,68 @@
 (function () {
-  function isValidBuiltinStages(stages) {
-    if (!Array.isArray(stages) || stages.length === 0) return false;
+  function normalizeBuiltinStages(stages) {
+    if (!Array.isArray(stages)) return null;
+    var out = [];
     for (var i = 0; i < stages.length; i++) {
-      var s = stages[i];
-      if (!s || typeof s !== 'object') return false;
-      var sp = s.spawn;
-      if (!sp || typeof sp.x !== 'number' || typeof sp.y !== 'number') return false;
-      var plats = s.platforms;
-      if (!Array.isArray(plats) || plats.length === 0) return false;
-      var okPlat = false;
-      for (var j = 0; j < plats.length; j++) {
-        var p = plats[j];
-        if (p && typeof p.x === 'number' && typeof p.y === 'number' && p.w > 0 && p.h > 0) {
-          okPlat = true;
-          break;
-        }
+      var src = stages[i];
+      if (!src || typeof src !== 'object') continue;
+      var s = JSON.parse(JSON.stringify(src));
+      var w = Number(s.worldW);
+      var h = Number(s.worldH);
+      s.worldW = Number.isFinite(w) && w >= 100 ? w : 1400;
+      s.worldH = Number.isFinite(h) && h >= 100 ? h : 720;
+      if (!s.spawn || typeof s.spawn !== 'object') s.spawn = { x: 80, y: 520 };
+      else {
+        s.spawn.x = Number(s.spawn.x);
+        s.spawn.y = Number(s.spawn.y);
+        if (!Number.isFinite(s.spawn.x)) s.spawn.x = 80;
+        if (!Number.isFinite(s.spawn.y)) s.spawn.y = 520;
       }
-      if (!okPlat) return false;
-      if (typeof s.worldW !== 'number' || typeof s.worldH !== 'number') return false;
+      if (!Array.isArray(s.platforms)) s.platforms = [];
+      s.platforms = s.platforms
+        .filter(function (p) {
+          return p && typeof p === 'object';
+        })
+        .map(function (p) {
+          return {
+            x: Number(p.x),
+            y: Number(p.y),
+            w: Number(p.w),
+            h: Number(p.h),
+            move: p.move,
+            noWallJump: p.noWallJump,
+            warnVertical: p.warnVertical,
+            bossPassThrough: p.bossPassThrough,
+          };
+        })
+        .filter(function (p) {
+          return Number.isFinite(p.x) && Number.isFinite(p.y) && p.w > 0 && p.h > 0;
+        });
+      out.push(s);
+    }
+    return out.length ? out : null;
+  }
+
+  function isValidBuiltinStages(stages) {
+    var norm = normalizeBuiltinStages(stages);
+    if (!norm || !norm.length) return false;
+    for (var i = 0; i < norm.length; i++) {
+      if (!norm[i].platforms || !norm[i].platforms.length) return false;
     }
     return true;
   }
+
+  function prepareBuiltinStagesForPlay(stages) {
+    var norm = normalizeBuiltinStages(stages);
+    if (!norm || !isValidBuiltinStages(norm)) return null;
+    return norm;
+  }
+
+  function restoreBundledCampaignFromFiles() {
+    if (typeof window.SKYHOP_REBUILD_STAGES === 'function') window.SKYHOP_REBUILD_STAGES();
+    if (window.SKYHOP_PREP_STAGES) window.SKYHOP_PREP_STAGES();
+  }
+
   window.SkyHopValidateBuiltinStages = isValidBuiltinStages;
+  window.SkyHopPrepareBuiltinStagesForPlay = prepareBuiltinStagesForPlay;
+  window.SkyHopRestoreBundledCampaignFromFiles = restoreBundledCampaignFromFiles;
 })();

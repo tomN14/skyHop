@@ -8,7 +8,7 @@ import {
   removeUserProfileStorage,
   uploadProfileAvatar,
 } from './profile-storage.js';
-import { isValidBuiltinStages } from './builtin-stage-validate.js';
+import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
 import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const SESSION_DAYS = 60;
@@ -588,8 +588,8 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
       const raw = data?.stages;
       if (!raw || !Array.isArray(raw) || raw.length === 0) return null;
-      if (!isValidBuiltinStages(raw)) return null;
-      return raw;
+      const prepared = prepareBuiltinStagesForPlay(raw);
+      return prepared;
     },
 
     async setBuiltinCampaignStages(stagesJson) {
@@ -607,7 +607,10 @@ export function createSupabaseStore() {
       const { data, error } = await sb.from('skyhop_builtin_world2').select('stages').eq('id', 1).maybeSingle();
       if (error) throw new Error(error.message);
       const raw = data?.stages;
-      if (raw && Array.isArray(raw) && raw.length && isValidBuiltinStages(raw)) return raw;
+      if (raw && Array.isArray(raw) && raw.length) {
+        const prepared = prepareBuiltinStagesForPlay(raw);
+        if (prepared) return prepared;
+      }
       return loadDefaultWorld2Stages();
     },
 

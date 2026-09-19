@@ -28,6 +28,15 @@
     return w === 2 ? 2 : 1;
   }
 
+  function restoreBundledCampaignIfEmpty() {
+    if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {
+      window.SkyHopRestoreBundledCampaignFromFiles();
+    } else if (typeof window.SKYHOP_REBUILD_STAGES === 'function') {
+      window.SKYHOP_REBUILD_STAGES();
+      if (window.SKYHOP_PREP_STAGES) window.SKYHOP_PREP_STAGES();
+    }
+  }
+
   function stagesNow() {
     if (window.SKYHOP_ACTIVE_STAGES != null && window.SKYHOP_ACTIVE_STAGES.length) {
       return window.SKYHOP_ACTIVE_STAGES;
@@ -38,12 +47,18 @@
       if (wid === 2) {
         if (wst && wst.length) return wst;
         const w2 = window.SKYHOP_WORLD2_STAGES;
-        return w2 && w2.length ? w2 : [];
+        if (w2 && w2.length) return w2;
+        return [];
       }
       if (wid === 'both' && wst && wst.length) return wst;
       if (wst && wst.length) return wst;
     }
-    return builtinCampaign();
+    let built = builtinCampaign();
+    if (!built.length) {
+      restoreBundledCampaignIfEmpty();
+      built = builtinCampaign();
+    }
+    return built;
   }
 
   function campaignStageCount() {
@@ -3512,6 +3527,9 @@
   function startCampaignPlay() {
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
+    if (!stagesNow().length) {
+      restoreBundledCampaignIfEmpty();
+    }
     resetPauseDiscardProgress();
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;

@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
-import { isValidBuiltinStages } from './builtin-stage-validate.js';
+import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
 import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -551,8 +551,7 @@ export function createFileStore() {
       try {
         const j = JSON.parse(fs.readFileSync(p, 'utf8'));
         if (!j.stages || !Array.isArray(j.stages) || !j.stages.length) return null;
-        if (!isValidBuiltinStages(j.stages)) return null;
-        return j.stages;
+        return prepareBuiltinStagesForPlay(j.stages);
       } catch {
         return null;
       }
@@ -572,8 +571,9 @@ export function createFileStore() {
       if (fs.existsSync(p)) {
         try {
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-          if (j.stages && Array.isArray(j.stages) && j.stages.length && isValidBuiltinStages(j.stages)) {
-            return j.stages;
+          if (j.stages && Array.isArray(j.stages) && j.stages.length) {
+            const prepared = prepareBuiltinStagesForPlay(j.stages);
+            if (prepared) return prepared;
           }
         } catch {
           /* fall through to bundled default */

@@ -22,12 +22,19 @@
 
   function applyServerStages(stages) {
     if (!stages || !Array.isArray(stages) || !stages.length) return;
-    if (typeof window.SkyHopValidateBuiltinStages === 'function' && !window.SkyHopValidateBuiltinStages(stages)) {
-      console.warn('Sky Hop: ignoring invalid server campaign (missing platforms/spawn); using bundled stages.js');
+    var prepared =
+      typeof window.SkyHopPrepareBuiltinStagesForPlay === 'function'
+        ? window.SkyHopPrepareBuiltinStagesForPlay(stages)
+        : null;
+    if (!prepared) {
+      console.warn('Sky Hop: ignoring invalid server campaign; using bundled stages.js');
+      if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {
+        window.SkyHopRestoreBundledCampaignFromFiles();
+      }
       return;
     }
     try {
-      const copy = JSON.parse(JSON.stringify(stages));
+      const copy = prepared;
       if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(copy);
       window.SKYHOP_STAGES = copy;
       try {
