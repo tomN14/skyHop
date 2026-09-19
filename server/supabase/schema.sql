@@ -142,3 +142,18 @@ create table if not exists public.skyhop_friend_chat (
 
 create index if not exists skyhop_friend_chat_pair_idx
   on public.skyhop_friend_chat (from_user_id, to_user_id, created_at);
+
+-- Run recordings (see extend_v7_recordings.sql for Storage bucket)
+create table if not exists public.skyhop_recordings (
+  id uuid primary key default gen_random_uuid(),
+  user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  title text not null,
+  source text not null default 'campaign',
+  storage_path text not null,
+  mime_type text not null default 'video/webm',
+  byte_size bigint not null default 0,
+  created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
+);
+
+create index if not exists skyhop_recordings_user_created_idx
+  on public.skyhop_recordings (user_id, created_at desc);
