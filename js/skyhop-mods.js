@@ -105,13 +105,34 @@
             syncActivateBtn();
           });
           li.querySelector('.mod-del').addEventListener('click', function () {
-            if (!window.confirm('Delete this mod?')) return;
-            void api('/api/user-mods/delete', { method: 'POST', body: JSON.stringify({ id: mod.id }) }).then(function () {
-              pendingActivate = pendingActivate.filter(function (x) {
-                return x !== mod.id;
-              });
-              void refreshList();
-            });
+            if (
+              !window.confirm(
+                'Delete this mod permanently?\n\nIts in-game effects will stop right away.'
+              )
+            ) {
+              return;
+            }
+            void (async function () {
+              try {
+                await api('/api/user-mods/delete', {
+                  method: 'POST',
+                  body: JSON.stringify({ id: mod.id }),
+                });
+                pendingActivate = pendingActivate.filter(function (x) {
+                  return x !== mod.id;
+                });
+                var remaining = activeModIdsFromStorage().filter(function (x) {
+                  return x !== mod.id;
+                });
+                pendingActivate = remaining.slice();
+                confirmMode = false;
+                syncActivateBtn();
+                await applyMods(remaining);
+                await refreshList();
+              } catch (e) {
+                setErr(String(e.message || e));
+              }
+            })();
           });
           ul.appendChild(li);
         })(mods[i]);
@@ -146,7 +167,41 @@
     loadedScriptEls.length = 0;
   }
 
+  function activeModIdsFromStorage() {
+    try {
+      var saved = JSON.parse(localStorage.getItem('SKYHOP_ACTIVE_MOD_IDS') || '[]');
+      return Array.isArray(saved) ? saved.slice(0, 3) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function teardownAllModEffects() {
+    var map = window.__skyhopUserModTeardowns;
+    if (map && typeof map === 'object') {
+      for (var k of Object.keys(map)) {
+        try {
+          if (typeof map[k] === 'function') map[k]();
+        } catch {
+          /* */
+        }
+      }
+    }
+    window.__skyhopUserModTeardowns = {};
+    var badge = document.getElementById('skyhopTestModBadge');
+    if (badge) badge.remove();
+    delete window.__SKYHOP_TEST_MOD__;
+    delete window.__SKYHOP_MOD_MINIMAL__;
+  }
+
+  window.SkyHopRegisterModTeardown = function (modId, fn) {
+    if (!modId || typeof fn !== 'function') return;
+    if (!window.__skyhopUserModTeardowns) window.__skyhopUserModTeardowns = {};
+    window.__skyhopUserModTeardowns[String(modId)] = fn;
+  };
+
   async function applyMods(ids) {
+    teardownAllModEffects();
     unloadMods();
     var tok = token();
     if (!tok || !ids.length) {
@@ -172,7 +227,11 @@
       var s = document.createElement('script');
       s.type = 'text/javascript';
       s.dataset.skyhopUserMod = id;
-      s.text = code;
+      s.text =
+        'window.__skyhopInjectedModId=' +
+        JSON.stringify(String(id)) +
+        ';\n' +
+        code;
       document.body.appendChild(s);
       loadedScriptEls.push(s);
     }
