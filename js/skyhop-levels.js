@@ -579,11 +579,15 @@
   const mineErr = document.getElementById('levelsMineErr');
   const minePanelLevels = document.getElementById('levelsMinePanelLevels');
   const minePanelRecordings = document.getElementById('levelsMinePanelRecordings');
+  const minePanelLogs = document.getElementById('levelsMinePanelLogs');
   const mineTabLevels = document.getElementById('mineTabLevels');
   const mineTabRecordings = document.getElementById('mineTabRecordings');
+  const mineTabLogs = document.getElementById('mineTabLogs');
   const levelsMineSignIn = document.getElementById('levelsMineSignIn');
   const levelsRecordingsList = document.getElementById('levelsRecordingsList');
   const levelsRecordingsErr = document.getElementById('levelsRecordingsErr');
+  const levelsInputLogsList = document.getElementById('levelsInputLogsList');
+  const levelsInputLogsErr = document.getElementById('levelsInputLogsErr');
   let mineActiveTab = 'levels';
   const recordingObjectUrls = [];
   const onlineList = document.getElementById('lvlOnlineList');
@@ -633,9 +637,10 @@
   }
 
   function setMineTab(tab) {
-    mineActiveTab = tab === 'recordings' ? 'recordings' : 'levels';
+    mineActiveTab = tab === 'recordings' ? 'recordings' : tab === 'logs' ? 'logs' : 'levels';
     if (minePanelLevels) minePanelLevels.classList.toggle('hidden', mineActiveTab !== 'levels');
     if (minePanelRecordings) minePanelRecordings.classList.toggle('hidden', mineActiveTab !== 'recordings');
+    if (minePanelLogs) minePanelLogs.classList.toggle('hidden', mineActiveTab !== 'logs');
     const btnNew = document.getElementById('btnLevelsNew');
     if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth());
     if (mineTabLevels) {
@@ -654,7 +659,16 @@
       mineTabRecordings.classList.toggle('bg-slate-900/80', mineActiveTab !== 'recordings');
       mineTabRecordings.classList.toggle('text-slate-300', mineActiveTab !== 'recordings');
     }
+    if (mineTabLogs) {
+      mineTabLogs.classList.toggle('border-violet-400', mineActiveTab === 'logs');
+      mineTabLogs.classList.toggle('bg-violet-600/40', mineActiveTab === 'logs');
+      mineTabLogs.classList.toggle('text-white', mineActiveTab === 'logs');
+      mineTabLogs.classList.toggle('border-white/15', mineActiveTab !== 'logs');
+      mineTabLogs.classList.toggle('bg-slate-900/80', mineActiveTab !== 'logs');
+      mineTabLogs.classList.toggle('text-slate-300', mineActiveTab !== 'logs');
+    }
     if (mineActiveTab === 'recordings') void refreshRecordingsList();
+    else if (mineActiveTab === 'logs') void refreshInputLogsList();
     else if (mineActiveTab === 'levels') void refreshMineList();
   }
 
@@ -737,6 +751,83 @@
       if (levelsRecordingsErr) {
         levelsRecordingsErr.textContent = String(e.message || e);
         levelsRecordingsErr.classList.remove('hidden');
+      }
+    }
+  }
+
+  async function refreshInputLogsList() {
+    if (!levelsInputLogsList) return;
+    levelsInputLogsList.innerHTML = '';
+    if (levelsInputLogsErr) levelsInputLogsErr.classList.add('hidden');
+    if (!hasAuth()) {
+      const li = document.createElement('li');
+      li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+      li.textContent = 'Sign in to view input logs saved to your account.';
+      levelsInputLogsList.appendChild(li);
+      return;
+    }
+    if (!window.SkyHopInputLog || typeof window.SkyHopInputLog.listLogs !== 'function') {
+      if (levelsInputLogsErr) {
+        levelsInputLogsErr.textContent = 'Input logs are not available yet — reload the page.';
+        levelsInputLogsErr.classList.remove('hidden');
+      }
+      return;
+    }
+    try {
+      const logs = await window.SkyHopInputLog.listLogs();
+      if (!logs.length) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+        li.textContent = 'No input logs yet. Play and tap Record Input Log in the HUD.';
+        levelsInputLogsList.appendChild(li);
+        return;
+      }
+      for (const log of logs) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3';
+        const when = new Date(log.created_at || Date.now()).toLocaleString();
+        const eventsHint = log.byte_size ? Math.round(Number(log.byte_size) / 40) + ' events (approx)' : '';
+        li.innerHTML =
+          '<div class="mb-2 flex flex-wrap items-center justify-between gap-2">' +
+          '<span class="font-sem text-white">' +
+          escapeHtml(log.title || 'Run') +
+          '</span>' +
+          '<span class="text-xs text-slate-500">' +
+          escapeHtml(log.source || '') +
+          ' · ' +
+          escapeHtml(when) +
+          '</span></div>' +
+          '<p class="log-preview text-xs text-slate-400">Tap View to load JSON.</p>' +
+          '<pre class="log-json mt-2 hidden max-h-40 overflow-auto rounded-lg bg-black/50 p-2 text-[10px] text-emerald-200"></pre>' +
+          '<div class="mt-2 flex justify-end gap-2">' +
+          '<button type="button" class="log-view rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white/5">View</button>' +
+          '<button type="button" class="log-del rounded-lg border border-rose-500/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete</button>' +
+          '</div>';
+        li.querySelector('.log-view').addEventListener('click', function () {
+          const pre = li.querySelector('.log-json');
+          void window.SkyHopInputLog.fetchLogJson(log.id)
+            .then(function (json) {
+              pre.classList.remove('hidden');
+              pre.textContent = JSON.stringify(json, null, 2);
+              const prev = li.querySelector('.log-preview');
+              if (prev) prev.classList.add('hidden');
+            })
+            .catch(function (err) {
+              window.alert(String(err.message || err));
+            });
+        });
+        li.querySelector('.log-del').addEventListener('click', function () {
+          if (!window.confirm('Delete this input log?')) return;
+          void window.SkyHopInputLog.deleteLog(log.id).then(function () {
+            void refreshInputLogsList();
+          });
+        });
+        levelsInputLogsList.appendChild(li);
+      }
+    } catch (e) {
+      if (levelsInputLogsErr) {
+        levelsInputLogsErr.textContent = String(e.message || e);
+        levelsInputLogsErr.classList.remove('hidden');
       }
     }
   }
@@ -1399,13 +1490,20 @@
 
   function syncMyLevelsNav() {
     const btn = document.getElementById('btnNavMyLevels');
-    if (!btn) return;
-    if (hasAuth()) {
-      btn.classList.remove('hidden');
-      btn.classList.add('inline-flex');
-    } else {
-      btn.classList.add('hidden');
-      btn.classList.remove('inline-flex');
+    const submitBtn = document.getElementById('btnNavSubmitRun');
+    const authed = hasAuth();
+    if (btn) {
+      if (authed) {
+        btn.classList.remove('hidden');
+        btn.classList.add('inline-flex');
+      } else {
+        btn.classList.add('hidden');
+        btn.classList.remove('inline-flex');
+      }
+    }
+    if (submitBtn) {
+      submitBtn.classList.toggle('hidden', !authed);
+      submitBtn.classList.toggle('inline-flex', authed);
     }
   }
 
@@ -1426,9 +1524,15 @@
     });
     if (mineTabLevels) mineTabLevels.addEventListener('click', () => setMineTab('levels'));
     if (mineTabRecordings) mineTabRecordings.addEventListener('click', () => setMineTab('recordings'));
+    if (mineTabLogs) mineTabLogs.addEventListener('click', () => setMineTab('logs'));
     window.addEventListener('skyhop-recording-saved', function () {
       if (mineActiveTab === 'recordings' && mineEl && !mineEl.classList.contains('hidden')) {
         void refreshRecordingsList();
+      }
+    });
+    window.addEventListener('skyhop-input-log-saved', function () {
+      if (mineActiveTab === 'logs' && mineEl && !mineEl.classList.contains('hidden')) {
+        void refreshInputLogsList();
       }
     });
     document.getElementById('btnLevelsMineBack').addEventListener('click', () => showMine(false));

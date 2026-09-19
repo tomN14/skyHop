@@ -17,6 +17,8 @@ import { getShopItemById, SHOP_ITEMS, SHOP_PAGES, SHOP_SLOTS_PER_PAGE } from './
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
+import * as InputLogs from './input-logs.js';
+import * as SubmittedRuns from './submitted-runs.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -2243,6 +2245,293 @@ export async function handleApi(req, res) {
       }
       return true;
     }
+  }
+
+  if (pathname === '/api/input-logs/upload' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    try {
+      const buf = await readBinaryBody(req, InputLogs.MAX_INPUT_LOG_BYTES + 65536);
+      const titleRaw = String(req.headers['x-input-log-title'] || 'Run');
+      const sourceRaw = String(req.headers['x-input-log-source'] || 'campaign');
+      let title = titleRaw;
+      let source = sourceRaw;
+      try {
+        title = decodeURIComponent(titleRaw);
+      } catch {
+        title = titleRaw;
+      }
+      try {
+        source = decodeURIComponent(sourceRaw);
+      } catch {
+        source = sourceRaw;
+      }
+      const saved = await InputLogs.inputLogsCreate(uid, buf, {
+        title: title.slice(0, 120),
+        source: source.slice(0, 40),
+      });
+      json(res, 201, { ok: true, log: saved });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/input-logs/mine' && req.method === 'GET') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const list = await InputLogs.inputLogsListForUser(uid);
+      json(res, 200, { logs: list });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/input-logs/delete' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    try {
+      await InputLogs.inputLogsDelete(uid, id);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/input-logs\/([^/]+)\/data$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const { buffer, title } = await InputLogs.inputLogsRead(uid, m[1]);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+          'X-Input-Log-Title': encodeURIComponent(title || 'Run'),
+        });
+        res.end(buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/submitted-runs/submit' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      assertAccountActive(await store.findUserById(uid));
+    } catch (e) {
+      json(res, 403, { error: String(e.message || e) });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const out = await SubmittedRuns.submittedRunCreate(uid, body);
+      json(res, 201, { ok: true, submission: out });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/submitted-runs' && req.method === 'GET') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    const username = u.searchParams.get('username') || '';
+    const status = u.searchParams.get('status') || 'unreviewed';
+    if (!String(username || '').trim()) {
+      json(res, 400, { error: 'Enter a player username to search.' });
+      return true;
+    }
+    try {
+      const rows = await SubmittedRuns.submittedRunsStaffList({ username, status });
+      json(res, 200, { submissions: rows });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/submitted-runs/review' && req.method === 'POST') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    const status = String(body.status || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    try {
+      const out = await SubmittedRuns.submittedRunStaffReview(staff.userId, id, status);
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/staff\/recordings\/([^/]+)\/video$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const staff = await requireStaffSession(req);
+      if (!staff) {
+        json(res, 403, { error: 'Moderator or owner access required.' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const { buffer, mimeType } = await Recordings.recordingsReadStaff(m[1]);
+        res.writeHead(200, {
+          'Content-Type': mimeType || 'video/webm',
+          'Content-Length': buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+        });
+        res.end(buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/staff\/input-logs\/([^/]+)\/data$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      const staff = await requireStaffSession(req);
+      if (!staff) {
+        json(res, 403, { error: 'Moderator or owner access required.' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const { buffer, title } = await InputLogs.inputLogsReadStaff(m[1]);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Content-Length': buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+          'X-Input-Log-Title': encodeURIComponent(title || 'Run'),
+        });
+        res.end(buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/owner/leaderboard/campaign' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    const diff = String(u.searchParams.get('difficulty') || 'normal').toLowerCase();
+    if (typeof store.listOwnerCampaignLeaderboardEntries !== 'function') {
+      json(res, 501, { error: 'Not available' });
+      return true;
+    }
+    try {
+      const entries = await store.listOwnerCampaignLeaderboardEntries(diff, 50);
+      json(res, 200, { entries });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/leaderboard/delete' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    if (typeof store.deleteCampaignRunById !== 'function') {
+      json(res, 501, { error: 'Not available' });
+      return true;
+    }
+    try {
+      await store.deleteCampaignRunById(body.runId);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
   }
 
   if (pathname === '/api/levels/mine' && req.method === 'GET') {

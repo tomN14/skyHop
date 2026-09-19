@@ -190,6 +190,40 @@ export async function recordingsReadVideo(userId, recordingId) {
   return { buffer: fs.readFileSync(abs), mimeType: row.mime_type || 'video/webm' };
 }
 
+export async function recordingsReadStaff(recordingId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: e1 } = await sb
+      .from('skyhop_recordings')
+      .select('id, user_id, title, storage_path, mime_type')
+      .eq('id', recordingId)
+      .maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!row) throw new Error('Not found');
+    const { data, error } = await sb.storage.from(RECORDINGS_BUCKET).download(row.storage_path);
+    if (error) throw new Error(error.message);
+    const ab = await data.arrayBuffer();
+    return {
+      buffer: Buffer.from(ab),
+      mimeType: row.mime_type || 'video/webm',
+      title: row.title,
+      userId: row.user_id,
+    };
+  }
+  const db = fileLoadIndex();
+  const row = db.recordings.find((r) => r.id === recordingId);
+  if (!row) throw new Error('Not found');
+  const rel = String(row.storage_path || '').replace(/^file:/, '');
+  const abs = path.join(FILES_DIR, rel.replace(/\//g, path.sep));
+  if (!fs.existsSync(abs)) throw new Error('Recording file missing');
+  return {
+    buffer: fs.readFileSync(abs),
+    mimeType: row.mime_type || 'video/webm',
+    title: row.title,
+    userId: row.user_id,
+  };
+}
+
 export async function recordingsDelete(userId, recordingId) {
   const row = await getOwnedRow(userId, recordingId);
   if (!row) throw new Error('Not found');

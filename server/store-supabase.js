@@ -242,6 +242,59 @@ export function createSupabaseStore() {
       return out;
     },
 
+    async listOwnerCampaignLeaderboardEntries(difficulty, limit = 50) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 50)));
+      const { data, error } = await sb
+        .from('skyhop_runs')
+        .select('id, user_id, time_ms, deaths')
+        .eq('source', 'campaign')
+        .eq('difficulty', diff)
+        .order('time_ms', { ascending: true })
+        .limit(8000);
+      if (error) throw new Error(error.message);
+      const best = new Map();
+      for (const r of data || []) {
+        const uid = Number(r.user_id);
+        const tm = Number(r.time_ms);
+        const prev = best.get(uid);
+        if (!prev || tm < prev.timeMs) {
+          best.set(uid, { runId: Number(r.id), userId: uid, timeMs: tm, deaths: Number(r.deaths) });
+        }
+      }
+      const sorted = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of sorted) {
+        const u = await this.findUserById(row.userId);
+        out.push({
+          runId: row.runId,
+          userId: row.userId,
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
+    },
+
+    async deleteCampaignRunById(runId) {
+      const id = Number(runId);
+      if (!Number.isFinite(id)) throw new Error('Invalid run id');
+      const { data, error } = await sb
+        .from('skyhop_runs')
+        .delete()
+        .eq('id', id)
+        .eq('source', 'campaign')
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error('Run not found');
+      return { ok: true };
+    },
+
     async countUsersCreatedSince(sinceMs) {
       const since = Number(sinceMs) || 0;
       const { count, error } = await sb

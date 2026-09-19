@@ -1773,6 +1773,91 @@
       });
     }
 
+    var ownerLbDifficulty = document.getElementById('ownerLbDifficulty');
+    var ownerBtnRefreshLb = document.getElementById('ownerBtnRefreshLb');
+    var ownerLbList = document.getElementById('ownerLbList');
+    var ownerLbMsg = document.getElementById('ownerLbMsg');
+    function setOwnerLbMsg(t, isErr) {
+      if (!ownerLbMsg) return;
+      ownerLbMsg.textContent = t || '';
+      ownerLbMsg.classList.toggle('hidden', !t);
+      ownerLbMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerLbMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function fmtLbTime(ms) {
+      if (!Number.isFinite(ms)) return '—';
+      var s = Math.floor(ms / 1000);
+      var m = Math.floor(s / 60);
+      s = s % 60;
+      return m + ':' + String(s).padStart(2, '0');
+    }
+    async function refreshOwnerLbList() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerLbList) return;
+      setOwnerLbMsg('', false);
+      ownerLbList.innerHTML = '<li class="text-slate-500">Loading…</li>';
+      var diff = ownerLbDifficulty ? ownerLbDifficulty.value : 'normal';
+      try {
+        var data = await api('/api/owner/leaderboard/campaign?difficulty=' + encodeURIComponent(diff), {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var entries = (data && data.entries) || [];
+        ownerLbList.innerHTML = '';
+        if (!entries.length) {
+          ownerLbList.innerHTML = '<li class="text-slate-500">No entries.</li>';
+          return;
+        }
+        for (var i = 0; i < entries.length; i++) {
+          (function (row, rank) {
+            var li = document.createElement('li');
+            li.className =
+              'flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-950/50 px-2 py-1.5';
+            li.innerHTML =
+              '<span class="text-slate-200">' +
+              String(rank) +
+              '. ' +
+              String(row.username || '').replace(/</g, '&lt;') +
+              ' · ' +
+              fmtLbTime(row.timeMs) +
+              ' · ' +
+              String(row.deaths) +
+              'd</span>';
+            var del = document.createElement('button');
+            del.type = 'button';
+            del.className =
+              'rounded border border-rose-500/50 px-2 py-0.5 text-[10px] font-semibold text-rose-100 hover:bg-rose-950/50';
+            del.textContent = 'Remove';
+            del.addEventListener('click', async function () {
+              if (!window.confirm('Remove this leaderboard entry for ' + row.username + '?')) return;
+              try {
+                await api('/api/owner/leaderboard/delete', {
+                  method: 'POST',
+                  headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ runId: row.runId }),
+                });
+                setOwnerLbMsg('Removed entry.', false);
+                await refreshOwnerLbList();
+              } catch (e) {
+                setOwnerLbMsg(String(e.message || e), true);
+              }
+            });
+            li.appendChild(del);
+            ownerLbList.appendChild(li);
+          })(entries[i], i + 1);
+        }
+      } catch (e) {
+        ownerLbList.innerHTML = '';
+        setOwnerLbMsg(String(e.message || e), true);
+      }
+    }
+    if (ownerBtnRefreshLb) {
+      ownerBtnRefreshLb.addEventListener('click', function () {
+        void refreshOwnerLbList();
+      });
+    }
+
     var friendChatPeer = document.getElementById('friendChatPeer');
     var friendChatLoad = document.getElementById('friendChatLoad');
     var friendChatLog = document.getElementById('friendChatLog');

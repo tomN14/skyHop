@@ -1461,15 +1461,7 @@
     syncRecordingUi();
   }
 
-  function syncRecordingUi() {
-    if (!window.SkyHopRecording || typeof window.SkyHopRecording.setGameplayActive !== 'function') return;
-    const hudVisible = hud && !hud.classList.contains('hidden');
-    const inRun =
-      hudVisible && gameState !== 'menu' && gameState !== 'win';
-    if (!inRun) {
-      window.SkyHopRecording.setGameplayActive(false);
-      return;
-    }
+  function gameplayCaptureMeta() {
     const ext = window.SKYHOP_EXTERNAL_LEVEL;
     let title = 'Run';
     let source = 'campaign';
@@ -1484,7 +1476,29 @@
     } else {
       title = `Campaign — stage ${stageIndex + 1}`;
     }
-    window.SkyHopRecording.setGameplayActive(true, { title, source });
+    return { title, source };
+  }
+
+  function syncRecordingUi() {
+    const hudVisible = hud && !hud.classList.contains('hidden');
+    const inRun =
+      hudVisible && gameState !== 'menu' && gameState !== 'win';
+    if (!inRun) {
+      if (window.SkyHopRecording && typeof window.SkyHopRecording.setGameplayActive === 'function') {
+        window.SkyHopRecording.setGameplayActive(false);
+      }
+      if (window.SkyHopInputLog && typeof window.SkyHopInputLog.setGameplayActive === 'function') {
+        window.SkyHopInputLog.setGameplayActive(false);
+      }
+      return;
+    }
+    const meta = gameplayCaptureMeta();
+    if (window.SkyHopRecording && typeof window.SkyHopRecording.setGameplayActive === 'function') {
+      window.SkyHopRecording.setGameplayActive(true, meta);
+    }
+    if (window.SkyHopInputLog && typeof window.SkyHopInputLog.setGameplayActive === 'function') {
+      window.SkyHopInputLog.setGameplayActive(true, meta);
+    }
   }
 
   function beginRacing(opts) {
@@ -3270,6 +3284,9 @@
     keys[e.key] = true;
     if (e.code === 'KeyS') keys.KeyS = true;
     if (e.code === 'KeyB') keys.KeyB = true;
+    if (window.SkyHopInputLog && typeof window.SkyHopInputLog.noteKeyEvent === 'function') {
+      window.SkyHopInputLog.noteKeyEvent(e, 'down');
+    }
     if (gameState === 'playing' && (e.code === 'KeyS' || e.code === 'KeyB')) {
       e.preventDefault();
     }
@@ -3289,6 +3306,9 @@
     keys[e.key] = false;
     if (e.code === 'KeyS') keys.KeyS = false;
     if (e.code === 'KeyB') keys.KeyB = false;
+    if (window.SkyHopInputLog && typeof window.SkyHopInputLog.noteKeyEvent === 'function') {
+      window.SkyHopInputLog.noteKeyEvent(e, 'up');
+    }
   });
 
   window.addEventListener('blur', clearInputKeys);

@@ -23,6 +23,7 @@ function defaultStore() {
     friendRequests: [],
     friendChat: [],
     nextUserId: 1,
+    nextRunId: 1,
   };
 }
 
@@ -69,6 +70,12 @@ function loadStore() {
   if (!Array.isArray(cache.runs)) cache.runs = [];
   if (!Array.isArray(cache.userAchievements)) cache.userAchievements = [];
   if (typeof cache.nextUserId !== 'number' || cache.nextUserId < 1) cache.nextUserId = 1;
+  if (typeof cache.nextRunId !== 'number' || cache.nextRunId < 1) cache.nextRunId = 1;
+  for (const r of cache.runs) {
+    if (r.id == null || !Number.isFinite(Number(r.id))) {
+      r.id = cache.nextRunId++;
+    }
+  }
   migrateUsersAndReports(cache);
   saveStore();
   return cache;
@@ -217,8 +224,51 @@ export function createFileStore() {
         const low = String(difficulty).toLowerCase();
         if (low === 'easy' || low === 'normal' || low === 'hard') diff = low;
       }
-      s.runs.push({ userId, timeMs: t, deaths: d, source: src, difficulty: diff, createdAt: Date.now() });
+      const id = s.nextRunId++;
+      s.runs.push({ id, userId, timeMs: t, deaths: d, source: src, difficulty: diff, createdAt: Date.now() });
       saveStore();
+    },
+
+    async listOwnerCampaignLeaderboardEntries(difficulty, limit = 50) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') {
+        throw new Error('difficulty must be easy, normal, or hard');
+      }
+      const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 50)));
+      const s = loadStore();
+      const best = new Map();
+      for (const r of s.runs) {
+        if (r.source !== 'campaign' || r.difficulty !== diff) continue;
+        const uid = r.userId;
+        const prev = best.get(uid);
+        if (!prev || r.timeMs < prev.timeMs) {
+          best.set(uid, r);
+        }
+      }
+      const rows = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const out = [];
+      for (const row of rows) {
+        const u = s.users.find((x) => x.id === row.userId);
+        out.push({
+          runId: row.id,
+          userId: row.userId,
+          username: u ? u.username : 'unknown',
+          timeMs: row.timeMs,
+          deaths: row.deaths,
+        });
+      }
+      return out;
+    },
+
+    async deleteCampaignRunById(runId) {
+      const id = Number(runId);
+      if (!Number.isFinite(id)) throw new Error('Invalid run id');
+      const s = loadStore();
+      const idx = s.runs.findIndex((r) => Number(r.id) === id && r.source === 'campaign');
+      if (idx < 0) throw new Error('Run not found');
+      s.runs.splice(idx, 1);
+      saveStore();
+      return { ok: true };
     },
 
     async listCampaignLeaderboard(difficulty, limit = 10) {

@@ -136,9 +136,14 @@
         <button id="btnSkipStage" type="button" class="pointer-events-auto hidden rounded-2xl border border-amber-500/40 bg-amber-950/80 px-3 py-2 text-xs font-semibold text-amber-200 shadow-lg backdrop-blur-md hover:bg-amber-900/80 focus:outline-none focus:ring-2 focus:ring-amber-400">
           Skip stage
         </button>
-        <button id="btnRecordRun" type="button" class="pointer-events-auto hidden rounded-2xl border border-red-500/50 bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg backdrop-blur-md hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-400">
-          Record
-        </button>
+        <div class="pointer-events-auto flex flex-wrap items-center justify-end gap-2">
+          <button id="btnRecordRun" type="button" class="hidden rounded-2xl border border-red-500/50 bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg backdrop-blur-md hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-400">
+            Record
+          </button>
+          <button id="btnRecordInputLog" type="button" class="hidden rounded-2xl border border-sky-500/50 bg-sky-600 px-3 py-2 text-xs font-bold text-white shadow-lg backdrop-blur-md hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-400">
+            Record Input Log
+          </button>
+        </div>
         <button id="btnPauseHud" type="button" class="pointer-events-auto rounded-2xl border border-white/15 bg-slate-900/90 px-4 py-2 text-sm font-semibold text-slate-200 shadow-lg backdrop-blur-md hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400">
           Pause
         </button>
@@ -152,9 +157,14 @@
         <span aria-hidden="true">🌐</span><span class="text-xs font-semibold text-cyan-100">Online</span>
       </button>
       <span class="flex-1 sm:flex-none"></span>
-      <button id="btnNavMyLevels" type="button" title="My Levels" class="pointer-events-auto hidden items-center gap-2 rounded-2xl border border-violet-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
-        <span aria-hidden="true">✏️</span><span class="text-xs font-semibold text-violet-100">My levels</span>
-      </button>
+      <div class="flex flex-col items-end gap-2">
+        <button id="btnNavMyLevels" type="button" title="My Levels" class="pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-violet-500/40 bg-slate-900/90 px-3 py-2 text-lg shadow-lg backdrop-blur-md hover:bg-slate-800">
+          <span aria-hidden="true">✏️</span><span class="text-xs font-semibold text-violet-100">My levels</span>
+        </button>
+        <button id="btnNavSubmitRun" type="button" title="Submit run for leaderboard review" class="pointer-events-auto hidden inline-flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-slate-900/90 px-3 py-1.5 text-sm shadow-lg backdrop-blur-md hover:bg-slate-800">
+          <span aria-hidden="true">🏁</span><span class="text-xs font-semibold text-amber-100">Submit Run</span>
+        </button>
+      </div>
     </div>
 
     <!-- Mobile controls: visibility from JS only (no md:hidden — that hid the bar on tablets ≥768px). -->
@@ -559,6 +569,18 @@
           <button id="ownerBtnEnable" type="button" class="rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-900/40">Re-enable account…</button>
           <button id="ownerBtnDelete" type="button" class="rounded-xl border border-rose-600/60 bg-rose-950/60 px-4 py-2.5 text-sm font-semibold text-rose-100 hover:bg-rose-900/50">Delete account permanently…</button>
         </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-amber-200/90">Campaign leaderboard (owner only)</p>
+          <p class="mt-1 text-[11px] text-slate-500">Remove a player’s best run entry from the public leaderboard for a difficulty.</p>
+          <select id="ownerLbDifficulty" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+          </select>
+          <button id="ownerBtnRefreshLb" type="button" class="mt-2 w-full rounded-xl border border-amber-500/45 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-950/40">Refresh leaderboard list</button>
+          <ul id="ownerLbList" class="mt-2 max-h-40 list-none space-y-1 overflow-y-auto p-0 text-xs"></ul>
+          <p id="ownerLbMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
         <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
       </div>
     </div>
@@ -605,6 +627,41 @@
         </div>
         <p class="mt-5 text-[11px] font-sem text-slate-400">User levels (draft + published)</p>
         <ul id="modDashLevelsList" class="mt-2 max-h-[40vh] list-none space-y-2 overflow-y-auto p-0 text-sm"></ul>
+        <div class="mt-5 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-slate-400">Submitted campaign runs</p>
+          <p class="mt-1 text-[11px] text-slate-500">Review player submissions (recording + input log). Search by username and filter by review status.</p>
+          <button id="btnModSubmittedRuns" type="button" class="mt-2 w-full rounded-xl border border-indigo-500/45 bg-indigo-950/50 px-4 py-2.5 text-sm font-semibold text-indigo-100 hover:bg-indigo-900/40">Submitted Runs…</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="screenSubmittedRunsStaff" class="pointer-events-auto fixed inset-0 z-[48] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
+      <div class="my-auto w-full max-w-3xl rounded-3xl border border-indigo-500/35 bg-gradient-to-br from-slate-900 to-indigo-950/30 p-6 shadow-2xl md:p-8">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-sem uppercase tracking-widest text-indigo-400">Staff</p>
+            <h3 class="mt-1 text-xl font-bold text-white">Submitted Runs</h3>
+            <p class="mt-1 text-[11px] text-slate-500">Search by exact username, pick Approved / Declined / Unreviewed, then load runs. Approve to add the run to the campaign leaderboard.</p>
+          </div>
+          <button id="btnStaffSubmitRunClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <div class="mt-4 flex flex-wrap items-end gap-2">
+          <label class="min-w-[10rem] flex-1 text-left">
+            <span class="block text-[11px] text-slate-500">Player username</span>
+            <input id="staffSubmitRunUser" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
+          </label>
+          <label class="min-w-[9rem] text-left">
+            <span class="block text-[11px] text-slate-500">Status</span>
+            <select id="staffSubmitRunStatus" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
+              <option value="unreviewed" selected>Unreviewed</option>
+              <option value="approved">Approved</option>
+              <option value="declined">Declined</option>
+            </select>
+          </label>
+          <button id="staffSubmitRunSearch" type="button" class="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">Search</button>
+        </div>
+        <p id="staffSubmitRunErr" class="mt-3 hidden rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"></p>
+        <ul id="staffSubmitRunList" class="mt-4 max-h-[55vh] list-none space-y-3 overflow-y-auto p-0"></ul>
       </div>
     </div>
 
@@ -689,6 +746,7 @@
       <div class="mx-auto mb-3 flex w-full max-w-2xl gap-2">
         <button id="mineTabLevels" type="button" class="mine-tab flex-1 rounded-xl border-2 border-violet-400 bg-violet-600/40 px-3 py-2 text-sm font-semibold text-white">Levels</button>
         <button id="mineTabRecordings" type="button" class="mine-tab flex-1 rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800">My Recordings</button>
+        <button id="mineTabLogs" type="button" class="mine-tab flex-1 rounded-xl border border-white/15 bg-slate-900/80 px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-slate-800">My Logs</button>
       </div>
       <p id="levelsMineErr" class="mx-auto mb-2 hidden max-w-2xl text-center text-sm text-rose-300"></p>
       <div id="levelsMinePanelLevels" class="mx-auto w-full max-w-2xl flex-1 overflow-y-auto">
@@ -699,6 +757,54 @@
         <p class="mb-2 text-center text-xs text-slate-500">Clips are saved to your account (sign in, then use Record while playing).</p>
         <p id="levelsRecordingsErr" class="mb-2 hidden text-center text-sm text-rose-300"></p>
         <ul id="levelsRecordingsList" class="list-none space-y-3 p-0"></ul>
+      </div>
+      <div id="levelsMinePanelLogs" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
+        <p class="mb-2 text-center text-xs text-slate-500">Input logs are saved to your account (sign in, then use Record Input Log while playing).</p>
+        <p id="levelsInputLogsErr" class="mb-2 hidden text-center text-sm text-rose-300"></p>
+        <ul id="levelsInputLogsList" class="list-none space-y-3 p-0"></ul>
+      </div>
+    </div>
+
+    <div id="screenSubmitRun" class="absolute inset-0 z-[29] hidden flex flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
+      <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center justify-between gap-2 pb-3">
+        <button id="btnSubmitRunBack" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">← Back</button>
+        <h2 class="text-lg font-bold text-white">Submit Run</h2>
+        <span class="w-16"></span>
+      </div>
+      <p id="submitRunErr" class="mx-auto mb-2 hidden max-w-2xl text-center text-sm text-rose-300"></p>
+      <div id="submitRunStep1" class="mx-auto w-full max-w-2xl flex-1 overflow-y-auto">
+        <p class="mb-3 text-sm text-slate-400">Step 1 — Choose a recording from your account.</p>
+        <ul id="submitRunRecordingsList" class="list-none space-y-2 p-0"></ul>
+        <div class="mt-4 flex justify-end">
+          <button id="submitRunNext1" type="button" disabled class="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40">Next</button>
+        </div>
+      </div>
+      <div id="submitRunStep2" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
+        <p class="mb-3 text-sm text-slate-400">Step 2 — Choose the matching input log.</p>
+        <ul id="submitRunLogsList" class="list-none space-y-2 p-0"></ul>
+        <div class="mt-4 flex justify-between gap-2">
+          <button id="submitRunBack2" type="button" class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">Back</button>
+          <button id="submitRunNext2" type="button" class="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-500">Next</button>
+        </div>
+      </div>
+      <div id="submitRunStep3" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
+        <p class="mb-3 text-sm text-slate-400">Step 3 — Run stats for moderators (must match the recording).</p>
+        <label class="block text-xs text-slate-500">Difficulty</label>
+        <select id="submitRunDifficulty" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
+          <option value="easy">Easy</option>
+          <option value="normal" selected>Normal</option>
+          <option value="hard">Hard</option>
+        </select>
+        <label class="mt-3 block text-xs text-slate-500">Finish time (milliseconds)</label>
+        <input id="submitRunTimeMs" type="number" min="1000" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Total run time in ms" />
+        <label class="mt-3 block text-xs text-slate-500">Deaths</label>
+        <input id="submitRunDeaths" type="number" min="0" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" value="0" />
+        <label class="mt-3 block text-xs text-slate-500">Optional note to moderators</label>
+        <textarea id="submitRunNote" rows="2" maxlength="500" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Anything mods should know"></textarea>
+        <div class="mt-4 flex justify-between gap-2">
+          <button id="submitRunBack3" type="button" class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">Back</button>
+          <button id="submitRunSubmit" type="button" disabled class="rounded-xl bg-amber-600 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-500 disabled:opacity-40">Submit</button>
+        </div>
       </div>
     </div>
 
@@ -830,6 +936,7 @@
   <script src="js/skyhop-stage-prep.js"></script>
   <script src="js/skyhop-campaign-boot.js"></script>
   <script src="js/skyhop-recording.js"></script>
+  <script src="js/skyhop-input-log.js"></script>
   <script src="js/skyhop-game.js"></script>
   <script src="js/skyhop-race.js"></script>
   <script src="js/skyhop-tos.js"></script>
@@ -838,6 +945,8 @@
   <script src="js/skyhop-leaderboard.js"></script>
   <script src="js/skyhop-coin-shop.js"></script>
   <script src="js/skyhop-mod-dashboard.js"></script>
+  <script src="js/skyhop-submitted-runs-staff.js"></script>
+  <script src="js/skyhop-submit-run.js"></script>
   <script src="js/skyhop-levels.js"></script>
 </body>
 </html>
