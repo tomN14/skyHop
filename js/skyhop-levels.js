@@ -577,6 +577,15 @@
   const editorScreen = document.getElementById('screenLevelEditor');
   const mineList = document.getElementById('levelsMineList');
   const mineErr = document.getElementById('levelsMineErr');
+  const minePanelLevels = document.getElementById('levelsMinePanelLevels');
+  const minePanelRecordings = document.getElementById('levelsMinePanelRecordings');
+  const mineTabLevels = document.getElementById('mineTabLevels');
+  const mineTabRecordings = document.getElementById('mineTabRecordings');
+  const levelsMineSignIn = document.getElementById('levelsMineSignIn');
+  const levelsRecordingsList = document.getElementById('levelsRecordingsList');
+  const levelsRecordingsErr = document.getElementById('levelsRecordingsErr');
+  let mineActiveTab = 'levels';
+  const recordingObjectUrls = [];
   const onlineList = document.getElementById('lvlOnlineList');
   const onlinePager = document.getElementById('lvlOnlinePager');
   const onlineUserPanel = document.getElementById('lvlOnlineUserPanel');
@@ -585,6 +594,7 @@
   function showMine(on) {
     if (!mineEl) return;
     mineEl.classList.toggle('hidden', !on);
+    if (!on) revokeRecordingUrls();
   }
 
   function showOnline(on) {
@@ -611,9 +621,116 @@
     }
   }
 
+  function revokeRecordingUrls() {
+    for (let i = 0; i < recordingObjectUrls.length; i++) {
+      try {
+        URL.revokeObjectURL(recordingObjectUrls[i]);
+      } catch {
+        /* ignore */
+      }
+    }
+    recordingObjectUrls.length = 0;
+  }
+
+  function setMineTab(tab) {
+    mineActiveTab = tab === 'recordings' ? 'recordings' : 'levels';
+    if (minePanelLevels) minePanelLevels.classList.toggle('hidden', mineActiveTab !== 'levels');
+    if (minePanelRecordings) minePanelRecordings.classList.toggle('hidden', mineActiveTab !== 'recordings');
+    const btnNew = document.getElementById('btnLevelsNew');
+    if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth());
+    if (mineTabLevels) {
+      mineTabLevels.classList.toggle('border-violet-400', mineActiveTab === 'levels');
+      mineTabLevels.classList.toggle('bg-violet-600/40', mineActiveTab === 'levels');
+      mineTabLevels.classList.toggle('text-white', mineActiveTab === 'levels');
+      mineTabLevels.classList.toggle('border-white/15', mineActiveTab !== 'levels');
+      mineTabLevels.classList.toggle('bg-slate-900/80', mineActiveTab !== 'levels');
+      mineTabLevels.classList.toggle('text-slate-300', mineActiveTab !== 'levels');
+    }
+    if (mineTabRecordings) {
+      mineTabRecordings.classList.toggle('border-violet-400', mineActiveTab === 'recordings');
+      mineTabRecordings.classList.toggle('bg-violet-600/40', mineActiveTab === 'recordings');
+      mineTabRecordings.classList.toggle('text-white', mineActiveTab === 'recordings');
+      mineTabRecordings.classList.toggle('border-white/15', mineActiveTab !== 'recordings');
+      mineTabRecordings.classList.toggle('bg-slate-900/80', mineActiveTab !== 'recordings');
+      mineTabRecordings.classList.toggle('text-slate-300', mineActiveTab !== 'recordings');
+    }
+    if (mineActiveTab === 'recordings') void refreshRecordingsList();
+    else if (mineActiveTab === 'levels') void refreshMineList();
+  }
+
+  async function refreshRecordingsList() {
+    if (!levelsRecordingsList) return;
+    revokeRecordingUrls();
+    levelsRecordingsList.innerHTML = '';
+    if (levelsRecordingsErr) levelsRecordingsErr.classList.add('hidden');
+    if (!window.SkyHopRecording || typeof window.SkyHopRecording.listClips !== 'function') {
+      if (levelsRecordingsErr) {
+        levelsRecordingsErr.textContent = 'Recordings are not available in this browser.';
+        levelsRecordingsErr.classList.remove('hidden');
+      }
+      return;
+    }
+    try {
+      const clips = await window.SkyHopRecording.listClips();
+      if (!clips.length) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+        li.textContent = 'No recordings yet. Play a level and tap Record in the HUD.';
+        levelsRecordingsList.appendChild(li);
+        return;
+      }
+      for (const clip of clips) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3';
+        const url = URL.createObjectURL(clip.blob);
+        recordingObjectUrls.push(url);
+        const when = new Date(clip.createdAt || Date.now()).toLocaleString();
+        const srcLabel =
+          clip.source === 'user-level'
+            ? 'Online level'
+            : clip.source === 'user-test'
+              ? 'Level test'
+              : clip.source === 'custom'
+                ? 'Custom'
+                : 'Campaign';
+        li.innerHTML =
+          '<div class="mb-2 flex flex-wrap items-center justify-between gap-2">' +
+          '<span class="font-sem text-white">' +
+          escapeHtml(clip.title || 'Run') +
+          '</span>' +
+          '<span class="text-xs text-slate-500">' +
+          escapeHtml(srcLabel) +
+          ' · ' +
+          escapeHtml(when) +
+          '</span></div>' +
+          '<video class="w-full rounded-lg border border-white/10 bg-black" controls playsinline preload="metadata" src="' +
+          url +
+          '"></video>' +
+          '<div class="mt-2 flex justify-end">' +
+          '<button type="button" class="rec-del rounded-lg border border-rose-500/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete</button>' +
+          '</div>';
+        li.querySelector('.rec-del').addEventListener('click', function () {
+          if (!window.confirm('Delete this recording?')) return;
+          void window.SkyHopRecording.deleteClip(clip.id).then(function () {
+            void refreshRecordingsList();
+          });
+        });
+        levelsRecordingsList.appendChild(li);
+      }
+    } catch (e) {
+      if (levelsRecordingsErr) {
+        levelsRecordingsErr.textContent = String(e.message || e);
+        levelsRecordingsErr.classList.remove('hidden');
+      }
+    }
+  }
+
   async function refreshMineList() {
     mineErr.classList.add('hidden');
     mineList.innerHTML = '';
+    if (levelsMineSignIn) {
+      levelsMineSignIn.classList.toggle('hidden', hasAuth());
+    }
     if (!hasAuth()) return;
     try {
       const { levels } = await api('/api/levels/mine');
@@ -1267,13 +1384,8 @@
   function syncMyLevelsNav() {
     const btn = document.getElementById('btnNavMyLevels');
     if (!btn) return;
-    if (hasAuth()) {
-      btn.classList.remove('hidden');
-      btn.classList.add('inline-flex');
-    } else {
-      btn.classList.add('hidden');
-      btn.classList.remove('inline-flex');
-    }
+    btn.classList.remove('hidden');
+    btn.classList.add('inline-flex');
   }
 
   function init() {
@@ -1284,12 +1396,15 @@
       onlineUserPanel.classList.add('hidden');
     });
     document.getElementById('btnNavMyLevels').addEventListener('click', () => {
-      if (!hasAuth()) {
-        alert('Create an account and sign in to use My Levels.');
-        return;
-      }
       showMine(true);
-      refreshMineList();
+      setMineTab(hasAuth() ? 'levels' : 'recordings');
+    });
+    if (mineTabLevels) mineTabLevels.addEventListener('click', () => setMineTab('levels'));
+    if (mineTabRecordings) mineTabRecordings.addEventListener('click', () => setMineTab('recordings'));
+    window.addEventListener('skyhop-recording-saved', function () {
+      if (mineActiveTab === 'recordings' && mineEl && !mineEl.classList.contains('hidden')) {
+        void refreshRecordingsList();
+      }
     });
     document.getElementById('btnLevelsMineBack').addEventListener('click', () => showMine(false));
     document.getElementById('btnLevelsOnlineBack').addEventListener('click', () => showOnline(false));

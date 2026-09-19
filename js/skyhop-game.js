@@ -1451,6 +1451,33 @@
       setTouchHudVisible(!!showTouch);
     }
     syncLevelsTopNav();
+    syncRecordingUi();
+  }
+
+  function syncRecordingUi() {
+    if (!window.SkyHopRecording || typeof window.SkyHopRecording.setGameplayActive !== 'function') return;
+    const hudVisible = hud && !hud.classList.contains('hidden');
+    const inRun =
+      hudVisible && gameState !== 'menu' && gameState !== 'win';
+    if (!inRun) {
+      window.SkyHopRecording.setGameplayActive(false);
+      return;
+    }
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    let title = 'Run';
+    let source = 'campaign';
+    if (ext) {
+      title = ext.levelTitle || ext.hudTitle || title;
+      if (ext.mode === 'test') source = 'user-test';
+      else if (ext.mode === 'play') source = 'user-level';
+      else source = 'custom';
+    } else if (menuDifficulty === 'custom') {
+      source = 'custom';
+      title = `Custom — stage ${stageIndex + 1}`;
+    } else {
+      title = `Campaign — stage ${stageIndex + 1}`;
+    }
+    window.SkyHopRecording.setGameplayActive(true, { title, source });
   }
 
   function beginRacing(opts) {
@@ -3124,6 +3151,7 @@
     updateSkipHud();
     setTouchHudVisible(gameState === 'playing');
     syncLevelsTopNav();
+    syncRecordingUi();
   }
 
   function ensureGameShellVisible() {
@@ -3171,6 +3199,7 @@
     screenWin.classList.add('hidden');
     screenWin.classList.remove('flex');
     hud.classList.add('hidden');
+    syncRecordingUi();
     if (btnSkipStage) btnSkipStage.classList.add('hidden');
     screenMenu.classList.remove('hidden');
     screenMenu.classList.add('flex');
