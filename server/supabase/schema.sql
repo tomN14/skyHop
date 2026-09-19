@@ -157,3 +157,25 @@ create table if not exists public.skyhop_recordings (
 
 create index if not exists skyhop_recordings_user_created_idx
   on public.skyhop_recordings (user_id, created_at desc);
+
+-- Ban appeals (see extend_v14_ban_appeals.sql on existing DBs)
+create table if not exists public.skyhop_ban_appeals (
+  id uuid primary key default gen_random_uuid(),
+  user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  reason text not null,
+  status text not null default 'open',
+  outcome text,
+  created_at bigint not null,
+  resolved_at bigint
+);
+
+create index if not exists skyhop_ban_appeals_status_idx
+  on public.skyhop_ban_appeals (status, created_at desc);
+
+create table if not exists public.skyhop_ban_appeal_votes (
+  appeal_id uuid not null references public.skyhop_ban_appeals (id) on delete cascade,
+  voter_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  vote text not null,
+  created_at bigint not null,
+  primary key (appeal_id, voter_user_id)
+);

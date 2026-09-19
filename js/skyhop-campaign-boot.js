@@ -22,6 +22,10 @@
 
   function applyServerStages(stages) {
     if (!stages || !Array.isArray(stages) || !stages.length) return;
+    if (typeof window.SkyHopValidateBuiltinStages === 'function' && !window.SkyHopValidateBuiltinStages(stages)) {
+      console.warn('Sky Hop: ignoring invalid server campaign (missing platforms/spawn); using bundled stages.js');
+      return;
+    }
     try {
       const copy = JSON.parse(JSON.stringify(stages));
       if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(copy);

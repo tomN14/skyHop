@@ -1833,6 +1833,98 @@
         screenOwnerAdmin.classList.add('flex');
         void refreshOwnerLbList();
         void loadOwnerSiteContentEditors();
+        void refreshOwnerAppealsList();
+      });
+    }
+
+    var ownerAppealsList = document.getElementById('ownerAppealsList');
+    var ownerAppealsMsg = document.getElementById('ownerAppealsMsg');
+    function setOwnerAppealsMsg(t, isErr) {
+      if (!ownerAppealsMsg) return;
+      ownerAppealsMsg.textContent = t || '';
+      ownerAppealsMsg.classList.toggle('hidden', !t);
+      ownerAppealsMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerAppealsMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function refreshOwnerAppealsList() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!ownerAppealsList || !tok || !me || me.role !== 'owner') return;
+      try {
+        var data = await api('/api/owner/appeals', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var appeals = data.appeals || [];
+        if (!appeals.length) {
+          ownerAppealsList.innerHTML =
+            '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-4 text-center text-slate-500">No open appeals.</li>';
+          setOwnerAppealsMsg('', false);
+          return;
+        }
+        ownerAppealsList.innerHTML = appeals
+          .map(function (a) {
+            var safe = function (s) {
+              return String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/"/g, '&quot;');
+            };
+            return (
+              '<li class="rounded-xl border border-amber-500/25 bg-slate-950/60 p-3 text-left">' +
+              '<p class="font-semibold text-slate-100">' +
+              safe(a.username) +
+              ' <span class="font-normal text-slate-500">#' +
+              String(a.userId) +
+              '</span></p>' +
+              '<p class="mt-1 whitespace-pre-wrap text-[11px] text-slate-400">' +
+              safe(a.reason) +
+              '</p>' +
+              '<div class="mt-2 flex flex-wrap gap-2">' +
+              '<button type="button" data-owner-appeal="accept" data-appeal-id="' +
+              safe(a.id) +
+              '" class="rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600">Accept (unban)</button>' +
+              '<button type="button" data-owner-appeal="decline" data-appeal-id="' +
+              safe(a.id) +
+              '" class="rounded-lg bg-rose-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-600">Decline (keep ban)</button>' +
+              '</div></li>'
+            );
+          })
+          .join('');
+        ownerAppealsList.querySelectorAll('button[data-owner-appeal]').forEach(function (btn) {
+          btn.addEventListener('click', async function () {
+            var decision = btn.getAttribute('data-owner-appeal');
+            var aid = btn.getAttribute('data-appeal-id');
+            var label = decision === 'accept' ? 'Accept and unban' : 'Decline and keep ban';
+            if (!window.confirm(label + ' this appeal?')) return;
+            try {
+              var res = await api('/api/owner/appeals/' + encodeURIComponent(aid) + '/resolve', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decision: decision }),
+              });
+              if (res.resolved === 'lifted') {
+                setOwnerAppealsMsg('Appeal accepted — user unbanned.', false);
+              } else {
+                setOwnerAppealsMsg('Appeal declined — ban upheld.', false);
+              }
+              await refreshOwnerAppealsList();
+              if (typeof loadModInboxList === 'function') void loadModInboxList();
+            } catch (err) {
+              setOwnerAppealsMsg(String(err.message || err), true);
+            }
+          });
+        });
+      } catch (e) {
+        ownerAppealsList.innerHTML =
+          '<li class="rounded-xl border border-rose-500/30 bg-rose-950/30 py-3 text-center text-rose-200">Could not load appeals.</li>';
+        setOwnerAppealsMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnRefreshAppeals = document.getElementById('ownerBtnRefreshAppeals');
+    if (ownerBtnRefreshAppeals) {
+      ownerBtnRefreshAppeals.addEventListener('click', function () {
+        void refreshOwnerAppealsList();
       });
     }
     if (btnOwnerAdminClose && screenOwnerAdmin) {

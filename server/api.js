@@ -29,7 +29,13 @@ import {
   validateTosPages,
   TOS_PAGE_SEP,
 } from './site-content.js';
-import { validateAppealReason, enrichAppeals, tryResolveAppeal, banStatusForUser as appealBanStatus } from './ban-appeals.js';
+import {
+  validateAppealReason,
+  enrichAppeals,
+  tryResolveAppeal,
+  resolveBanAppealDirect,
+  banStatusForUser as appealBanStatus,
+} from './ban-appeals.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -860,6 +866,51 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/owner/appeals' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    if (typeof store.listOpenBanAppeals !== 'function') {
+      json(res, 501, { error: 'Appeals not configured.' });
+      return true;
+    }
+    try {
+      const appeals = await enrichAppeals(store, await store.listOpenBanAppeals());
+      json(res, 200, { appeals });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/owner\/appeals\/([^/]+)\/resolve$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const appealId = m[1];
+      const sess = await getActiveSessionUser(req);
+      if (!sess || effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Owner only.' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      try {
+        const resolved = await resolveBanAppealDirect(store, appealId, body.decision);
+        json(res, 200, { ok: true, resolved });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
   if (pathname === '/api/owner/site-content' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess || effectiveRole(sess.user) !== 'owner') {
@@ -1437,7 +1488,7 @@ export async function handleApi(req, res) {
       const stages = await store.getBuiltinCampaignStages();
       json(res, 200, { stages: stages && stages.length ? stages : null });
     } catch (e) {
-      json(res, 500, { error: String(e.message || e) });
+      json(res, 200, { stages: null, warning: String(e.message || e) });
     }
     return true;
   }
@@ -1451,7 +1502,7 @@ export async function handleApi(req, res) {
       const stages = await store.getBuiltinWorld2Stages();
       json(res, 200, { stages: stages && stages.length ? stages : null });
     } catch (e) {
-      json(res, 500, { error: String(e.message || e) });
+      json(res, 200, { stages: null, warning: String(e.message || e) });
     }
     return true;
   }

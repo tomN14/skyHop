@@ -28,6 +28,27 @@ export async function tryResolveAppeal(store, appealId) {
   return null;
 }
 
+/** Owner final decision — no vote tally required. */
+export async function resolveBanAppealDirect(store, appealId, decision) {
+  if (typeof store.getBanAppealById !== 'function') {
+    throw new Error('Appeals not configured.');
+  }
+  const raw = String(decision || '').toLowerCase();
+  const accept = raw === 'accept' || raw === 'unban' || raw === 'lift';
+  const decline =
+    raw === 'decline' || raw === 'deny' || raw === 'reject' || raw === 'keep_ban';
+  if (!accept && !decline) throw new Error('Use decision "accept" or "decline".');
+  const appeal = await store.getBanAppealById(appealId);
+  if (!appeal || appeal.status !== 'open') throw new Error('Appeal not open.');
+  if (accept) {
+    if (typeof store.clearUserBan === 'function') await store.clearUserBan(appeal.userId);
+    await store.setBanAppealResolved(appealId, 'lifted', 'owner_unban');
+    return 'lifted';
+  }
+  await store.setBanAppealResolved(appealId, 'upheld', 'owner_keep_ban');
+  return 'upheld';
+}
+
 export async function enrichAppeals(store, rows) {
   const out = [];
   for (const r of rows) {

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
+import { isValidBuiltinStages } from './builtin-stage-validate.js';
 import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -550,6 +551,7 @@ export function createFileStore() {
       try {
         const j = JSON.parse(fs.readFileSync(p, 'utf8'));
         if (!j.stages || !Array.isArray(j.stages) || !j.stages.length) return null;
+        if (!isValidBuiltinStages(j.stages)) return null;
         return j.stages;
       } catch {
         return null;
@@ -557,6 +559,9 @@ export function createFileStore() {
     },
 
     async setBuiltinCampaignStages(stagesJson) {
+      if (!isValidBuiltinStages(stagesJson)) {
+        throw new Error('Each stage needs spawn, world size, and at least one platform.');
+      }
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
       const p = path.join(DATA_DIR, 'builtin_campaign.json');
       fs.writeFileSync(p, JSON.stringify({ stages: stagesJson, updatedAt: Date.now() }), 'utf8');
@@ -567,7 +572,9 @@ export function createFileStore() {
       if (fs.existsSync(p)) {
         try {
           const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-          if (j.stages && Array.isArray(j.stages) && j.stages.length) return j.stages;
+          if (j.stages && Array.isArray(j.stages) && j.stages.length && isValidBuiltinStages(j.stages)) {
+            return j.stages;
+          }
         } catch {
           /* fall through to bundled default */
         }
@@ -576,6 +583,9 @@ export function createFileStore() {
     },
 
     async setBuiltinWorld2Stages(stagesJson) {
+      if (!isValidBuiltinStages(stagesJson)) {
+        throw new Error('Each stage needs spawn, world size, and at least one platform.');
+      }
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
       const p = path.join(DATA_DIR, 'builtin_world2.json');
       fs.writeFileSync(p, JSON.stringify({ stages: stagesJson, updatedAt: Date.now() }), 'utf8');

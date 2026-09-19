@@ -1,4 +1,21 @@
 -- Ban appeals + mod/owner votes. Run after extend_v13.
+--
+-- Requires public.skyhop_users (and the rest of Sky Hop). If you see:
+--   relation "public.skyhop_users" does not exist
+-- then this Supabase project has not been bootstrapped yet:
+--   1) SQL Editor → run server/supabase/schema.sql
+--   2) Run extend_v2 … extend_v13 in order (see server/README.md)
+--   3) Run this file again
+--
+-- Check: select to_regclass('public.skyhop_users');  -- should not be null
+
+do $$
+begin
+  if to_regclass('public.skyhop_users') is null then
+    raise exception
+      'Missing public.skyhop_users. Run server/supabase/schema.sql, then extend_v2 through extend_v13, then extend_v14.';
+  end if;
+end $$;
 
 create table if not exists public.skyhop_ban_appeals (
   id uuid primary key default gen_random_uuid(),

@@ -65,7 +65,9 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Owner-editable ToS & feature list:** Run **`server/supabase/extend_v13_site_content.sql`** after v12 — `skyhop_site_content` (`tos`, `feature_list` keys). Owner edits in Account administration → Save; public `GET /api/site/tos` and `GET /api/site/feature-list`.
 
-**Ban appeals + votes:** Run **`server/supabase/extend_v14_ban_appeals.sql`** after v13 — `skyhop_ban_appeals`, `skyhop_ban_appeal_votes`. Banned users submit via login ban screen; mods/owner vote in the 📧 inbox (majority of cast votes resolves).
+**Ban appeals + votes:** Run **`server/supabase/extend_v14_ban_appeals.sql`** after v13 — `skyhop_ban_appeals`, `skyhop_ban_appeal_votes`. Banned users submit via login ban screen; mods/owner vote in the 📧 inbox (majority of cast votes resolves). Owner can **Accept / Decline** open appeals directly in **Account administration** (`GET /api/owner/appeals`, `POST /api/owner/appeals/:id/resolve` with `{ "decision": "accept" \| "decline" }`).
+
+**“relation skyhop_users does not exist”:** The extend scripts only add tables on top of an existing Sky Hop database. In Supabase **SQL Editor**, run **`server/supabase/schema.sql`** first, then **`extend_v2_coins_builtin.sql`** through **`extend_v13_site_content.sql`** in order, then v14. Confirm with `select to_regclass('public.skyhop_users');` (should return `skyhop_users`, not null). Use the **same** Supabase project as `SUPABASE_URL` in `server/.env.local` / Render env.
 
 **Custom profiles (avatars):** Run **`server/supabase/extend_v6_profiles_storage.sql`** — adds `profile_bio` / `profile_avatar_path`, creates the **`skyhop-profiles`** Storage bucket, and RLS so authenticated users may only write under **`{skyhop_user_id}/`** (see `user_metadata.skyhop_user_id` when using Supabase Auth). The game uploads via the Node server (service role) or signed upload URLs scoped to your folder.
 

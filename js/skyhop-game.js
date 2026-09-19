@@ -29,7 +29,9 @@
   }
 
   function stagesNow() {
-    if (window.SKYHOP_ACTIVE_STAGES != null) return window.SKYHOP_ACTIVE_STAGES;
+    if (window.SKYHOP_ACTIVE_STAGES != null && window.SKYHOP_ACTIVE_STAGES.length) {
+      return window.SKYHOP_ACTIVE_STAGES;
+    }
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.getPlayStages === 'function') {
       const wid = activePlayWorldId();
       const wst = window.SkyHopWorlds.getPlayStages();
@@ -1466,7 +1468,20 @@
   }
 
   function loadStage(i) {
-    const s = stagesNow()[i];
+    const list = stagesNow();
+    if (!list.length) {
+      console.error('Sky Hop: no campaign stages available');
+      goToMenu();
+      return;
+    }
+    i = Math.max(0, Math.min(list.length - 1, Math.floor(Number(i) || 0)));
+    stageIndex = i;
+    const s = list[i];
+    if (!s || !s.spawn) {
+      console.error('Sky Hop: invalid stage at index', i);
+      goToMenu();
+      return;
+    }
     player.x = s.spawn.x;
     player.y = s.spawn.y - player.h;
     player.vx = 0;
@@ -3262,7 +3277,11 @@
   function draw() {
     const stage = stagesNow()[stageIndex];
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    if ((gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') && stage.doubleJump) {
+    if (
+      (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') &&
+      stage &&
+      stage.doubleJump
+    ) {
       const bg = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight);
       bg.addColorStop(0, '#064e3b');
       bg.addColorStop(0.45, '#065f46');
@@ -3271,7 +3290,7 @@
       ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     }
     if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
-      drawStage(stage);
+      if (stage) drawStage(stage);
     } else if (gameState === 'win') {
       const bc = builtinCampaign();
       drawStage(bc[bc.length - 1]);
@@ -3491,6 +3510,8 @@
   });
 
   function startCampaignPlay() {
+    window.SKYHOP_ACTIVE_STAGES = null;
+    window.SKYHOP_EXTERNAL_LEVEL = null;
     resetPauseDiscardProgress();
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;
