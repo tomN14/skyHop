@@ -75,7 +75,7 @@
 
     buildSolidRects(stage, tSec) {
       const out = [];
-      for (const p of stage.platforms) {
+      for (const p of stage.platforms || []) {
         out.push(P.resolveMovingRect(p, tSec));
       }
       const mp = stage.movingPlatforms;
@@ -90,7 +90,7 @@
     /** Solids the epic boss collides with (omit `bossPassThrough` platforms: side beams, etc.). */
     buildBossSolidRects(stage, tSec) {
       const out = [];
-      for (const p of stage.platforms) {
+      for (const p of stage.platforms || []) {
         if (p.bossPassThrough) continue;
         out.push(P.resolveMovingRect(p, tSec));
       }

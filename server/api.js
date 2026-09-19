@@ -298,6 +298,7 @@ function loginBanJson(bs) {
 export async function handleApi(req, res) {
   const u = new URL(req.url || '/', 'http://localhost');
   const pathname = u.pathname;
+  if (!pathname.startsWith('/api')) return false;
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { ...CORS, 'Access-Control-Max-Age': '86400' });
@@ -1503,6 +1504,22 @@ export async function handleApi(req, res) {
       json(res, 200, { stages: stages && stages.length ? stages : null });
     } catch (e) {
       json(res, 200, { stages: null, warning: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/builtin-stages/reset' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    try {
+      if (typeof store.setBuiltinCampaignStages === 'function') await store.setBuiltinCampaignStages([]);
+      if (typeof store.setBuiltinWorld2Stages === 'function') await store.setBuiltinWorld2Stages([]);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
     }
     return true;
   }

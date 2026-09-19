@@ -57,10 +57,28 @@
     return norm;
   }
 
+  function snapshotBundledCampaign() {
+    if (window.SKYHOP_STAGES && window.SKYHOP_STAGES.length && !window.__SKYHOP_STAGES_FILE_BACKUP) {
+      window.__SKYHOP_STAGES_FILE_BACKUP = window.SKYHOP_STAGES;
+    }
+    if (window.SKYHOP_WORLD2_STAGES && window.SKYHOP_WORLD2_STAGES.length && !window.__SKYHOP_WORLD2_FILE_BACKUP) {
+      window.__SKYHOP_WORLD2_FILE_BACKUP = window.SKYHOP_WORLD2_STAGES;
+    }
+  }
+
   function restoreBundledCampaignFromFiles() {
+    snapshotBundledCampaign();
     if (typeof window.SKYHOP_REBUILD_STAGES === 'function') window.SKYHOP_REBUILD_STAGES();
     if (window.SKYHOP_PREP_STAGES) window.SKYHOP_PREP_STAGES();
+    if (window.__SKYHOP_WORLD2_FILE_BACKUP && window.__SKYHOP_WORLD2_FILE_BACKUP.length) {
+      window.SKYHOP_WORLD2_STAGES = window.__SKYHOP_WORLD2_FILE_BACKUP;
+    }
+    if ((!window.SKYHOP_STAGES || !window.SKYHOP_STAGES.length) && window.__SKYHOP_STAGES_FILE_BACKUP) {
+      window.SKYHOP_STAGES = window.__SKYHOP_STAGES_FILE_BACKUP;
+    }
   }
+
+  snapshotBundledCampaign();
 
   window.SkyHopValidateBuiltinStages = isValidBuiltinStages;
   window.SkyHopPrepareBuiltinStagesForPlay = prepareBuiltinStagesForPlay;

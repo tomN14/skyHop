@@ -1936,6 +1936,34 @@
     var ownerBtnDisable = document.getElementById('ownerBtnDisable');
     var ownerBtnEnable = document.getElementById('ownerBtnEnable');
     var ownerBtnDelete = document.getElementById('ownerBtnDelete');
+    var ownerBtnResetBuiltinStages = document.getElementById('ownerBtnResetBuiltinStages');
+    if (ownerBtnResetBuiltinStages) {
+      ownerBtnResetBuiltinStages.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        if (
+          !window.confirm(
+            'Clear the server built-in campaign override for World 1 and World 2?\n\nPlay will use the bundled stage files on this website.'
+          )
+        ) {
+          return;
+        }
+        try {
+          await api('/api/owner/builtin-stages/reset', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {
+            window.SkyHopRestoreBundledCampaignFromFiles();
+          }
+          setOwnerAdminMsg('Server campaign override cleared. Hard-refresh if Play still looks blank.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
     if (ownerBtnDisable) {
       ownerBtnDisable.addEventListener('click', async function () {
         var tok = getToken();

@@ -9,7 +9,6 @@ import {
   uploadProfileAvatar,
 } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
-import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const SESSION_DAYS = 60;
 
@@ -593,6 +592,14 @@ export function createSupabaseStore() {
     },
 
     async setBuiltinCampaignStages(stagesJson) {
+      if (Array.isArray(stagesJson) && stagesJson.length === 0) {
+        const now = Date.now();
+        const { error } = await sb
+          .from('skyhop_builtin_campaign')
+          .upsert({ id: 1, stages: [], updated_at: now }, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+        return;
+      }
       if (!isValidBuiltinStages(stagesJson)) {
         throw new Error('Each stage needs spawn, world size, and at least one platform.');
       }
@@ -611,10 +618,18 @@ export function createSupabaseStore() {
         const prepared = prepareBuiltinStagesForPlay(raw);
         if (prepared) return prepared;
       }
-      return loadDefaultWorld2Stages();
+      return null;
     },
 
     async setBuiltinWorld2Stages(stagesJson) {
+      if (Array.isArray(stagesJson) && stagesJson.length === 0) {
+        const now = Date.now();
+        const { error } = await sb
+          .from('skyhop_builtin_world2')
+          .upsert({ id: 1, stages: [], updated_at: now }, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+        return;
+      }
       if (!isValidBuiltinStages(stagesJson)) {
         throw new Error('Each stage needs spawn, world size, and at least one platform.');
       }

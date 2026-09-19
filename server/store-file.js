@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
-import { loadDefaultWorld2Stages } from './world2-default-stages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -558,6 +557,12 @@ export function createFileStore() {
     },
 
     async setBuiltinCampaignStages(stagesJson) {
+      if (Array.isArray(stagesJson) && stagesJson.length === 0) {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        const p = path.join(DATA_DIR, 'builtin_campaign.json');
+        fs.writeFileSync(p, JSON.stringify({ stages: [], updatedAt: Date.now() }), 'utf8');
+        return;
+      }
       if (!isValidBuiltinStages(stagesJson)) {
         throw new Error('Each stage needs spawn, world size, and at least one platform.');
       }
@@ -576,13 +581,19 @@ export function createFileStore() {
             if (prepared) return prepared;
           }
         } catch {
-          /* fall through to bundled default */
+          /* ignore broken file */
         }
       }
-      return loadDefaultWorld2Stages();
+      return null;
     },
 
     async setBuiltinWorld2Stages(stagesJson) {
+      if (Array.isArray(stagesJson) && stagesJson.length === 0) {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        const p = path.join(DATA_DIR, 'builtin_world2.json');
+        fs.writeFileSync(p, JSON.stringify({ stages: [], updatedAt: Date.now() }), 'utf8');
+        return;
+      }
       if (!isValidBuiltinStages(stagesJson)) {
         throw new Error('Each stage needs spawn, world size, and at least one platform.');
       }

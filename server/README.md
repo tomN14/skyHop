@@ -67,7 +67,7 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Ban appeals + votes:** Run **`server/supabase/extend_v14_ban_appeals.sql`** after v13 — `skyhop_ban_appeals`, `skyhop_ban_appeal_votes`. Banned users submit via login ban screen; mods/owner vote in the 📧 inbox (majority of cast votes resolves). Owner can **Accept / Decline** open appeals directly in **Account administration** (`GET /api/owner/appeals`, `POST /api/owner/appeals/:id/resolve` with `{ "decision": "accept" \| "decline" }`).
 
-**Empty campaign / blank levels on Play:** Supabase may hold a broken `skyhop_builtin_campaign.stages` JSON blob (e.g. after a partial owner upload). Run **`server/supabase/reset_builtin_campaign_to_bundled.sql`** on the live project, redeploy or hard-refresh, then Play uses bundled **`stages.js`** again. Fix validation in the app also ignores invalid server overrides.
+**Empty campaign / blank levels on Play:** Play now always uses bundled **`stages.js`** / **`stages-world2.js`**. Server campaign JSON is only for the owner editor. Owner can also **Account administration → Reset server campaign override**. Optional SQL: **`server/supabase/reset_builtin_campaign_to_bundled.sql`**.
 
 **“relation skyhop_users does not exist”:** The extend scripts only add tables on top of an existing Sky Hop database. In Supabase **SQL Editor**, run **`server/supabase/schema.sql`** first, then **`extend_v2_coins_builtin.sql`** through **`extend_v13_site_content.sql`** in order, then v14. Confirm with `select to_regclass('public.skyhop_users');` (should return `skyhop_users`, not null). Use the **same** Supabase project as `SUPABASE_URL` in `server/.env.local` / Render env.
 

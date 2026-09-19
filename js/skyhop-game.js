@@ -67,7 +67,7 @@
     }
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
       const wid = activePlayWorldId();
-      if (wid === 2) return Math.max(1, window.SkyHopWorlds.stageCount(2));
+      if (wid === 2) return window.SkyHopWorlds.stageCount(2);
       if (wid === 'both') return window.SkyHopWorlds.bothStages().length;
       return window.SkyHopWorlds.stageCount(1);
     }
@@ -2116,7 +2116,7 @@
   /** Planks the boss can use but only those — so the vial can land on the high bridge, not the main floor. */
   function buildEpicPotionDropLandRects(stage, tSec) {
     const out = [];
-    for (const p of stage.platforms) {
+    for (const p of stage.platforms || []) {
       if (!p.bossPassThrough) continue;
       out.push(PHY.resolveMovingRect(p, tSec));
     }
@@ -2199,6 +2199,7 @@
   function update(dt) {
     if (gameState !== 'playing') return;
     const stage = stagesNow()[stageIndex];
+    if (!stage) return;
     const now = performance.now();
     const tSec = now * 0.001;
     const sens = getSensitivity();
@@ -2751,7 +2752,7 @@
       ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
     }
 
-    for (const p of stage.platforms) {
+    for (const p of stage.platforms || []) {
       drawPlatformRect(
         PHY.resolveMovingRect(p, tSec),
         !!p.move,
@@ -3540,9 +3541,7 @@
   function startCampaignPlay() {
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
-    if (!stagesNow().length) {
-      restoreBundledCampaignIfEmpty();
-    }
+    restoreBundledCampaignIfEmpty();
     resetPauseDiscardProgress();
     refreshRuntimeOptsFromMenu();
     woodenSwordReadyAt = 0;
