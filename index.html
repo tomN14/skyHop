@@ -61,6 +61,11 @@
       #btnModInbox { left: 3rem; bottom: calc(9rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
     }
+    /* Hide shop / friends / mail / mod FABs while actively playing (shown again on pause or menu). */
+    body.skyhop-suppress-edge-fabs .skyhop-edge-fab {
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
   </style>
 </head>
 <body class="bg-slate-950 font-display text-slate-100 antialiased">

@@ -880,17 +880,18 @@
     btnSkipStage.classList.toggle('hidden', !show);
   }
 
+  function touchControlsAllowed() {
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+      return false;
+    }
+  }
+
   function setTouchHudVisible(show) {
     const el = document.getElementById('touchControls');
     if (!el) return;
-    let allow = false;
-    try {
-      if (window.matchMedia('(pointer: coarse)').matches) allow = true;
-      else if (window.matchMedia('(max-width: 1023px)').matches) allow = true;
-    } catch {
-      allow = true;
-    }
-    el.classList.toggle('hidden', !show || !allow);
+    el.classList.toggle('hidden', !show || !touchControlsAllowed());
   }
 
   function syncLevelsTopNav() {
@@ -902,6 +903,12 @@
       gameState === 'weapon_modal' ||
       inRace;
     nav.classList.toggle('hidden', hide);
+
+    const hudVisible = hud && !hud.classList.contains('hidden');
+    const suppressEdgeFabs = hudVisible && gameState === 'playing';
+    if (typeof document !== 'undefined' && document.body) {
+      document.body.classList.toggle('skyhop-suppress-edge-fabs', suppressEdgeFabs);
+    }
   }
 
   /** Higher = more frequent (shorter delays). */
