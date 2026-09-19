@@ -23,6 +23,7 @@ function defaultStore() {
     textureGrants: [],
     friendRequests: [],
     friendChat: [],
+    siteContent: {},
     nextUserId: 1,
     nextRunId: 1,
   };
@@ -33,6 +34,7 @@ function migrateUsersAndReports(s) {
   if (!Array.isArray(s.textureGrants)) s.textureGrants = [];
   if (!Array.isArray(s.friendRequests)) s.friendRequests = [];
   if (!Array.isArray(s.friendChat)) s.friendChat = [];
+  if (!s.siteContent || typeof s.siteContent !== 'object') s.siteContent = {};
   for (const u of s.users) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
@@ -834,6 +836,22 @@ export function createFileStore() {
           createdAt: m.createdAt,
           mine: m.fromUserId === userId,
         }));
+    },
+
+    async getSiteContentPayload(key) {
+      const k = String(key || '').trim();
+      if (!k) return null;
+      const s = loadStore();
+      const row = s.siteContent[k];
+      return row && typeof row === 'object' ? row : null;
+    },
+
+    async setSiteContentPayload(key, payload) {
+      const k = String(key || '').trim();
+      if (!k) throw new Error('Invalid content key');
+      const s = loadStore();
+      s.siteContent[k] = payload;
+      saveStore();
     },
   };
 }

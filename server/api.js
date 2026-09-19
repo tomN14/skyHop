@@ -20,6 +20,15 @@ import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
 import * as SubmittedRuns from './submitted-runs.js';
 import * as UserMods from './user-mods.js';
+import {
+  joinTosPagesForEditor,
+  resolveFeatureListHtml,
+  resolveTosPages,
+  splitTosPagesFromEditor,
+  validateFeatureListHtml,
+  validateTosPages,
+  TOS_PAGE_SEP,
+} from './site-content.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
 import fs from 'fs';
 import path from 'path';
@@ -781,6 +790,93 @@ export async function handleApi(req, res) {
       }
       const rows = await store.listCampaignLeaderboard(diff, 10, fr.friendUserIds);
       json(res, 200, { difficulty: diff, scope: scope === 'friends' ? 'friends' : 'global', entries: rows });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/site/tos' && req.method === 'GET') {
+    try {
+      const pages = await resolveTosPages(store);
+      json(res, 200, { pages });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/site/feature-list' && req.method === 'GET') {
+    try {
+      const html = await resolveFeatureListHtml(store);
+      json(res, 200, { html });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/site-content' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    try {
+      const pages = await resolveTosPages(store);
+      const html = await resolveFeatureListHtml(store);
+      const customTos =
+        typeof store.getSiteContentPayload === 'function' &&
+        !!(await store.getSiteContentPayload('tos'))?.pages?.length;
+      const customFeat =
+        typeof store.getSiteContentPayload === 'function' &&
+        !!(await store.getSiteContentPayload('feature_list'))?.html;
+      json(res, 200, {
+        tosPages: pages,
+        tosEditorText: joinTosPagesForEditor(pages),
+        featureListHtml: html,
+        pageSeparator: TOS_PAGE_SEP,
+        customTos: !!customTos,
+        customFeatureList: !!customFeat,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/site-content' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only.' });
+      return true;
+    }
+    if (typeof store.setSiteContentPayload !== 'function') {
+      json(res, 501, { error: 'Site content not configured on this server.' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.tosEditorText != null || body.tosPages != null) {
+        const pages =
+          body.tosPages != null && Array.isArray(body.tosPages)
+            ? body.tosPages.map((p) => String(p))
+            : splitTosPagesFromEditor(body.tosEditorText);
+        validateTosPages(pages);
+        await store.setSiteContentPayload('tos', { pages });
+      }
+      if (body.featureListHtml != null) {
+        const html = String(body.featureListHtml);
+        validateFeatureListHtml(html);
+        await store.setSiteContentPayload('feature_list', { html });
+      }
+      json(res, 200, { ok: true });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

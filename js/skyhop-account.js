@@ -1719,6 +1719,7 @@
         screenOwnerAdmin.classList.remove('hidden');
         screenOwnerAdmin.classList.add('flex');
         void refreshOwnerLbList();
+        void loadOwnerSiteContentEditors();
       });
     }
     if (btnOwnerAdminClose && screenOwnerAdmin) {
@@ -1920,6 +1921,74 @@
       var m = minEl ? Math.max(0, Math.floor(Number(minEl.value) || 0)) : 0;
       var s = secEl ? Math.max(0, Math.min(59, Math.floor(Number(secEl.value) || 0))) : 0;
       return (m * 60 + s) * 1000;
+    }
+
+    var ownerSiteContentMsg = document.getElementById('ownerSiteContentMsg');
+    var ownerTosEditor = document.getElementById('ownerTosEditor');
+    var ownerFeatureListEditor = document.getElementById('ownerFeatureListEditor');
+    function setOwnerSiteContentMsg(t, isErr) {
+      if (!ownerSiteContentMsg) return;
+      ownerSiteContentMsg.textContent = t || '';
+      ownerSiteContentMsg.classList.toggle('hidden', !t);
+      ownerSiteContentMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerSiteContentMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function loadOwnerSiteContentEditors() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      setOwnerSiteContentMsg('', false);
+      try {
+        var data = await api('/api/owner/site-content', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        if (ownerTosEditor) {
+          ownerTosEditor.value =
+            data.tosEditorText != null ? String(data.tosEditorText) : joinOwnerTosFallback(data.tosPages);
+        }
+        if (ownerFeatureListEditor && data.featureListHtml != null) {
+          ownerFeatureListEditor.value = String(data.featureListHtml);
+        }
+      } catch (e) {
+        setOwnerSiteContentMsg(String(e.message || e), true);
+      }
+    }
+    function joinOwnerTosFallback(pages) {
+      if (!pages || !pages.length) return '';
+      return pages.join('\n<<<SKYHOP_TOS_PAGE>>>\n');
+    }
+    var ownerBtnLoadSiteContent = document.getElementById('ownerBtnLoadSiteContent');
+    if (ownerBtnLoadSiteContent) {
+      ownerBtnLoadSiteContent.addEventListener('click', function () {
+        void loadOwnerSiteContentEditors();
+      });
+    }
+    var ownerBtnSaveSiteContent = document.getElementById('ownerBtnSaveSiteContent');
+    if (ownerBtnSaveSiteContent) {
+      ownerBtnSaveSiteContent.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerSiteContentMsg('', false);
+        try {
+          await api('/api/owner/site-content', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tosEditorText: ownerTosEditor ? ownerTosEditor.value : '',
+              featureListHtml: ownerFeatureListEditor ? ownerFeatureListEditor.value : '',
+            }),
+          });
+          setOwnerSiteContentMsg('Saved. New ToS applies on next login gate; feature list updates live.', false);
+          if (typeof window.SkyHopTosPrefetch === 'function') void window.SkyHopTosPrefetch();
+          if (typeof window.SkyHopRefreshFeatureListContent === 'function') {
+            void window.SkyHopRefreshFeatureListContent();
+          }
+        } catch (e) {
+          setOwnerSiteContentMsg(String(e.message || e), true);
+        }
+      });
     }
 
     var ownerBtnLbAddRun = document.getElementById('ownerBtnLbAddRun');

@@ -1,0 +1,112 @@
+          <p class="text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Campaign &amp; worlds</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>World 1 built-in campaign (50 stages); server can override stages via API</li>
+            <li>World 2 harder campaign; unlock after clearing all World 1 (account flag + achievement)</li>
+            <li>World nav on menu; collab can scope World 1, World 2, or both</li>
+            <li>Easy / Normal / Hard presets; Custom physics &amp; rules panel</li>
+            <li>Resume progress per world (local); pause → “Do not save my progress”</li>
+            <li>Play / Continue; skip stage when custom rules allow</li>
+            <li>Win screen, run timer, death counter on HUD</li>
+            <li>Submit run for leaderboard review (signed-in); campaign run sessions &amp; checkpoints on server</li>
+            <li>Online coin pickups on campaign stages (persisted per level slot)</li>
+            <li>Achievements; coin rewards when runs are logged to the server</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Movement &amp; combat</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Run, jump, air control; mouse / keyboard / touch controls</li>
+            <li>Camera follow; sensitivity setting</li>
+            <li>Grapple hook stages — hold <kbd class="rounded bg-slate-800 px-1 font-mono text-[10px]">Shift</kbd> (or <kbd class="rounded bg-slate-800 px-1 font-mono text-[10px]">Q</kbd>) to aim, release to zip toward the hook</li>
+            <li>Gravity arrows and gravity zones</li>
+            <li>Wooden sword &amp; shield pickups; weapon modal; epic boss player HP &amp; heal potions</li>
+            <li>Regular boss (stomp HP); epic boss fights; monster chase stages</li>
+            <li>Projectile / fireball emitters; optional projectile tuning in menu</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Stage elements</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Platforms (including rotated); underhang rules; moving platforms (horizontal &amp; vertical)</li>
+            <li>Spikes, lava, goals, spawn points</li>
+            <li>Collectible coins in stages</li>
+            <li>Stage prep / normalization pipeline for bundled &amp; API stages</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">User levels &amp; editor</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>My Levels: draft, save, test play, beat-to-upload, publish</li>
+            <li>Online levels list: browse, play, metadata</li>
+            <li>Visual level editor (platforms, hazards, coins, movers, etc.)</li>
+            <li>Profanity filter on level titles (client NN + server censor)</li>
+            <li>Staff can edit non-owner user levels from mod dashboard</li>
+            <li>Owner: edit / append built-in World 1 &amp; World 2 stages, push to server</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Racing</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Race vs bots (offline)</li>
+            <li>Online race: host session ID, join, WebSocket sync</li>
+            <li>Live in-race top-5 leaderboard HUD; race over screen</li>
+            <li>Race runs logged separately from campaign on the server</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Collab</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Host / join collab room; shared boss HP bar</li>
+            <li>Everyone wins together; no catch-up teleport</li>
+            <li>World scope: W1, W2, or both stages in one run</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Account &amp; social</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Register, login, bearer auth; account screen with stats</li>
+            <li>Profile bio &amp; avatar upload (storage-backed)</li>
+            <li>Friends: requests, accept/decline, outgoing pending list</li>
+            <li>Friend chat (profanity censored; report serious abuse)</li>
+            <li>Gift coins to friends (peer transfer limits)</li>
+            <li>Player reports → mod inbox; escalate to owner</li>
+            <li>Account disable / permanent delete (owner, email confirm for delete)</li>
+            <li>Bans (owner): temp or permanent</li>
+            <li>Terms of service; kinematic / anti-cheat analytics notice</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Economy &amp; cosmetics</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Coin shop (paged catalog); buy unlockable textures</li>
+            <li>Equip skin texture from unlocked list</li>
+            <li>Owner: gift coins, remove coins, grant texture files</li>
+            <li>Owner account shows unlimited coins in UI</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Leaderboards</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Main menu: top 10 fastest full campaign runs (Easy / Normal / Hard)</li>
+            <li>🏆 panel: fastest, coins, run count, fewest deaths</li>
+            <li>Global vs friends scope on extended leaderboards</li>
+            <li>Owner: add/remove campaign LB rows; seed coins &amp; run stats</li>
+            <li>Approved submitted runs feed the public campaign leaderboard</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Recordings &amp; submitted runs</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>In-run video recording (account)</li>
+            <li>Input logs captured and uploaded (private storage)</li>
+            <li>Submit run flow: pick recording + log, staff review</li>
+            <li>Mod: Submitted Runs search (approved / declined / unreviewed)</li>
+            <li>Owner: Reviewed Runs queue, lock status, decline reasons</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">User mods (JavaScript)</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Upload <code class="text-[10px]">.js</code> mods (size limit); mod dashboard</li>
+            <li>Up to 3 active mods stored on account (synced across devices)</li>
+            <li>Mod teardown hook when deleting or switching mods</li>
+            <li>Test mod sample; mod UI badge cleanup</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Moderation &amp; owner tools</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>📧 Reports inbox FAB (mod / owner); badge counts</li>
+            <li>🛡️ Mod dashboard: site visits, user lookup, level list, stats</li>
+            <li>Owner inbox: promote/demote moderators, gifts, built-in editor, ban dialog</li>
+            <li>Account administration page: disable, re-enable, delete user</li>
+            <li>Owner campaign leaderboard editor on admin page</li>
+            <li>Review mod-approved runs (owner-only nav)</li>
+            <li>Moderator red styling; owner cannot have levels edited by staff</li>
+          </ul>
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">UI &amp; misc</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Edge FABs: shop, friends, leaderboards, mod dashboard, mail, this list</li>
+            <li>FABs hidden during active gameplay; return on pause / menu</li>
+            <li>Top nav: levels, account, racing, collab, worlds, submit run, reviewed runs</li>
+            <li>Pause menu; weapon screen; stage-clear overlays</li>
+            <li>Node + Supabase backend option; file store for local dev</li>
+          </ul>

@@ -896,5 +896,23 @@ export function createSupabaseStore() {
         mine: Number(m.from_user_id) === userId,
       }));
     },
+
+    async getSiteContentPayload(key) {
+      const k = String(key || '').trim();
+      if (!k) return null;
+      const { data, error } = await sb.from('skyhop_site_content').select('payload').eq('key', k).maybeSingle();
+      if (error) throw new Error(error.message);
+      return data && data.payload && typeof data.payload === 'object' ? data.payload : null;
+    },
+
+    async setSiteContentPayload(key, payload) {
+      const k = String(key || '').trim();
+      if (!k) throw new Error('Invalid content key');
+      const now = Date.now();
+      const { error } = await sb
+        .from('skyhop_site_content')
+        .upsert({ key: k, payload, updated_at: now }, { onConflict: 'key' });
+      if (error) throw new Error(error.message);
+    },
   };
 }

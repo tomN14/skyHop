@@ -549,7 +549,7 @@
           </div>
           <button id="btnStaffFeatureListClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
         </div>
-        <div class="mt-4 max-h-[min(70vh,36rem)] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-left text-[11px] leading-relaxed text-slate-300">
+        <div id="staffFeatureListBody" class="mt-4 max-h-[min(70vh,36rem)] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-left text-[11px] leading-relaxed text-slate-300">
           <p class="text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Campaign &amp; worlds</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>World 1 built-in campaign (50 stages); server can override stages via API</li>
@@ -567,7 +567,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Run, jump, air control; mouse / keyboard / touch controls</li>
             <li>Camera follow; sensitivity setting</li>
-            <li>Grapple hook stages — <kbd class="rounded bg-slate-800 px-1 font-mono text-[10px]">B</kbd> with cooldown</li>
+            <li>Grapple hook stages — hold <kbd class="rounded bg-slate-800 px-1 font-mono text-[10px]">Shift</kbd> (or <kbd class="rounded bg-slate-800 px-1 font-mono text-[10px]">Q</kbd>) to aim, release to zip toward the hook</li>
             <li>Gravity arrows and gravity zones</li>
             <li>Wooden sword &amp; shield pickups; weapon modal; epic boss player HP &amp; heal potions</li>
             <li>Regular boss (stomp HP); epic boss fights; monster chase stages</li>
@@ -732,7 +732,7 @@
     </div>
 
     <div id="screenOwnerAdmin" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
-      <div class="my-auto w-full max-w-md rounded-3xl border border-rose-500/40 bg-gradient-to-br from-slate-900 to-rose-950/40 p-6 shadow-2xl">
+      <div class="my-auto w-full max-w-2xl rounded-3xl border border-rose-500/40 bg-gradient-to-br from-slate-900 to-rose-950/40 p-6 shadow-2xl max-h-[min(96vh,56rem)] overflow-y-auto">
         <div class="flex items-start justify-between gap-3">
           <div>
             <p class="text-xs font-sem uppercase tracking-widest text-rose-400">Owner only</p>
@@ -770,6 +770,17 @@
             <button id="ownerBtnLbAddRun" type="button" class="w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Add leaderboard entry</button>
           </div>
           <p id="ownerLbMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-violet-200/90">Terms of Service &amp; feature list</p>
+          <p class="mt-1 text-[11px] text-slate-500">Edits apply to all players after save. ToS pages are split with the line <code class="text-[10px] text-slate-400">&lt;&lt;&lt;SKYHOP_TOS_PAGE&gt;&gt;&gt;</code> on its own line.</p>
+          <button id="ownerBtnLoadSiteContent" type="button" class="mt-2 w-full rounded-xl border border-violet-500/45 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-950/40">Load current content</button>
+          <label class="mt-3 block text-[11px] text-slate-500">Terms of Service (all pages)</label>
+          <textarea id="ownerTosEditor" rows="8" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="true"></textarea>
+          <label class="mt-3 block text-[11px] text-slate-500">Feature list (HTML inside the 📋 guide panel)</label>
+          <textarea id="ownerFeatureListEditor" rows="10" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="false"></textarea>
+          <button id="ownerBtnSaveSiteContent" type="button" class="mt-3 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Save ToS &amp; feature list</button>
+          <p id="ownerSiteContentMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
       </div>

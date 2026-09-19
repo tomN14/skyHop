@@ -5,7 +5,7 @@
   const LS_SKIP_FOREVER = 'SKYHOP_TOS_SKIP_FOREVER';
   const SS_ACCEPTED = 'SKYHOP_TOS_ACCEPTED_SESSION';
 
-  const PAGES = [
+  const DEFAULT_PAGES = [
     `SKY HOP TERMS OF SERVICE
 Last Updated: July 2, 2026
 
@@ -90,6 +90,30 @@ You reserve the right to ALL LEVELS you make as creative works. However, the cre
 YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES SHALL YOU VIOLATE THE ABOVE TERMS. NOTE THAT BANS APPLY TO ALL USERS, REGARDLESS OF STATUS, AND ALL USERS’ PUNISHMENTS ARE TREATED IDENTICALLY.`,
   ];
 
+  let activePages = DEFAULT_PAGES.slice();
+  let pagesFetchPromise = null;
+
+  function getPages() {
+    return activePages.length ? activePages : DEFAULT_PAGES;
+  }
+
+  function fetchTosPagesFromServer() {
+    if (pagesFetchPromise) return pagesFetchPromise;
+    pagesFetchPromise = (async function () {
+      var apiFn = window.SkyHopApiRequest;
+      if (typeof apiFn !== 'function') return;
+      try {
+        var data = await apiFn('/api/site/tos', { method: 'GET', noAuth: true });
+        if (data && data.pages && data.pages.length) {
+          activePages = data.pages.slice();
+        }
+      } catch {
+        /* use DEFAULT_PAGES */
+      }
+    })();
+    return pagesFetchPromise;
+  }
+
   let gatePromise = null;
 
   function skipForever() {
@@ -152,7 +176,19 @@ YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES 
     if (!shouldShowGate()) return Promise.resolve();
     if (gatePromise) return gatePromise;
 
-    gatePromise = new Promise(function (resolve, reject) {
+    gatePromise = fetchTosPagesFromServer().then(function () {
+      return runGateUi();
+    });
+
+    return gatePromise.catch(function (e) {
+      gatePromise = null;
+      throw e;
+    });
+  }
+
+  function runGateUi() {
+    return new Promise(function (resolve, reject) {
+      const pages = getPages();
       const screen = document.getElementById('screenTos');
       const body = document.getElementById('tosBody');
       const stepLabel = document.getElementById('tosStepLabel');
@@ -169,12 +205,12 @@ YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES 
       }
 
       let page = 0;
-      const last = PAGES.length - 1;
+      const last = pages.length - 1;
 
       function renderPage() {
-        body.textContent = PAGES[page];
+        body.textContent = pages[page];
         if (stepLabel) {
-          stepLabel.textContent = 'Page ' + (page + 1) + ' of ' + PAGES.length;
+          stepLabel.textContent = 'Page ' + (page + 1) + ' of ' + pages.length;
         }
         const onLast = page >= last;
         if (agreeBlock) agreeBlock.classList.toggle('hidden', !onLast);
@@ -224,13 +260,9 @@ YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES 
       body.scrollTop = 0;
       showScreen();
     });
-
-    return gatePromise.catch(function (e) {
-      gatePromise = null;
-      throw e;
-    });
   }
 
   window.SkyHopTosGateIfNeeded = gateIfNeeded;
+  window.SkyHopTosPrefetch = fetchTosPagesFromServer;
   window.SkyHopTosClearSessionAcceptance = clearSessionAcceptance;
 })();
