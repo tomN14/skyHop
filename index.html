@@ -712,6 +712,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Upload <code class="text-[10px]">.js</code> mods (size limit); mod dashboard</li>
             <li>Up to 3 active mods stored on account (synced across devices)</li>
+            <li>Unactivate selected mods (confirm) without deleting the files</li>
             <li>Mod teardown hook when deleting or switching mods</li>
             <li>Test mod sample; mod UI badge cleanup</li>
           </ul>
@@ -1474,8 +1475,11 @@
         <button id="btnMyModsClose" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm text-slate-200 hover:bg-white/10">Close</button>
       </div>
       <p id="myModsErr" class="mx-auto mb-2 hidden max-w-lg text-center text-sm text-rose-300"></p>
-      <ul id="myModsList" class="mx-auto w-full max-w-lg flex-1 list-none space-y-2 overflow-y-auto p-0 pb-28"></ul>
-      <button id="myModsActivate" type="button" class="pointer-events-auto fixed bottom-4 left-4 z-[37] rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-lg hover:bg-violet-500">Activate</button>
+      <ul id="myModsList" class="mx-auto w-full max-w-lg flex-1 list-none space-y-2 overflow-y-auto p-0 pb-36"></ul>
+      <div class="pointer-events-auto fixed bottom-4 left-4 z-[37] flex flex-col items-stretch gap-2">
+        <button id="myModsUnactivate" type="button" class="rounded-xl border border-amber-500/50 bg-amber-950/80 px-5 py-2 text-sm font-semibold text-amber-100 shadow-lg hover:bg-amber-900/70">Unactivate</button>
+        <button id="myModsActivate" type="button" class="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white shadow-lg hover:bg-violet-500">Activate</button>
+      </div>
       <div class="pointer-events-auto fixed bottom-4 right-4 z-[37] flex max-w-[min(100vw-5rem,20rem)] flex-col items-stretch gap-2">
         <p id="myModsPendingName" class="hidden truncate text-right text-xs text-fuchsia-200"></p>
         <div id="myModsDropZone" class="cursor-pointer rounded-2xl border-2 border-dashed border-fuchsia-500/40 bg-slate-900/90 px-4 py-3 text-center text-xs text-slate-300 hover:border-fuchsia-400">

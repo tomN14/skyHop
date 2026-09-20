@@ -201,7 +201,7 @@
               void refreshList();
               window.alert('You can activate at most 3 mods at once.');
             }
-            syncActivateBtn();
+            syncActionBtns();
           });
           li.querySelector('.mod-del').addEventListener('click', function () {
             if (
@@ -218,7 +218,7 @@
                   body: JSON.stringify({ id: mod.id }),
                 });
                 confirmMode = false;
-                syncActivateBtn();
+                syncActionBtns();
                 await syncActiveModsFromAccount();
                 await refreshList();
               } catch (e) {
@@ -229,22 +229,35 @@
           ul.appendChild(li);
         })(mods[i]);
       }
-      syncActivateBtn();
+      syncActionBtns();
     } catch (e) {
       ul.innerHTML = '';
       setErr(String(e.message || e));
     }
   }
 
-  function syncActivateBtn() {
-    var btn = document.getElementById('myModsActivate');
-    if (!btn) return;
-    if (confirmMode) {
-      btn.textContent = 'Confirm';
-      btn.classList.add('bg-emerald-600');
-    } else {
-      btn.textContent = 'Activate';
-      btn.classList.remove('bg-emerald-600');
+  function syncActionBtns() {
+    var act = document.getElementById('myModsActivate');
+    var un = document.getElementById('myModsUnactivate');
+    if (act) {
+      if (confirmMode === 'activate') {
+        act.textContent = 'Confirm';
+        act.classList.add('bg-emerald-600');
+      } else {
+        act.textContent = 'Activate';
+        act.classList.remove('bg-emerald-600');
+      }
+    }
+    if (un) {
+      if (confirmMode === 'unactivate') {
+        un.textContent = 'Confirm';
+        un.classList.add('bg-amber-500', 'text-slate-900');
+        un.classList.remove('bg-amber-950/80', 'text-amber-100');
+      } else {
+        un.textContent = 'Unactivate';
+        un.classList.remove('bg-amber-500', 'text-slate-900');
+        un.classList.add('bg-amber-950/80', 'text-amber-100');
+      }
     }
   }
 
@@ -365,17 +378,17 @@
     var act = document.getElementById('myModsActivate');
     if (act) {
       act.addEventListener('click', async function () {
-        if (!confirmMode) {
+        if (confirmMode !== 'activate') {
           if (!pendingActivate.length) {
             window.alert('Select up to 3 mods to activate.');
             return;
           }
-          confirmMode = true;
-          syncActivateBtn();
+          confirmMode = 'activate';
+          syncActionBtns();
           return;
         }
         confirmMode = false;
-        syncActivateBtn();
+        syncActionBtns();
         try {
           var ids = pendingActivate.slice(0, 3);
           await saveActiveToAccount(ids);
@@ -388,12 +401,46 @@
       });
     }
 
+    var unact = document.getElementById('myModsUnactivate');
+    if (unact) {
+      unact.addEventListener('click', async function () {
+        if (confirmMode !== 'unactivate') {
+          if (!pendingActivate.length) {
+            window.alert('Select mods to unactivate.');
+            return;
+          }
+          confirmMode = 'unactivate';
+          syncActionBtns();
+          return;
+        }
+        confirmMode = false;
+        syncActionBtns();
+        try {
+          var remove = pendingActivate.slice();
+          var next = accountActiveIds.filter(function (id) {
+            return remove.indexOf(id) < 0;
+          });
+          if (next.length === accountActiveIds.length) {
+            window.alert('None of the selected mods are active.');
+            return;
+          }
+          await saveActiveToAccount(next);
+          await applyMods(next);
+          await refreshList();
+          window.alert('Unactivated. The files are still in My Mods.');
+        } catch (e) {
+          setErr(String(e.message || e));
+        }
+      });
+    }
+
     window.addEventListener('skyhop-auth-changed', function () {
       try {
         if (!localStorage.getItem('SKYHOP_AUTH_TOKEN')) {
           pendingActivate = [];
           confirmMode = false;
           accountActiveIds = [];
+          syncActionBtns();
           teardownAllModEffects();
           unloadMods();
           return;
