@@ -219,7 +219,21 @@
     var updateEl = document.getElementById('menuUpdateName');
     var wrap = document.getElementById('menuUpdateWrap');
     if (titleEl) titleEl.textContent = title;
-    if (versionEl) versionEl.textContent = version;
+    if (versionEl) {
+      versionEl.textContent = '';
+      var dot = version.indexOf('.');
+      if (dot > 0 && dot < version.length - 1) {
+        var main = document.createElement('span');
+        main.textContent = version.slice(0, dot);
+        var frac = document.createElement('span');
+        frac.className = 'skyhop-ver-frac';
+        frac.textContent = version.slice(dot);
+        versionEl.appendChild(main);
+        versionEl.appendChild(frac);
+      } else {
+        versionEl.textContent = version;
+      }
+    }
     if (updateEl) updateEl.textContent = updateName;
     if (wrap) wrap.classList.toggle('hidden', !updateName);
     document.title = title + ' ' + version + ' — Worlds & Collab';
