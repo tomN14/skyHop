@@ -2,6 +2,8 @@
 
 In-memory WebSocket rooms for parallel multiplayer racing, optional **static hosting** of the game from the same Node process, and HTTP APIs for **accounts**.
 
+**Disclaimer — profanity in source:** Chat, bios, titles, and similar text are censored by **`js/skyhop-profanity-core.js`** (re-exported from **`server/profanity-filter.js`**). That file and related weights contain **explicit blocked words and phrases** (including strong language and slurs) so the filter can match them. They are lists for moderation, not player-facing copy. Do not treat those strings as game content.
+
 ## One public URL (recommended)
 
 When the game is served from the **same host** as this server (e.g. Fly.io, Render, Railway), players open one **https://…** link from any device, leave the Racing **server** field **blank**, and the client picks **`wss://` + this page’s host** automatically—no reverse-proxy rules for `/api` or mixed-content workarounds.
