@@ -168,11 +168,13 @@
       const s0 = Math.floor(Number(j.s0));
       const n = campaignStageCount();
       if (!Number.isFinite(s0) || s0 < 0 || s0 >= n) return null;
+      const tMs = Math.max(0, Math.floor(Number(j.tMs) || 0));
       return {
         s0: Math.max(0, Math.min(n - 1, s0)),
         deaths: Math.max(0, Math.floor(Number(j.deaths) || 0)),
         sword: !!j.sword,
         shield: !!j.shield,
+        tMs,
       };
     } catch {
       return null;
@@ -226,6 +228,7 @@
       deaths,
       sword: hasWoodenSword,
       shield: hasShield,
+      tMs: Math.max(0, Math.floor(getRunElapsedMs())),
     };
     try {
       localStorage.setItem(runProgressStorageKey(), JSON.stringify(payload));
@@ -246,16 +249,17 @@
       return;
     }
     const p = loadRunProgress();
-    if (p && (p.s0 > 0 || p.deaths > 0 || p.sword || p.shield)) {
+    const timeBit = p && p.tMs > 0 ? ' — ' + formatTotalRunTime(p.tMs) : '';
+    if (p && (p.s0 > 0 || p.deaths > 0 || p.sword || p.shield || p.tMs > 0)) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${campaignStageCount()} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}`;
+        menuProgressHint.textContent = `Resume: stage ${p.s0 + 1} / ${campaignStageCount()} — ${p.deaths} death${p.deaths === 1 ? '' : 's'}${timeBit}`;
       }
       if (btnPlay) btnPlay.textContent = `Continue — stage ${p.s0 + 1}`;
     } else if (p) {
       if (menuProgressHint) {
         menuProgressHint.classList.remove('hidden');
-        menuProgressHint.textContent = `Resume: stage 1 / ${campaignStageCount()}`;
+        menuProgressHint.textContent = `Resume: stage 1 / ${campaignStageCount()}${timeBit}`;
       }
       if (btnPlay) btnPlay.textContent = 'Continue — stage 1';
     } else {
@@ -628,6 +632,12 @@
     } catch {
       window.__skyhopRunStartBestMs = null;
     }
+  }
+
+  function restoreRunClock(elapsedMs) {
+    resetRunClock();
+    const t = Math.max(0, Math.floor(Number(elapsedMs) || 0));
+    runFrozenMs = t;
   }
   function getRunElapsedMs() {
     const live =
@@ -4016,7 +4026,7 @@
     shieldRingAnim = null;
     closeWeaponScreen();
     gameState = 'playing';
-    /** @type {{ s0: number, deaths: number, sword: boolean, shield: boolean } | null} */
+    /** @type {{ s0: number, deaths: number, sword: boolean, shield: boolean, tMs: number } | null} */
     let resume = null;
     if (isDebugStartStageActive()) {
       hasWoodenSword = false;
@@ -4039,7 +4049,8 @@
         portalWarpCount = 0;
       }
     }
-    resetRunClock();
+    if (resume && resume.tMs > 0) restoreRunClock(resume.tMs);
+    else resetRunClock();
     screenMenu.classList.add('hidden');
     screenMenu.classList.remove('flex');
     const menuW2 = document.getElementById('screenMenuWorld2');
