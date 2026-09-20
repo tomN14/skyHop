@@ -57,7 +57,7 @@
     return Object.assign({}, binds);
   }
 
-  function isCodeDown(codes, codeMap) {
+  function isCodeDown(code, codeMap) {
     if (!code) return false;
     if (code.startsWith('Shift')) {
       return !!(codeMap['ShiftLeft'] || codeMap['ShiftRight'] || codeMap.Shift);

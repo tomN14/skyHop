@@ -3343,8 +3343,18 @@
   function frame(t) {
     const dt = Math.min(0.033, (t - lastT) / 1000);
     lastT = t;
-    if (gameState === 'playing') update(dt);
-    draw();
+    if (gameState === 'playing') {
+      try {
+        update(dt);
+      } catch (err) {
+        console.error('Sky Hop update', err);
+      }
+    }
+    try {
+      draw();
+    } catch (err) {
+      console.error('Sky Hop draw', err);
+    }
     requestAnimationFrame(frame);
   }
 
