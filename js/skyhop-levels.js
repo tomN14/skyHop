@@ -1462,7 +1462,8 @@
           '</span></div>' +
           '<video class="rec-video w-full rounded-lg border border-white/10 bg-black" controls playsinline preload="metadata"></video>' +
           '<p class="rec-load mt-1 text-center text-xs text-slate-500">Loading video…</p>' +
-          '<div class="mt-2 flex justify-end">' +
+          '<div class="mt-2 flex justify-end gap-2">' +
+          '<button type="button" class="rec-rename rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white/5">Rename</button>' +
           '<button type="button" class="rec-del rounded-lg border border-rose-500/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete</button>' +
           '</div>';
         const videoEl = li.querySelector('.rec-video');
@@ -1477,6 +1478,22 @@
           .catch(function (err) {
             if (loadEl) loadEl.textContent = String(err.message || err);
           });
+        li.querySelector('.rec-rename').addEventListener('click', function () {
+          var next = window.prompt('Rename recording', clip.title || 'Run');
+          if (next == null) return;
+          next = String(next).trim();
+          if (!next) {
+            window.alert('Enter a name.');
+            return;
+          }
+          void window.SkyHopRecording.renameClip(clip.id, next)
+            .then(function () {
+              void refreshRecordingsList();
+            })
+            .catch(function (err) {
+              window.alert(String(err.message || err));
+            });
+        });
         li.querySelector('.rec-del').addEventListener('click', function () {
           if (!window.confirm('Delete this recording?')) return;
           void window.SkyHopRecording.deleteClip(clip.id).then(function () {
@@ -1815,8 +1832,30 @@
         method: 'POST',
         body: JSON.stringify({ stages: ownerBuiltinArr }),
       });
-      lvlEdStatus.textContent =
-        'Uploaded ' + ownerBuiltinArr.length + ' World ' + ownerBuiltinWorld + ' stages. Reload to play.';
+      const uploaded = ownerBuiltinArr;
+      const world = ownerBuiltinWorld === 2 ? 2 : 1;
+      let applied = false;
+      if (typeof window.SkyHopApplyServerCampaign === 'function') {
+        applied = !!window.SkyHopApplyServerCampaign(world, uploaded);
+      }
+      if (applied) {
+        try {
+          window.dispatchEvent(new CustomEvent('skyhop-campaign-loaded'));
+        } catch {
+          /* */
+        }
+      }
+      lvlEdStatus.textContent = applied
+        ? 'Uploaded ' +
+          uploaded.length +
+          ' World ' +
+          world +
+          ' stages. Play uses this campaign now.'
+        : 'Uploaded ' +
+          uploaded.length +
+          ' World ' +
+          world +
+          ' stages, but Play kept the bundled files (campaign too short or invalid).';
       ownerBuiltinArr = null;
       showEditorScreen(false);
       showMine(true);
@@ -1979,7 +2018,7 @@
       const next = window.prompt(
         'Next: stage number 1–' +
           ownerBuiltinArr.length +
-          ', ADD for a new stage, ALL to upload full campaign to server, or Cancel.',
+          ', ADD for a new stage, ALL to upload the full campaign to Play, or Cancel.',
         String(ownerBuiltinIdx + 1)
       );
       if (next == null) {

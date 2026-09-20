@@ -8,6 +8,7 @@
   let recording = false;
   let gameplayActive = false;
   let sessionMeta = { title: 'Run', source: 'campaign' };
+  let namedTitle = null;
 
   const btn = () => document.getElementById('btnRecordRun');
 
@@ -104,6 +105,17 @@
     });
   }
 
+  async function renameClip(id, title) {
+    if (typeof window.SkyHopApiRequest !== 'function') {
+      throw new Error('Not signed in');
+    }
+    const data = await window.SkyHopApiRequest('/api/recordings/rename', {
+      method: 'POST',
+      body: JSON.stringify({ id: id, title: title }),
+    });
+    return data && data.recording ? data.recording : data;
+  }
+
   async function fetchVideoBlob(recordingId) {
     const tok = authToken();
     if (!tok) throw new Error('Not signed in');
@@ -127,6 +139,11 @@
       window.alert('Sign in to record runs — clips save to your account.');
       return false;
     }
+    var defName = namedTitle || sessionMeta.title || 'Run';
+    var typed = window.prompt('Name this recording', defName);
+    if (typed == null) return false;
+    namedTitle = String(typed).trim().slice(0, 120) || defName;
+    sessionMeta.title = namedTitle;
     var canvas = getCanvas();
     if (!canvas || typeof canvas.captureStream !== 'function') {
       window.alert('Recording is not supported in this browser.');
@@ -159,6 +176,7 @@
     if (!recording || !mediaRecorder) return null;
     var mr = mediaRecorder;
     var meta = Object.assign({}, sessionMeta);
+    var titleForSave = namedTitle || meta.title;
     var mimeType = mr.mimeType || pickMimeType() || 'video/webm';
     recording = false;
     syncRecordButton();
@@ -182,12 +200,21 @@
     mediaRecorder = null;
     recordChunks = [];
     stopCaptureTracks();
-    if (!blob.size) return null;
+    if (!blob.size) {
+      namedTitle = null;
+      return null;
+    }
     try {
-      var saved = await uploadClip(blob, { title: meta.title, source: meta.source, mimeType: mimeType });
+      var saved = await uploadClip(blob, {
+        title: titleForSave,
+        source: meta.source,
+        mimeType: mimeType,
+      });
+      namedTitle = null;
       window.dispatchEvent(new CustomEvent('skyhop-recording-saved', { detail: { id: saved && saved.id } }));
       return saved;
     } catch (e) {
+      namedTitle = null;
       window.alert(String(e.message || e));
       return null;
     }
@@ -197,12 +224,14 @@
     gameplayActive = !!active;
     if (meta) {
       sessionMeta = {
-        title: meta.title || sessionMeta.title,
+        title: namedTitle || meta.title || sessionMeta.title,
         source: meta.source || sessionMeta.source,
       };
     }
     if (!gameplayActive && recording) {
       void stopRecording();
+    } else if (!gameplayActive) {
+      namedTitle = null;
     }
     syncRecordButton();
   }
@@ -231,6 +260,7 @@
     stopRecording: stopRecording,
     listClips: listClips,
     deleteClip: deleteClip,
+    renameClip: renameClip,
     fetchVideoBlob: fetchVideoBlob,
     isRecording: function () {
       return recording;

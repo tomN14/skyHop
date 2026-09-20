@@ -224,6 +224,28 @@ export async function recordingsReadStaff(recordingId) {
   };
 }
 
+export async function recordingsRename(userId, recordingId, title) {
+  const row = await getOwnedRow(userId, recordingId);
+  if (!row) throw new Error('Not found');
+  const next = String(title || '').trim().slice(0, 120) || 'Run';
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { error } = await sb
+      .from('skyhop_recordings')
+      .update({ title: next })
+      .eq('id', recordingId)
+      .eq('user_id', userId);
+    if (error) throw new Error(error.message);
+    return { id: recordingId, title: next };
+  }
+  const db = fileLoadIndex();
+  const r = db.recordings.find((x) => x.id === recordingId && x.user_id === userId);
+  if (!r) throw new Error('Not found');
+  r.title = next;
+  fileSaveIndex(db);
+  return { id: recordingId, title: next };
+}
+
 export async function recordingsDelete(userId, recordingId) {
   const row = await getOwnedRow(userId, recordingId);
   if (!row) throw new Error('Not found');

@@ -88,6 +88,7 @@
       var payload = {
         stage0: st.stage0,
         timeMs: st.tMs != null ? st.tMs : 0,
+        deaths: st.deaths || 0,
       };
       if (st.x != null && st.y != null) {
         payload.x = st.x;

@@ -1,8 +1,9 @@
 /**
- * Server campaign override is editor-only. Play always uses bundled stages.js
- * (see SkyHopRestoreBundledCampaignFromFiles). A short/broken row in
- * skyhop_builtin_campaign used to replace the whole 50-stage campaign.
+ * Play uses a valid uploaded World 1 campaign from GET /api/builtin-stages.
+ * Empty, short, or broken server JSON is ignored so bundled stages.js stays.
  */
 (function () {
-  /* reserved: owner editor fetches /api/builtin-stages itself */
+  if (typeof window.SkyHopBootServerCampaigns === 'function') {
+    window.SkyHopBootServerCampaigns();
+  }
 })();

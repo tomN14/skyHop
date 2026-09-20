@@ -52,8 +52,8 @@ export function createRoom(roomId, hostWs, hostPlayerId, name, isCollab) {
   return room;
 }
 
-function emptyProgress() {
-  return { stage: 0, finished: false, timeMs: 0, suspicion: 0, progressHits: 0, flags: [] };
+export function emptyProgress() {
+  return { stage: 0, stageAt: 0, deaths: 0, finished: false, timeMs: 0, suspicion: 0, progressHits: 0, flags: [] };
 }
 
 export function playerList(room) {
@@ -188,6 +188,8 @@ export function applyProgress(room, playerId, msg, now) {
     return ev;
   }
   prev.stage = ev.stage;
+  prev.stageAt = ev.stageAt;
+  prev.deaths = ev.deaths;
   prev.timeMs = ev.timeMs;
   prev.suspicion = ev.suspicion;
   prev.progressHits = ev.progressHits;

@@ -61,17 +61,31 @@ export function evaluateProgress(room, prev, msg, now) {
   }
 
   const prevStage = prev && Number.isFinite(prev.stage) ? prev.stage : 0;
+  const prevStageAt =
+    prev && Number.isFinite(prev.stageAt) && prev.stageAt > 0 ? prev.stageAt : room.startAt || now;
+  const timeOnStage = Math.max(0, now - prevStageAt);
+  const stageChanged = st !== prevStage;
+
   if (st < prevStage) {
     flags.push('stage_back');
     suspicion += 2;
   }
-  if (st > prevStage) {
-    const skipped = st - prevStage;
-    const minMs = skipped * MIN_STAGE_ADVANCE_MS;
-    if (dtWall < minMs) {
-      kick = 'Stage progress was faster than a real player can move.';
-      flags.push('stage_skip');
-    }
+  // Heartbeats are ~100ms. A real +1 stage (Next stage / new spawn) must not use
+  // time-since-last-packet — that is always short. Use time spent on the old stage.
+  if (st > prevStage + 1) {
+    kick = 'Stage progress was faster than a real player can move.';
+    flags.push('stage_skip');
+  } else if (st === prevStage + 1 && timeOnStage < MIN_STAGE_ADVANCE_MS) {
+    kick = 'Stage progress was faster than a real player can move.';
+    flags.push('stage_skip');
+  }
+
+  const deaths = Math.max(0, Math.floor(Number(msg.deaths) || 0));
+  const prevDeaths = prev && Number.isFinite(prev.deaths) ? prev.deaths : 0;
+  const respawned = deaths > prevDeaths && deaths - prevDeaths <= 2;
+  if (deaths > prevDeaths + 2) {
+    flags.push('death_spike');
+    suspicion += 2;
   }
 
   let nx = null;
@@ -85,7 +99,17 @@ export function evaluateProgress(room, prev, msg, now) {
     }
   }
 
-  if (nx != null && ny != null && prev && prev.x != null && prev.y != null && dtWall > 0) {
+  // New stage spawn and death respawn both jump x/y; that is not a teleport.
+  if (
+    !stageChanged &&
+    !respawned &&
+    nx != null &&
+    ny != null &&
+    prev &&
+    prev.x != null &&
+    prev.y != null &&
+    dtWall > 0
+  ) {
     const dist = Math.hypot(nx - prev.x, ny - prev.y);
     const dtSec = Math.max(0.04, dtWall / 1000);
     const maxDist = MAX_SPEED_PX_S * dtSec * 1.35;
@@ -102,7 +126,7 @@ export function evaluateProgress(room, prev, msg, now) {
     const pointerEvents = Math.max(0, Math.floor(Number(msg.pointerEvents) || 0));
     const inputAgeMs = Number.isFinite(Number(msg.inputAgeMs)) ? Number(msg.inputAgeMs) : 99999;
     const dx = prev && prev.x != null ? Math.abs(nx - prev.x) : 0;
-    if (dx > 80 && !held && keyEvents < 1 && pointerEvents < 1 && inputAgeMs > 2500 && st === prevStage) {
+    if (dx > 80 && !held && keyEvents < 1 && pointerEvents < 1 && inputAgeMs > 2500) {
       flags.push('no_input');
       suspicion += 2;
     }
@@ -136,7 +160,9 @@ export function evaluateProgress(room, prev, msg, now) {
     flags,
     suspicion: nextSuspicion,
     stage: st,
+    stageAt: stageChanged ? now : prevStageAt,
     timeMs,
+    deaths,
     x: nx,
     y: ny,
     rateHits,

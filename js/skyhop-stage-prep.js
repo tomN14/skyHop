@@ -14,6 +14,7 @@
 
   function appendStaticUnderhangSupports(stage) {
     if (stage.underhangDisabled) return;
+    if (stage.underhangsApplied) return;
     const bottomY = staticUnderhangSupportBottomY(stage);
     const base = stage.platforms.slice();
     const UW = C.STATIC_UNDERHANG_W;
@@ -41,14 +42,17 @@
         stage.platforms.push({ x: p.x + (p.w - cw) / 2, y: top, w: cw, h });
       }
     }
+    stage.underhangsApplied = true;
   }
 
   function shrinkLavaPitHeights(stages) {
     if (!stages) return;
     const minH = 16;
     for (const s of stages) {
+      if (s.lavaShrunk) continue;
       const lava = s.lava;
       if (!lava || !lava.length) continue;
+      s.lavaShrunk = true;
       for (const L of lava) {
         const dh = Math.min(LAVA_SHRINK, Math.max(0, L.h - minH));
         L.y += dh;

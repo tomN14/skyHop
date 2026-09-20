@@ -15,6 +15,7 @@ import {
   applyProgress,
   broadcastAll,
   createRoom,
+  emptyProgress,
   leaveRoom,
   makePlayerId,
   makeRoomId,
@@ -283,7 +284,7 @@ wss.on('connection', (ws) => {
         const name = (msg.name && String(msg.name).slice(0, 20)) || 'Racer';
         room.clients.add(ws);
         room.names[playerId] = name;
-        room.progress[playerId] = { stage: 0, finished: false, timeMs: 0, suspicion: 0, progressHits: 0, flags: [] };
+        room.progress[playerId] = emptyProgress();
         const meta = socketMeta.get(ws);
         meta.roomId = roomId;
         meta.displayName = name;

@@ -1,5 +1,5 @@
 -- Use on the LIVE Sky Hop project if Play shows empty levels because a bad
--- built-in campaign was saved to Supabase. After this, the game uses stages.js
+-- built-in campaign was saved to Supabase. After this, Play uses stages.js
 -- from the website until you upload a valid campaign again.
 --
 -- World 1 (main menu Play):

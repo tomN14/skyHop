@@ -2997,6 +2997,7 @@ export async function handleApi(req, res) {
       }
       title = title.slice(0, 120);
       source = source.slice(0, 40);
+      title = censorProfanity(title).text.slice(0, 120) || 'Run';
       const saved = await Recordings.recordingsCreate(uid, buf, contentType, { title, source });
       json(res, 201, { ok: true, recording: saved });
     } catch (e) {
@@ -3041,6 +3042,38 @@ export async function handleApi(req, res) {
     try {
       await Recordings.recordingsDelete(uid, id);
       json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/recordings/rename' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const id = String(body.id || '').trim();
+    if (!uuidRe.test(id)) {
+      json(res, 400, { error: 'Invalid id' });
+      return true;
+    }
+    const title = censorProfanity(String(body.title || '').trim()).text.slice(0, 120);
+    if (!title) {
+      json(res, 400, { error: 'Name required' });
+      return true;
+    }
+    try {
+      const saved = await Recordings.recordingsRename(uid, id, title);
+      json(res, 200, { ok: true, recording: saved });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

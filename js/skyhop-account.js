@@ -2603,7 +2603,7 @@
         if (!tok || !me || me.role !== 'owner') return;
         if (
           !window.confirm(
-            'Clear the server built-in campaign override for World 1 and World 2?\n\nPlay will use the bundled stage files on this website.'
+            'Clear the server built-in campaign override for World 1 and World 2?\n\nPlay will fall back to the bundled stage files on this website.'
           )
         ) {
           return;
@@ -2617,7 +2617,12 @@
           if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {
             window.SkyHopRestoreBundledCampaignFromFiles();
           }
-          setOwnerAdminMsg('Server campaign override cleared. Hard-refresh if Play still looks blank.', false);
+          try {
+            window.dispatchEvent(new CustomEvent('skyhop-campaign-loaded'));
+          } catch {
+            /* */
+          }
+          setOwnerAdminMsg('Server campaign override cleared. Play uses the bundled files again.', false);
         } catch (e) {
           setOwnerAdminMsg(String(e.message || e), true);
         }

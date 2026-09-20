@@ -29,6 +29,12 @@
   }
 
   function restoreBundledCampaignIfEmpty() {
+    if (typeof window.SkyHopRestoreBundledIfInvalid === 'function') {
+      window.SkyHopRestoreBundledIfInvalid();
+      return;
+    }
+    const built = builtinCampaign();
+    if (built && built.length && built[0] && built[0].platforms && built[0].platforms.length) return;
     if (typeof window.SkyHopRestoreBundledCampaignFromFiles === 'function') {
       window.SkyHopRestoreBundledCampaignFromFiles();
     } else if (typeof window.SKYHOP_REBUILD_STAGES === 'function') {
@@ -3738,7 +3744,24 @@
     if (document.visibilityState === 'hidden') clearInputKeys();
   });
 
+  let campaignPlayStartPending = false;
+
   function startCampaignPlay() {
+    if (campaignPlayStartPending) return;
+    const boot = window.SKYHOP_CAMPAIGN_BOOT;
+    if (boot && !window.__SKYHOP_SERVER_CAMPAIGN_READY) {
+      campaignPlayStartPending = true;
+      void Promise.resolve(boot).finally(function () {
+        window.__SKYHOP_SERVER_CAMPAIGN_READY = true;
+        campaignPlayStartPending = false;
+        beginCampaignPlay();
+      });
+      return;
+    }
+    beginCampaignPlay();
+  }
+
+  function beginCampaignPlay() {
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
     restoreBundledCampaignIfEmpty();

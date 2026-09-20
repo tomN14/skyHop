@@ -1,7 +1,9 @@
 /**
- * World 2 Play uses bundled stages-world2.js. Do not replace it with the
- * 1-stage server default from GET /api/builtin-stages-world2.
+ * World 2 Play uses GET /api/builtin-stages-world2 when that list is valid
+ * and at least as long as bundled stages-world2.js. Boot is shared with World 1.
  */
 (function () {
-  /* reserved: owner editor fetches /api/builtin-stages-world2 itself */
+  if (typeof window.SkyHopBootServerCampaigns === 'function') {
+    window.SkyHopBootServerCampaigns();
+  }
 })();
