@@ -1,9 +1,28 @@
 /**
- * Terms of Service gate after login. Session accept or permanent skip via localStorage.
+ * Terms of Service gate after login. Per-account session accept, or skip-forever on this browser.
  */
 (function () {
   const LS_SKIP_FOREVER = 'SKYHOP_TOS_SKIP_FOREVER';
   const SS_ACCEPTED = 'SKYHOP_TOS_ACCEPTED_SESSION';
+  const LS_USER = 'SKYHOP_USERNAME';
+
+  function currentUsername() {
+    try {
+      return String(localStorage.getItem(LS_USER) || '')
+        .trim()
+        .toLowerCase();
+    } catch {
+      return '';
+    }
+  }
+
+  function skipForeverKey(user) {
+    return LS_SKIP_FOREVER + ':' + user;
+  }
+
+  function sessionKey(user) {
+    return SS_ACCEPTED + ':' + user;
+  }
 
   const DEFAULT_PAGES = [
     `SKY HOP TERMS OF SERVICE
@@ -117,16 +136,20 @@ YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES 
   let gatePromise = null;
 
   function skipForever() {
+    const u = currentUsername();
+    if (!u) return false;
     try {
-      return localStorage.getItem(LS_SKIP_FOREVER) === '1';
+      return localStorage.getItem(skipForeverKey(u)) === '1';
     } catch {
       return false;
     }
   }
 
   function acceptedThisSession() {
+    const u = currentUsername();
+    if (!u) return false;
     try {
-      return sessionStorage.getItem(SS_ACCEPTED) === '1';
+      return sessionStorage.getItem(sessionKey(u)) === '1';
     } catch {
       return false;
     }
@@ -137,17 +160,23 @@ YOU ARE SOLELY RESPONSIBLE FOR ALL CONSEQUENCES IN-GAME. UNDER NO CIRCUMSTANCES 
   }
 
   function markAccepted(forever) {
+    const u = currentUsername();
     try {
-      sessionStorage.setItem(SS_ACCEPTED, '1');
-      if (forever) localStorage.setItem(LS_SKIP_FOREVER, '1');
+      if (u) sessionStorage.setItem(sessionKey(u), '1');
+      else sessionStorage.setItem(SS_ACCEPTED, '1');
+      if (forever && u) localStorage.setItem(skipForeverKey(u), '1');
     } catch {
       /* */
     }
   }
 
   function clearSessionAcceptance() {
+    gatePromise = null;
+    hideScreen();
+    const u = currentUsername();
     try {
       sessionStorage.removeItem(SS_ACCEPTED);
+      if (u) sessionStorage.removeItem(sessionKey(u));
     } catch {
       /* */
     }
