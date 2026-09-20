@@ -43,4 +43,55 @@ export async function resolveFeatureListHtml(store) {
   return defaultFeatureListHtml();
 }
 
+export const DEFAULT_BRANDING = Object.freeze({
+  title: 'Sky Hop',
+  version: '3.18',
+  updateName: 'The Editor Update',
+});
+
+export function defaultBranding() {
+  return {
+    title: DEFAULT_BRANDING.title,
+    version: DEFAULT_BRANDING.version,
+    updateName: DEFAULT_BRANDING.updateName,
+  };
+}
+
+function clipLine(value, max) {
+  return String(value ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+export function validateBranding(raw) {
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('branding must be an object');
+  }
+  const title = clipLine(raw.title, 48);
+  const version = clipLine(raw.version, 24);
+  const updateName = clipLine(raw.updateName, 80);
+  if (!title) throw new Error('title is required');
+  if (!version) throw new Error('version is required');
+  return { title, version, updateName };
+}
+
+export async function resolveBranding(store) {
+  try {
+    if (typeof store.getSiteContentPayload === 'function') {
+      const row = await store.getSiteContentPayload('branding');
+      if (row && typeof row === 'object') {
+        try {
+          return validateBranding(row);
+        } catch {
+          /* use defaults */
+        }
+      }
+    }
+  } catch {
+    /* missing table or store */
+  }
+  return defaultBranding();
+}
+
 export { TOS_PAGE_SEP };

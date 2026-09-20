@@ -1305,6 +1305,34 @@
   const onlineUserPanel = document.getElementById('lvlOnlineUserPanel');
   const lvlEdStatus = document.getElementById('lvlEdStatus');
 
+  function levelsOverlayOpen() {
+    const ids = ['screenLevelEditor', 'screenLevelsMine', 'screenLevelsOnline'];
+    for (let i = 0; i < ids.length; i++) {
+      const el = document.getElementById(ids[i]);
+      if (el && !el.classList.contains('hidden')) return true;
+    }
+    return false;
+  }
+
+  function unhideMainMenu() {
+    const menu = document.getElementById('screenMenu');
+    if (!menu) return;
+    menu.classList.remove('hidden');
+    menu.classList.add('flex');
+  }
+
+  function revealMainMenuIfIdle() {
+    if (levelsOverlayOpen()) {
+      unhideMainMenu();
+      return;
+    }
+    if (window.SKYHOP && typeof window.SKYHOP.goToMenu === 'function') {
+      window.SKYHOP.goToMenu();
+      return;
+    }
+    unhideMainMenu();
+  }
+
   function showMine(on) {
     if (!mineEl) return;
     mineEl.classList.toggle('hidden', !on);
@@ -2041,6 +2069,7 @@
       editorState.readOnly = true;
       lvlEdStatus.textContent = 'Published!';
       syncEditorUi();
+      unhideMainMenu();
     } catch (e) {
       lvlEdStatus.textContent = String(e.message || e);
     }
@@ -2083,6 +2112,7 @@
           showEditorScreen(true);
           syncEditorUi();
           lvlEdStatus.textContent = 'Test complete. Upload is available after a successful beat.';
+          revealMainMenuIfIdle();
           if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
             window.SKYHOP.ensureGameShellVisible();
           }
@@ -2266,6 +2296,7 @@
           onContinue: function () {
             showOnline(true);
             if (onlineUserPanel) onlineUserPanel.classList.remove('hidden');
+            revealMainMenuIfIdle();
             if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
               window.SKYHOP.ensureGameShellVisible();
             }
@@ -2332,8 +2363,14 @@
         void refreshInputLogsList();
       }
     });
-    document.getElementById('btnLevelsMineBack').addEventListener('click', () => showMine(false));
-    document.getElementById('btnLevelsOnlineBack').addEventListener('click', () => showOnline(false));
+    document.getElementById('btnLevelsMineBack').addEventListener('click', () => {
+      showMine(false);
+      revealMainMenuIfIdle();
+    });
+    document.getElementById('btnLevelsOnlineBack').addEventListener('click', () => {
+      showOnline(false);
+      revealMainMenuIfIdle();
+    });
     document.getElementById('btnLevelsNew').addEventListener('click', () => newEditor());
 
     document.getElementById('lvlOnlineUserSearch').addEventListener('keydown', (e) => {
@@ -2381,6 +2418,7 @@
       showEditorScreen(false);
       showMine(true);
       refreshMineList();
+      revealMainMenuIfIdle();
     });
     const btnDelLvl = document.getElementById('btnLvlEdDeleteLevel');
     if (btnDelLvl) {

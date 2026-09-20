@@ -55,6 +55,19 @@ const SAFE_TYPING_WORDS = [
   'address',
   'passion',
   'passive',
+  'gravity',
+  'gravitation',
+  'gravel',
+  'grave',
+  'gravy',
+  'grape',
+  'graph',
+  'graphic',
+  'grab',
+  'grand',
+  'grateful',
+  'spike',
+  'spikes',
 ];
 
 const BLOCK_WORDS = new Set([
@@ -237,7 +250,28 @@ function neuralFeaturize(token) {
 function isInnocentTypingPrefix(lettersOnly) {
   if (!lettersOnly) return true;
   for (const safe of SAFE_TYPING_WORDS) {
+    if (safe === lettersOnly) return true;
     if (safe.startsWith(lettersOnly) && lettersOnly.length < safe.length) return true;
+  }
+  return false;
+}
+
+/** Stars, leet digits, or 3+ repeated letters (fuuuck) — not ordinary words like arrow. */
+function tokenLooksObfuscated(compact, lettersOnly) {
+  if (!compact) return false;
+  if (/[*._\-~]/.test(compact)) return true;
+  if (lettersOnly) {
+    let run = 1;
+    for (let i = 1; i < lettersOnly.length; i++) {
+      if (lettersOnly[i] === lettersOnly[i - 1]) {
+        run += 1;
+        if (run >= 3) return true;
+      } else run = 1;
+    }
+  }
+  for (const ch of compact) {
+    const mapped = LEET[ch];
+    if (mapped != null && mapped !== ch.toLowerCase()) return true;
   }
   return false;
 }
@@ -308,8 +342,8 @@ function tokenProfane(token, strict) {
   if (fuzzySubsequenceProfane(lettersOnly)) return true;
 
   if (
+    tokenLooksObfuscated(compact, lettersOnly) &&
     lettersOnly.length >= 4 &&
-    (hasMask || lettersOnly.length <= 8) &&
     neuralProfaneScore(compact) >= NN_THRESHOLD
   ) {
     return true;

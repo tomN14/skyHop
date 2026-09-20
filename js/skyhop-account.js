@@ -209,6 +209,34 @@
   window.SkyHopApiRequest = api;
   window.SkyHopApiOrigin = apiOrigin;
 
+  function applyMenuBranding(b) {
+    if (!b || typeof b !== 'object') return;
+    var title = String(b.title || '').trim() || 'Sky Hop';
+    var version = String(b.version || '').trim() || '3.18';
+    var updateName = String(b.updateName || '').trim();
+    var titleEl = document.getElementById('menuGameTitle');
+    var versionEl = document.getElementById('menuGameVersion');
+    var updateEl = document.getElementById('menuUpdateName');
+    var wrap = document.getElementById('menuUpdateWrap');
+    if (titleEl) titleEl.textContent = title;
+    if (versionEl) versionEl.textContent = version;
+    if (updateEl) updateEl.textContent = updateName;
+    if (wrap) wrap.classList.toggle('hidden', !updateName);
+    document.title = title + ' ' + version + ' — Worlds & Collab';
+  }
+
+  async function refreshMenuBranding() {
+    try {
+      var data = await api('/api/site/branding', { method: 'GET', noAuth: true });
+      if (data && (data.title || data.version || data.updateName != null)) applyMenuBranding(data);
+    } catch {
+      /* keep bundled title in index.html */
+    }
+  }
+
+  window.SkyHopApplyBranding = applyMenuBranding;
+  window.SkyHopRefreshBranding = refreshMenuBranding;
+
   function getToken() {
     try {
       return localStorage.getItem(LS_TOKEN);
@@ -2159,6 +2187,10 @@
     var ownerSiteContentMsg = document.getElementById('ownerSiteContentMsg');
     var ownerTosEditor = document.getElementById('ownerTosEditor');
     var ownerFeatureListEditor = document.getElementById('ownerFeatureListEditor');
+    var ownerBrandTitle = document.getElementById('ownerBrandTitle');
+    var ownerBrandVersion = document.getElementById('ownerBrandVersion');
+    var ownerBrandUpdate = document.getElementById('ownerBrandUpdate');
+    var ownerBrandingMsg = document.getElementById('ownerBrandingMsg');
     function setOwnerSiteContentMsg(t, isErr) {
       if (!ownerSiteContentMsg) return;
       ownerSiteContentMsg.textContent = t || '';
@@ -2166,11 +2198,25 @@
       ownerSiteContentMsg.classList.toggle('text-rose-300', !!isErr);
       ownerSiteContentMsg.classList.toggle('text-emerald-200', !isErr && !!t);
     }
+    function setOwnerBrandingMsg(t, isErr) {
+      if (!ownerBrandingMsg) return;
+      ownerBrandingMsg.textContent = t || '';
+      ownerBrandingMsg.classList.toggle('hidden', !t);
+      ownerBrandingMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerBrandingMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function fillOwnerBrandingFields(b) {
+      if (!b || typeof b !== 'object') return;
+      if (ownerBrandTitle && b.title != null) ownerBrandTitle.value = String(b.title);
+      if (ownerBrandVersion && b.version != null) ownerBrandVersion.value = String(b.version);
+      if (ownerBrandUpdate && b.updateName != null) ownerBrandUpdate.value = String(b.updateName);
+    }
     async function loadOwnerSiteContentEditors() {
       var tok = getToken();
       var me = window.__skyhopLastMe;
       if (!tok || !me || me.role !== 'owner') return;
       setOwnerSiteContentMsg('', false);
+      setOwnerBrandingMsg('', false);
       try {
         var data = await api('/api/owner/site-content', {
           method: 'GET',
@@ -2183,6 +2229,7 @@
         if (ownerFeatureListEditor && data.featureListHtml != null) {
           ownerFeatureListEditor.value = String(data.featureListHtml);
         }
+        if (data.branding) fillOwnerBrandingFields(data.branding);
       } catch (e) {
         setOwnerSiteContentMsg(String(e.message || e), true);
       }
@@ -2220,6 +2267,39 @@
           }
         } catch (e) {
           setOwnerSiteContentMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var ownerBtnSaveBranding = document.getElementById('ownerBtnSaveBranding');
+    if (ownerBtnSaveBranding) {
+      ownerBtnSaveBranding.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerBrandingMsg('', false);
+        try {
+          var data = await api('/api/owner/site-content', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              branding: {
+                title: ownerBrandTitle ? ownerBrandTitle.value : '',
+                version: ownerBrandVersion ? ownerBrandVersion.value : '',
+                updateName: ownerBrandUpdate ? ownerBrandUpdate.value : '',
+              },
+            }),
+          });
+          var saved = data && data.branding ? data.branding : null;
+          if (saved) {
+            fillOwnerBrandingFields(saved);
+            applyMenuBranding(saved);
+          } else {
+            void refreshMenuBranding();
+          }
+          setOwnerBrandingMsg('Saved. Main menu title, version, and update name are live for everyone.', false);
+        } catch (e) {
+          setOwnerBrandingMsg(String(e.message || e), true);
         }
       });
     }
@@ -2480,6 +2560,7 @@
 
     updateFriendsFab(null);
     updateModDashboardFab(null);
+    void refreshMenuBranding();
     if (getToken()) void refreshPanel();
   }
 

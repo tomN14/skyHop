@@ -22,9 +22,11 @@ import * as SubmittedRuns from './submitted-runs.js';
 import * as UserMods from './user-mods.js';
 import {
   joinTosPagesForEditor,
+  resolveBranding,
   resolveFeatureListHtml,
   resolveTosPages,
   splitTosPagesFromEditor,
+  validateBranding,
   validateFeatureListHtml,
   validateTosPages,
   TOS_PAGE_SEP,
@@ -867,6 +869,19 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/site/branding' && req.method === 'GET') {
+    try {
+      json(res, 200, await resolveBranding(store));
+    } catch (e) {
+      json(res, 200, {
+        title: 'Sky Hop',
+        version: '3.18',
+        updateName: 'The Editor Update',
+      });
+    }
+    return true;
+  }
+
   if (pathname === '/api/owner/appeals' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess || effectiveRole(sess.user) !== 'owner') {
@@ -921,19 +936,25 @@ export async function handleApi(req, res) {
     try {
       const pages = await resolveTosPages(store);
       const html = await resolveFeatureListHtml(store);
+      const branding = await resolveBranding(store);
       const customTos =
         typeof store.getSiteContentPayload === 'function' &&
         !!(await store.getSiteContentPayload('tos'))?.pages?.length;
       const customFeat =
         typeof store.getSiteContentPayload === 'function' &&
         !!(await store.getSiteContentPayload('feature_list'))?.html;
+      const customBranding =
+        typeof store.getSiteContentPayload === 'function' &&
+        !!(await store.getSiteContentPayload('branding'))?.title;
       json(res, 200, {
         tosPages: pages,
         tosEditorText: joinTosPagesForEditor(pages),
         featureListHtml: html,
+        branding,
         pageSeparator: TOS_PAGE_SEP,
         customTos: !!customTos,
         customFeatureList: !!customFeat,
+        customBranding: !!customBranding,
       });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
@@ -972,7 +993,31 @@ export async function handleApi(req, res) {
         validateFeatureListHtml(html);
         await store.setSiteContentPayload('feature_list', { html });
       }
-      json(res, 200, { ok: true });
+      let brandingSaved = null;
+      const brandingInput =
+        body.branding != null && typeof body.branding === 'object' && !Array.isArray(body.branding)
+          ? body.branding
+          : body.title != null || body.version != null || body.updateName != null
+            ? {
+                title: body.title,
+                version: body.version,
+                updateName: body.updateName,
+              }
+            : null;
+      if (brandingInput) {
+        const current = await resolveBranding(store);
+        const next = validateBranding({
+          title: brandingInput.title != null ? brandingInput.title : current.title,
+          version: brandingInput.version != null ? brandingInput.version : current.version,
+          updateName: brandingInput.updateName != null ? brandingInput.updateName : current.updateName,
+        });
+        next.title = censorProfanity(next.title).text;
+        next.version = censorProfanity(next.version).text;
+        next.updateName = next.updateName ? censorProfanity(next.updateName).text : '';
+        brandingSaved = validateBranding(next);
+        await store.setSiteContentPayload('branding', brandingSaved);
+      }
+      json(res, 200, brandingSaved ? { ok: true, branding: brandingSaved } : { ok: true });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

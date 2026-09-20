@@ -63,7 +63,7 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Active mods on account:** Run **`server/supabase/extend_v12_user_mods_active.sql`** after v11 — `active_user_mod_ids` on `skyhop_users` (replaces browser `localStorage` for which mods are enabled).
 
-**Owner-editable ToS & feature list:** Run **`server/supabase/extend_v13_site_content.sql`** after v12 — `skyhop_site_content` (`tos`, `feature_list` keys). Owner edits in Account administration → Save; public `GET /api/site/tos` and `GET /api/site/feature-list`.
+**Owner-editable ToS, feature list, and branding:** Run **`server/supabase/extend_v13_site_content.sql`** after v12 — `skyhop_site_content` (`tos`, `feature_list`, `branding` keys; no extra SQL for branding). Owner edits in Account administration → Save; public `GET /api/site/tos`, `GET /api/site/feature-list`, and `GET /api/site/branding` (`title`, `version`, `updateName`).
 
 **Ban appeals + votes:** Run **`server/supabase/extend_v14_ban_appeals.sql`** after v13 — `skyhop_ban_appeals`, `skyhop_ban_appeal_votes`. Banned users submit via login ban screen; mods/owner vote in the 📧 inbox (majority of cast votes resolves). Owner can **Accept / Decline** open appeals directly in **Account administration** (`GET /api/owner/appeals`, `POST /api/owner/appeals/:id/resolve` with `{ "decision": "accept" \| "decline" }`).
 
