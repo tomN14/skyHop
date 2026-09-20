@@ -1460,7 +1460,7 @@
         <label class="inline-flex items-center gap-1">Move Y
           <input id="lvlEdSwitchMoveY" type="number" step="4" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
         </label>
-        <span id="lvlEdSwitchTargetHint" class="text-[10px] text-slate-500">Click Edit Switch, then click the object to move (block, mover, portal, …).</span>
+        <span id="lvlEdSwitchTargetHint" class="text-[10px] text-slate-500">Click Edit Switch, then click the object. A faded copy shows where it will move.</span>
       </div>
       <div id="lvlEdMoverProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-cyan-100">Selected mover</span>
@@ -1490,7 +1490,7 @@
       <div class="relative flex min-h-[220px] flex-1 flex-col overflow-auto bg-slate-950 p-2">
         <canvas id="lvlEditorCanvas" class="block w-full max-w-full touch-none border border-white/10 bg-slate-900" style="min-height:220px"></canvas>
       </div>
-      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Portals: select to edit the green landing dot. Switches: Edit Switch, then click the object to move. Eraser cuts a default-block hole (including ground). Beat Test play before Upload.</p>
+      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Portals: select to edit the green landing dot. Switches: Edit Switch, then click the object — a faded copy shows the moved position. Eraser cuts a default-block hole (including ground). Beat Test play before Upload.</p>
     </div>
 
     <div id="screenMyMods" class="pointer-events-auto fixed inset-0 z-[36] hidden flex-col bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">

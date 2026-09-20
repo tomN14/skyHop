@@ -167,22 +167,10 @@
     for (let i = 0; i < lists.length; i++) {
       const list = lists[i].list;
       for (let j = 0; j < list.length; j++) {
-        if (list[j] && list[j].id === id) return { kind: lists[i].kind, index: j, obj: list[j] };
+        if (list[j] && String(list[j].id) === String(id)) return { kind: lists[i].kind, index: j, obj: list[j] };
       }
     }
     return null;
-  }
-
-  function isLinkableKind(kind) {
-    return (
-      kind === 'platform' ||
-      kind === 'mover' ||
-      kind === 'portal' ||
-      kind === 'spike' ||
-      kind === 'lava' ||
-      kind === 'gravity' ||
-      kind === 'coin'
-    );
   }
 
   function stagePayloadFromEditor(d) {
@@ -306,6 +294,7 @@
   }
 
   let switchLinkMode = false;
+  let switchLinkHover = null;
 
   function selectedPortal() {
     const d = editorState.data;
@@ -363,6 +352,7 @@
     wrap.classList.toggle('flex', !!sw);
     if (!sw) {
       switchLinkMode = false;
+      switchLinkHover = null;
       return;
     }
     if (xEl && document.activeElement !== xEl) xEl.value = String(Math.round(sw.moveX));
@@ -375,7 +365,7 @@
     }
     if (hint) {
       if (switchLinkMode) {
-        hint.textContent = 'Click the object this switch should move.';
+        hint.textContent = 'Yellow outline = that object. Click it. A faded copy shows the move.';
       } else if (sw.targetId && findObjById(editorState.data, sw.targetId)) {
         const t = findObjById(editorState.data, sw.targetId);
         hint.textContent = 'Linked: ' + t.kind + ' (moves when the switch is pressed).';
@@ -402,11 +392,13 @@
   function startSwitchLinkMode() {
     if (!selectedSwitch()) return;
     switchLinkMode = true;
+    switchLinkHover = null;
+    drag = null;
     editorTool = 'select';
     document.querySelectorAll('.lvl-tool').forEach(function (x) {
       x.classList.toggle('lvl-on', x.getAttribute('data-tool') === 'select');
     });
-    if (lvlEdStatus) lvlEdStatus.textContent = 'Edit Switch: click the object to move.';
+    if (lvlEdStatus) lvlEdStatus.textContent = 'Edit Switch: click the object to move (block, portal, …).';
     scheduleEditorRedraw();
   }
 
@@ -1030,6 +1022,51 @@
     return null;
   }
 
+  function linkableHitPad() {
+    return Math.max(10, 14 / (cam.s || 1));
+  }
+
+  function pointHitsLinkable(wx, wy, kind, obj, pad) {
+    if (!obj) return false;
+    if (kind === 'coin') {
+      const r = (Number(obj.r) > 0 ? Number(obj.r) : 14) + pad;
+      return Math.hypot(wx - obj.x, wy - obj.y) <= r;
+    }
+    const w = Number(obj.w);
+    const h = Number(obj.h);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return false;
+    return wx >= obj.x - pad && wx <= obj.x + w + pad && wy >= obj.y - pad && wy <= obj.y + h + pad;
+  }
+
+  function hitTestLinkable(wx, wy, d) {
+    let best = null;
+    let bestScore = Infinity;
+    const pad = linkableHitPad();
+    const lists = linkableLists(d);
+    for (let i = 0; i < lists.length; i++) {
+      const kind = lists[i].kind;
+      const list = lists[i].list;
+      for (let j = 0; j < list.length; j++) {
+        const obj = list[j];
+        if (!pointHitsLinkable(wx, wy, kind, obj, pad)) continue;
+        const area =
+          kind === 'coin'
+            ? Math.PI * Math.pow(Number(obj.r) > 0 ? Number(obj.r) : 14, 2)
+            : Math.max(1, (obj.w || 1) * (obj.h || 1));
+        const dist =
+          kind === 'coin'
+            ? Math.hypot(wx - obj.x, wy - obj.y)
+            : Math.hypot(wx - (obj.x + obj.w / 2), wy - (obj.y + obj.h / 2));
+        const score = area + dist * 0.25;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { kind: kind, index: j, obj: obj };
+        }
+      }
+    }
+    return best;
+  }
+
   function addFireballEmitter(wx, wy, d) {
     const w = d.worldW;
     const h = d.worldH;
@@ -1140,6 +1177,91 @@
           ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
           ctx.fillText('inv', x + 3, y + Math.min(12, h - 2));
         }
+      }
+      ctx.restore();
+    }
+
+    function drawEditorEntityAt(kind, obj, wx, wy, alpha) {
+      if (!obj) return;
+      ctx.save();
+      ctx.globalAlpha *= alpha;
+      const a = toScreen(wx, wy);
+      if (kind === 'coin') {
+        const r = (Number(obj.r) > 0 ? Number(obj.r) : 14) * cam.s;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+        ctx.fill();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.stroke();
+      } else if (kind === 'portal') {
+        const pw = obj.w * cam.s;
+        const ph = obj.h * cam.s;
+        ctx.fillStyle = editorFill(obj, '#059669');
+        ctx.beginPath();
+        ctx.ellipse(a.x + pw / 2, a.y + ph / 2, Math.max(4, pw / 2), Math.max(4, ph / 2), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#6ee7b7';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        const da = toScreen(wx + Number(obj.destOx || 0), wy + Number(obj.destOy || 0));
+        ctx.fillStyle = '#4ade80';
+        ctx.beginPath();
+        ctx.arc(da.x, da.y, Math.max(4, 5 * cam.s), 0, Math.PI * 2);
+        ctx.fill();
+      } else if (kind === 'spike') {
+        const swid = obj.w * cam.s;
+        const sh = obj.h * cam.s;
+        ctx.fillStyle = editorFill(obj, '#9f1239');
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y + sh);
+        const teeth = Math.max(2, Math.round(obj.w / 10));
+        const tw = swid / teeth;
+        for (let i = 0; i < teeth; i++) {
+          ctx.lineTo(a.x + i * tw + tw / 2, a.y);
+          ctx.lineTo(a.x + (i + 1) * tw, a.y + sh);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else if (kind === 'gravity') {
+        const swid = obj.w * cam.s;
+        const sh = obj.h * cam.s;
+        const fill = editorFill(obj, '#fbbf24');
+        ctx.fillStyle = fill;
+        ctx.fillRect(a.x, a.y, swid, sh);
+        ctx.strokeStyle = fill;
+        ctx.strokeRect(a.x + 0.5, a.y + 0.5, swid - 1, sh - 1);
+        const cx = a.x + swid / 2;
+        const down = obj.targetDir > 0;
+        const pad = Math.max(4, Math.min(swid, sh) * 0.16);
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath();
+        if (down) {
+          ctx.moveTo(cx, a.y + sh - pad);
+          ctx.lineTo(a.x + pad, a.y + pad);
+          ctx.lineTo(a.x + swid - pad, a.y + pad);
+        } else {
+          ctx.moveTo(cx, a.y + pad);
+          ctx.lineTo(a.x + pad, a.y + sh - pad);
+          ctx.lineTo(a.x + swid - pad, a.y + sh - pad);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else if (kind === 'lava') {
+        paintEditorRect(obj, a.x, a.y, obj.w * cam.s, obj.h * cam.s, '#ea580c', 'rgba(254, 215, 170, 0.45)');
+      } else if (kind === 'mover') {
+        const fallback = obj.move && obj.move.axis === 'y' ? '#0891b2' : '#4f46e5';
+        paintEditorRect(obj, a.x, a.y, obj.w * cam.s, obj.h * cam.s, fallback, 'rgba(251, 191, 36, 0.9)');
+      } else {
+        paintEditorRect(
+          obj,
+          a.x,
+          a.y,
+          (obj.w || 20) * cam.s,
+          (obj.h || 20) * cam.s,
+          defaultColorForKind(kind),
+          'rgba(165,180,252,0.6)'
+        );
       }
       ctx.restore();
     }
@@ -1279,23 +1401,28 @@
       ctx.fillStyle = '#ecfccb';
       ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
       ctx.fillText('Sw', a.x + 3, a.y + Math.min(12, sw.h * cam.s - 2));
-      if (sw.targetId) {
-        const linked = findObjById(d, sw.targetId);
-        if (linked && linked.obj) {
-          const t = linked.obj;
-          const gx = (t.x || 0) + Number(sw.moveX || 0);
-          const gy = (t.y || 0) + Number(sw.moveY || 0);
-          const ga = toScreen(gx, gy);
-          const tw = (t.w != null ? t.w : 20) * cam.s;
-          const th = (t.h != null ? t.h : 20) * cam.s;
-          ctx.save();
-          ctx.setLineDash([5, 4]);
-          ctx.strokeStyle = 'rgba(163, 230, 53, 0.85)';
-          ctx.strokeRect(ga.x, ga.y, tw, th);
-          ctx.setLineDash([]);
-          ctx.restore();
-        }
-      }
+    }
+
+    for (const sw of d.switches || []) {
+      if (!sw.targetId) continue;
+      const linked = findObjById(d, sw.targetId);
+      if (!linked || !linked.obj) continue;
+      const t = linked.obj;
+      const gx = (t.x || 0) + Number(sw.moveX || 0);
+      const gy = (t.y || 0) + Number(sw.moveY || 0);
+      const selectedSw = editorSelection && editorSelection.kind === 'switch' && d.switches[editorSelection.index] === sw;
+      drawEditorEntityAt(linked.kind, t, gx, gy, selectedSw ? 0.5 : 0.38);
+      const from = toScreen(t.x, t.y);
+      const to = toScreen(gx, gy);
+      ctx.save();
+      ctx.strokeStyle = selectedSw ? 'rgba(190, 242, 100, 0.9)' : 'rgba(163, 230, 53, 0.55)';
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(from.x + ((t.w || 0) * cam.s) / 2, from.y + ((t.h || 0) * cam.s) / 2);
+      ctx.lineTo(to.x + ((t.w || 0) * cam.s) / 2, to.y + ((t.h || 0) * cam.s) / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
     }
 
     const gg = d.goal;
@@ -1417,6 +1544,26 @@
       }
     }
 
+    if (switchLinkMode && switchLinkHover) {
+      const hov = objectFromSel(d, switchLinkHover);
+      if (hov) {
+        ctx.save();
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 3;
+        if (switchLinkHover.kind === 'coin') {
+          const r = (Number(hov.r) > 0 ? Number(hov.r) : 14) * cam.s;
+          const a = toScreen(hov.x, hov.y);
+          ctx.beginPath();
+          ctx.arc(a.x, a.y, r + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        } else {
+          const a = toScreen(hov.x, hov.y);
+          ctx.strokeRect(a.x - 3, a.y - 3, (hov.w || 20) * cam.s + 6, (hov.h || 20) * cam.s + 6);
+        }
+        ctx.restore();
+      }
+    }
+
     if (editorTool === 'eraser' && eraserHover) {
       const cut = eraserStampAt(eraserHover.x, eraserHover.y);
       const a = toScreen(cut.x, cut.y);
@@ -1469,7 +1616,9 @@
       const r = canvas.getBoundingClientRect();
       const clientX = ev.clientX ?? ev.touches?.[0]?.clientX;
       const clientY = ev.clientY ?? ev.touches?.[0]?.clientY;
-      return { x: clientX - r.left, y: clientY - r.top };
+      const sx = canvas.width / Math.max(1, r.width);
+      const sy = canvas.height / Math.max(1, r.height);
+      return { x: (clientX - r.left) * sx, y: (clientY - r.top) * sy };
     }
 
     canvas.addEventListener('mousedown', onDown);
@@ -1479,23 +1628,24 @@
       if (!editorState.data) return;
       normalizeEditorLevelInPlace(editorState.data);
       e.preventDefault();
+      fitCam(canvas, editorState.data.worldW, editorState.data.worldH);
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
       const d = editorState.data;
       eraserHover = w;
 
       if (switchLinkMode && selectedSwitch()) {
-        const hit = hitTest(w.x, w.y, d);
         const sw = selectedSwitch();
-        if (hit && isLinkableKind(hit.kind)) {
-          if (!(hit.kind === 'switch' && hit.index === editorSelection.index)) {
-            const obj = objectFromSel(d, hit);
-            if (obj) {
-              sw.targetId = ensureObjId(d, obj);
-              switchLinkMode = false;
-              if (lvlEdStatus) lvlEdStatus.textContent = 'Switch linked. Set Move X / Move Y.';
-            }
+        const hit = hitTestLinkable(w.x, w.y, d);
+        if (hit && hit.obj) {
+          sw.targetId = ensureObjId(d, hit.obj);
+          switchLinkMode = false;
+          switchLinkHover = null;
+          if (lvlEdStatus) {
+            lvlEdStatus.textContent = 'Switch linked. The faded copy is where it moves. Set Move X / Move Y.';
           }
+        } else if (lvlEdStatus) {
+          lvlEdStatus.textContent = 'Click a block, mover, or portal (not the switch).';
         }
         scheduleEditorRedraw();
         return;
@@ -1663,6 +1813,17 @@
     function onMove(e) {
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
+      if (switchLinkMode && editorState.data) {
+        if (pointerOnCanvas(e)) {
+          const hit = hitTestLinkable(w.x, w.y, editorState.data);
+          const key = hit ? hit.kind + ':' + hit.index : '';
+          const prev = switchLinkHover ? switchLinkHover.kind + ':' + switchLinkHover.index : '';
+          switchLinkHover = hit ? { kind: hit.kind, index: hit.index } : null;
+          canvas.style.cursor = hit ? 'pointer' : 'copy';
+          if (key !== prev) scheduleEditorRedraw();
+        }
+        return;
+      }
       if (editorTool === 'eraser') {
         if (pointerOnCanvas(e) || eraserDrag) {
           eraserHover = w;
@@ -2942,6 +3103,7 @@
         b.classList.add('lvl-on');
         editorTool = b.getAttribute('data-tool') || 'select';
         switchLinkMode = false;
+        switchLinkHover = null;
         const edCanvas = document.getElementById('lvlEditorCanvas');
         if (edCanvas) edCanvas.style.cursor = editorTool === 'eraser' ? 'crosshair' : '';
         if (editorTool !== 'eraser') eraserHover = null;
@@ -3070,13 +3232,20 @@
       el.addEventListener('input', applySwitchMoveFromUi);
     });
     const btnEditSwitch = document.getElementById('btnLvlEdEditSwitch');
-    if (btnEditSwitch) btnEditSwitch.addEventListener('click', startSwitchLinkMode);
+    if (btnEditSwitch) {
+      btnEditSwitch.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        startSwitchLinkMode();
+      });
+    }
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       const ed = document.getElementById('screenLevelEditor');
       if (!ed || ed.classList.contains('hidden')) return;
       if (!switchLinkMode) return;
       switchLinkMode = false;
+      switchLinkHover = null;
       if (lvlEdStatus) lvlEdStatus.textContent = 'Switch link cancelled.';
       scheduleEditorRedraw();
     });
