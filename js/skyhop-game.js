@@ -2908,14 +2908,16 @@
 
     if (stage.gravityArrows) {
       for (const a of stage.gravityArrows) {
-        ctx.fillStyle = 'rgba(251, 191, 36, 0.35)';
+        if (a.invisible) continue;
+        const gc = stageHexColor(a.color) || '#fbbf24';
+        ctx.fillStyle = hexToRgba(gc, 0.35) || 'rgba(251, 191, 36, 0.35)';
         ctx.fillRect(a.x, a.y, a.w, a.h);
-        ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
+        ctx.strokeStyle = hexToRgba(gc, 0.9) || 'rgba(251, 191, 36, 0.9)';
         ctx.lineWidth = 2;
         ctx.strokeRect(a.x + 0.5, a.y + 0.5, a.w - 1, a.h - 1);
         const cx = a.x + a.w / 2;
         const down = a.targetDir > 0;
-        ctx.fillStyle = '#fde68a';
+        ctx.fillStyle = shadeHex(gc, 0.35);
         ctx.beginPath();
         if (down) {
           ctx.moveTo(cx, a.y + a.h - 8);

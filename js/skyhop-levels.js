@@ -58,6 +58,7 @@
       lava: [],
       coins: [],
       movingPlatforms: [],
+      gravityArrows: [],
     };
   }
 
@@ -70,6 +71,7 @@
     if (!Array.isArray(raw.coins)) raw.coins = [];
     if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
     if (!Array.isArray(raw.spikes)) raw.spikes = [];
+    if (!Array.isArray(raw.gravityArrows)) raw.gravityArrows = [];
     raw.grapple = !!raw.grapple;
     raw.doubleJump = !!raw.doubleJump;
     raw.underhangDisabled = !!raw.underhangDisabled;
@@ -117,6 +119,7 @@
     if (!Array.isArray(d.fireballEmitters)) d.fireballEmitters = [];
     if (!Array.isArray(d.coins)) d.coins = [];
     if (!Array.isArray(d.movingPlatforms)) d.movingPlatforms = [];
+    if (!Array.isArray(d.gravityArrows)) d.gravityArrows = [];
     for (const p of d.movingPlatforms) normalizeMoverMotion(p);
     for (const p of d.platforms) {
       if (p && p.move) normalizeMoverMotion(p);
@@ -125,6 +128,7 @@
     for (const p of d.movingPlatforms) normalizeLook(p);
     for (const L of d.lava) normalizeLook(L);
     for (const s of d.spikes) normalizeLook(s);
+    for (const a of d.gravityArrows) normalizeGravityArrow(a);
     normalizeLook(d.goal);
     const bg = validHexColor(d.bgColor);
     if (bg) d.bgColor = bg;
@@ -146,6 +150,24 @@
     p.move.amp = Math.min(600, Math.max(8, amp));
     p.move.omega = Math.min(4, Math.max(0.15, omega));
     p.move.phase = phase;
+  }
+
+  function normalizeGravityArrow(a) {
+    if (!a || typeof a !== 'object') return;
+    let x = Number(a.x);
+    let y = Number(a.y);
+    let w = Number(a.w);
+    let h = Number(a.h);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    if (!Number.isFinite(w) || w < 8) w = 40;
+    if (!Number.isFinite(h) || h < 8) h = 64;
+    a.x = x;
+    a.y = y;
+    a.w = Math.min(4000, w);
+    a.h = Math.min(4000, h);
+    a.targetDir = Number(a.targetDir) < 0 ? -1 : 1;
+    normalizeLook(a);
   }
 
   const ERASER_W = 48;
@@ -223,6 +245,7 @@
     carveRectList(d.movingPlatforms, cut);
     carveRectList(d.lava, cut);
     carveRectList(d.spikes, cut);
+    carveRectList(d.gravityArrows, cut);
     if (d.coins && d.coins.length) {
       d.coins = d.coins.filter(function (c) {
         const r = Number(c.r) > 0 ? Number(c.r) : 14;
@@ -239,6 +262,7 @@
     if (editorSelection.kind === 'mover') return (d.movingPlatforms || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
     return null;
   }
@@ -248,6 +272,7 @@
     if (kind === 'spike') return '#9f1239';
     if (kind === 'goal') return '#34d399';
     if (kind === 'mover') return '#4f46e5';
+    if (kind === 'gravity') return '#fbbf24';
     return '#4338ca';
   }
 
@@ -315,6 +340,7 @@
     if (editorSelection.kind === 'mover') return (d.movingPlatforms || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     return null;
   }
 
@@ -350,15 +376,146 @@
     scheduleEditorRedraw();
   }
 
-  function resizeHandleWorld(p) {
-    return { x: p.x + p.w, y: p.y + p.h };
-  }
-
   function nearResizeHandle(wx, wy, p) {
     if (!p) return false;
-    const h = resizeHandleWorld(p);
-    const slop = 14 / Math.max(0.15, cam.s);
-    return Math.abs(wx - h.x) <= slop && Math.abs(wy - h.y) <= slop;
+    const h = toScreen(p.x + p.w, p.y + p.h);
+    const s = toScreen(wx, wy);
+    return Math.abs(s.x - h.x) <= 8 && Math.abs(s.y - h.y) <= 8;
+  }
+
+  function selectedContainsPoint(wx, wy) {
+    const d = editorState.data;
+    if (!d || !editorSelection) return false;
+    const k = editorSelection.kind;
+    const i = editorSelection.index;
+    if (k === 'goal') {
+      const g = d.goal;
+      return !!(g && wx >= g.x && wx <= g.x + g.w && wy >= g.y && wy <= g.y + g.h);
+    }
+    if (k === 'spawn') {
+      const sp = d.spawn;
+      return !!(sp && Math.hypot(wx - sp.x, wy - sp.y) < 28);
+    }
+    if (k === 'coin') {
+      const c = (d.coins || [])[i];
+      if (!c) return false;
+      const r = Number(c.r) > 0 ? Number(c.r) : 14;
+      return Math.hypot(wx - c.x, wy - c.y) < r + 10;
+    }
+    if (k === 'fireball') {
+      const e = (d.fireballEmitters || [])[i];
+      if (!e) return false;
+      let cx;
+      let cy;
+      if (e.from === 'left') {
+        cx = 0;
+        cy = e.pos;
+      } else if (e.from === 'right') {
+        cx = d.worldW;
+        cy = e.pos;
+      } else if (e.from === 'top') {
+        cx = e.pos;
+        cy = 0;
+      } else {
+        cx = e.pos;
+        cy = d.worldH;
+      }
+      return Math.hypot(wx - cx, wy - cy) < 36;
+    }
+    let r = null;
+    if (k === 'platform') r = (d.platforms || [])[i];
+    else if (k === 'mover') r = (d.movingPlatforms || [])[i];
+    else if (k === 'lava') r = (d.lava || [])[i];
+    else if (k === 'spike') r = (d.spikes || [])[i];
+    else if (k === 'gravity') r = (d.gravityArrows || [])[i];
+    return !!(r && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h);
+  }
+
+  function beginMoveDrag(w) {
+    if (!editorSelection || !editorState.data) {
+      drag = null;
+      return;
+    }
+    const d = editorState.data;
+    drag = { sel: editorSelection, last: w, resize: false };
+    if (drag.sel.kind === 'platform') {
+      const p = d.platforms[drag.sel.index];
+      drag.startPlatformPos = { x: p.x, y: p.y };
+    } else if (drag.sel.kind === 'lava') {
+      const L = d.lava[drag.sel.index];
+      drag.startLavaPos = { x: L.x, y: L.y };
+    } else if (drag.sel.kind === 'goal') drag.startGoal = { x: d.goal.x, y: d.goal.y };
+    else if (drag.sel.kind === 'spawn') drag.startSpawn = { x: d.spawn.x, y: d.spawn.y };
+    else if (drag.sel.kind === 'fireball') {
+      drag.startEmitter = JSON.parse(JSON.stringify(d.fireballEmitters[drag.sel.index]));
+    } else if (drag.sel.kind === 'coin') {
+      const c = d.coins[drag.sel.index];
+      drag.startCoin = { x: c.x, y: c.y };
+    } else if (drag.sel.kind === 'mover') {
+      const p = d.movingPlatforms[drag.sel.index];
+      drag.startMover = { x: p.x, y: p.y };
+    } else if (drag.sel.kind === 'spike') {
+      const s = d.spikes[drag.sel.index];
+      drag.startSpike = { x: s.x, y: s.y };
+    } else if (drag.sel.kind === 'gravity') {
+      const a = d.gravityArrows[drag.sel.index];
+      drag.startGravity = { x: a.x, y: a.y };
+    }
+  }
+
+  function snapDraggedObject() {
+    if (!drag || drag.resize || !drag.sel || !editorState.data) return;
+    const d = editorState.data;
+    const snap8 = function (v) {
+      return Math.round(v / 8) * 8;
+    };
+    const snap4 = function (v) {
+      return Math.round(v / 4) * 4;
+    };
+    const k = drag.sel.kind;
+    if (k === 'platform') {
+      const p = d.platforms[drag.sel.index];
+      if (p) {
+        p.x = snap8(p.x);
+        p.y = snap8(p.y);
+      }
+    } else if (k === 'mover') {
+      const p = d.movingPlatforms[drag.sel.index];
+      if (p) {
+        p.x = snap8(p.x);
+        p.y = snap8(p.y);
+      }
+    } else if (k === 'lava') {
+      const L = d.lava[drag.sel.index];
+      if (L) {
+        L.x = snap8(L.x);
+        L.y = snap8(L.y);
+      }
+    } else if (k === 'spike') {
+      const s = d.spikes[drag.sel.index];
+      if (s) {
+        s.x = snap8(s.x);
+        s.y = snap8(s.y);
+      }
+    } else if (k === 'gravity') {
+      const a = d.gravityArrows[drag.sel.index];
+      if (a) {
+        a.x = snap8(a.x);
+        a.y = snap8(a.y);
+      }
+    } else if (k === 'goal') {
+      d.goal.x = snap4(d.goal.x);
+      d.goal.y = snap4(d.goal.y);
+    } else if (k === 'spawn') {
+      d.spawn.x = snap4(d.spawn.x);
+      d.spawn.y = snap4(d.spawn.y);
+    } else if (k === 'coin') {
+      const c = d.coins[drag.sel.index];
+      if (c) {
+        c.x = snap4(c.x);
+        c.y = snap4(c.y);
+      }
+    }
   }
 
   function selectedMoverPlatform() {
@@ -422,6 +579,31 @@
     if (axisEl && document.activeElement !== axisEl) axisEl.value = p.move.axis === 'y' ? 'y' : 'x';
     if (ampEl && document.activeElement !== ampEl) ampEl.value = String(p.move.amp);
     if (omegaEl && document.activeElement !== omegaEl) omegaEl.value = String(p.move.omega);
+  }
+
+  function selectedGravityArrow() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'gravity') return null;
+    return (d.gravityArrows || [])[editorSelection.index] || null;
+  }
+
+  function syncGravityInspector() {
+    const wrap = document.getElementById('lvlEdGravProps');
+    const dirEl = document.getElementById('lvlEdGravDir');
+    const a = selectedGravityArrow();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !a);
+    wrap.classList.toggle('flex', !!a);
+    if (!a) return;
+    if (dirEl && document.activeElement !== dirEl) dirEl.value = a.targetDir < 0 ? '-1' : '1';
+  }
+
+  function applyGravityFromUi() {
+    const a = selectedGravityArrow();
+    const dirEl = document.getElementById('lvlEdGravDir');
+    if (!a || !dirEl) return;
+    a.targetDir = dirEl.value === '1' ? 1 : -1;
+    scheduleEditorRedraw();
   }
 
   function drawMoverTravel(ctx, p) {
@@ -507,6 +689,11 @@
       const c = coins[i];
       const r = Number(c.r) > 0 ? Number(c.r) : 14;
       if (Math.hypot(wx - c.x, wy - c.y) < r + 10) return { kind: 'coin', index: i };
+    }
+    const grav = d.gravityArrows || [];
+    for (let i = grav.length - 1; i >= 0; i--) {
+      const a = grav[i];
+      if (wx >= a.x && wx <= a.x + a.w && wy >= a.y && wy <= a.y + a.h) return { kind: 'gravity', index: i };
     }
     const spikes = d.spikes || [];
     for (let i = spikes.length - 1; i >= 0; i--) {
@@ -732,6 +919,44 @@
       ctx.stroke();
     }
 
+    for (const garr of d.gravityArrows || []) {
+      const a = toScreen(garr.x, garr.y);
+      const sw = garr.w * cam.s;
+      const sh = garr.h * cam.s;
+      ctx.save();
+      if (garr.invisible) ctx.globalAlpha = 0.32;
+      const fill = editorFill(garr, '#fbbf24');
+      ctx.fillStyle = fill;
+      ctx.globalAlpha = garr.invisible ? 0.28 : 0.38;
+      ctx.fillRect(a.x, a.y, sw, sh);
+      ctx.globalAlpha = garr.invisible ? 0.7 : 1;
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(a.x + 0.5, a.y + 0.5, sw - 1, sh - 1);
+      const cx = a.x + sw / 2;
+      const down = garr.targetDir > 0;
+      const pad = Math.max(4, Math.min(sw, sh) * 0.16);
+      ctx.fillStyle = '#fde68a';
+      ctx.beginPath();
+      if (down) {
+        ctx.moveTo(cx, a.y + sh - pad);
+        ctx.lineTo(a.x + pad, a.y + pad);
+        ctx.lineTo(a.x + sw - pad, a.y + pad);
+      } else {
+        ctx.moveTo(cx, a.y + pad);
+        ctx.lineTo(a.x + pad, a.y + sh - pad);
+        ctx.lineTo(a.x + sw - pad, a.y + sh - pad);
+      }
+      ctx.closePath();
+      ctx.fill();
+      if (garr.invisible) {
+        ctx.fillStyle = 'rgba(248,250,252,0.92)';
+        ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+        ctx.fillText('inv', a.x + 3, a.y + Math.min(12, sh - 2));
+      }
+      ctx.restore();
+    }
+
     const gg = d.goal;
     const ga = toScreen(gg.x, gg.y);
     paintEditorRect(gg, ga.x, ga.y, gg.w * cam.s, gg.h * cam.s, '#34d399', '#6ee7b7');
@@ -802,6 +1027,10 @@
         ctx.strokeRect(a.x - 2, a.y - 2, s.w * cam.s + 4, s.h * cam.s + 4);
       } else if (editorSelection.kind === 'goal') {
         ctx.strokeRect(ga.x - 2, ga.y - 2, gg.w * cam.s + 4, gg.h * cam.s + 4);
+      } else if (editorSelection.kind === 'gravity') {
+        const gv = d.gravityArrows[editorSelection.index];
+        const a = toScreen(gv.x, gv.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, gv.w * cam.s + 4, gv.h * cam.s + 4);
       }
       const sz = selectedSizeRect();
       if (sz) {
@@ -838,6 +1067,7 @@
       try {
         drawEditor(canvas, ctx);
         syncMoverInspector();
+        syncGravityInspector();
         syncSizeInspector();
         syncStageFlagsUi();
         syncAppearanceUi();
@@ -885,39 +1115,28 @@
         return;
       }
 
+      const already = selectedSizeRect();
+      if (already && nearResizeHandle(w.x, w.y, already)) {
+        drag = { sel: editorSelection, last: w, resize: true };
+        canvas.style.cursor = 'nwse-resize';
+        scheduleEditorRedraw();
+        return;
+      }
+
+      if (selectedContainsPoint(w.x, w.y)) {
+        beginMoveDrag(w);
+        canvas.style.cursor = 'grabbing';
+        scheduleEditorRedraw();
+        return;
+      }
+
       if (editorTool === 'select') {
-        const already = selectedSizeRect();
-        if (already && nearResizeHandle(w.x, w.y, already)) {
-          drag = { sel: editorSelection, last: w, resize: true };
-          scheduleEditorRedraw();
-          return;
-        }
         editorSelection = hitTest(w.x, w.y, d);
-        drag = editorSelection
-          ? { sel: editorSelection, last: w, startPlatformPos: null, startLavaPos: null, startGoal: null }
-          : null;
-        if (drag && drag.sel.kind === 'platform') {
-          const p = d.platforms[drag.sel.index];
-          drag.startPlatformPos = { x: p.x, y: p.y };
-        }
-        if (drag && drag.sel.kind === 'lava') {
-          const L = d.lava[drag.sel.index];
-          drag.startLavaPos = { x: L.x, y: L.y };
-        }
-        if (drag && drag.sel.kind === 'goal') drag.startGoal = { x: d.goal.x, y: d.goal.y };
-        if (drag && drag.sel.kind === 'spawn') drag.startSpawn = { x: d.spawn.x, y: d.spawn.y };
-        if (drag && drag.sel.kind === 'fireball') drag.startEmitter = JSON.parse(JSON.stringify(d.fireballEmitters[drag.sel.index]));
-        if (drag && drag.sel.kind === 'coin') {
-          const c = d.coins[drag.sel.index];
-          drag.startCoin = { x: c.x, y: c.y };
-        }
-        if (drag && drag.sel.kind === 'mover') {
-          const p = d.movingPlatforms[drag.sel.index];
-          drag.startMover = { x: p.x, y: p.y };
-        }
-        if (drag && drag.sel.kind === 'spike') {
-          const s = d.spikes[drag.sel.index];
-          drag.startSpike = { x: s.x, y: s.y };
+        if (editorSelection) {
+          beginMoveDrag(w);
+          canvas.style.cursor = 'grabbing';
+        } else {
+          drag = null;
         }
         scheduleEditorRedraw();
         return;
@@ -975,6 +1194,18 @@
           })
         );
         editorSelection = { kind: 'mover', index: d.movingPlatforms.length - 1 };
+      } else if (editorTool === 'gravity') {
+        if (!d.gravityArrows) d.gravityArrows = [];
+        d.gravityArrows.push(
+          withPaint({
+            x: Math.round((w.x - 20) / 8) * 8,
+            y: Math.round((w.y - 32) / 8) * 8,
+            w: 40,
+            h: 64,
+            targetDir: -1,
+          })
+        );
+        editorSelection = { kind: 'gravity', index: d.gravityArrows.length - 1 };
       }
       scheduleEditorRedraw();
     }
@@ -984,6 +1215,14 @@
       const cx = e.clientX ?? e.touches?.[0]?.clientX;
       const cy = e.clientY ?? e.touches?.[0]?.clientY;
       return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+    }
+
+    function editorHoverCursor(w) {
+      if (editorTool === 'eraser') return 'crosshair';
+      const sz = selectedSizeRect();
+      if (sz && nearResizeHandle(w.x, w.y, sz)) return 'nwse-resize';
+      if (selectedContainsPoint(w.x, w.y)) return 'grab';
+      return editorTool === 'select' ? 'default' : 'crosshair';
     }
 
     function onMove(e) {
@@ -998,9 +1237,14 @@
           eraserHover = null;
           scheduleEditorRedraw();
         }
+        canvas.style.cursor = 'crosshair';
         if (!drag) return;
       }
-      if (!drag || !editorState.data) return;
+      if (!drag || !editorState.data) {
+        if (pointerOnCanvas(e)) canvas.style.cursor = editorHoverCursor(w);
+        return;
+      }
+      canvas.style.cursor = drag.resize ? 'nwse-resize' : 'grabbing';
       const d = editorState.data;
       const dx = w.x - drag.last.x;
       const dy = w.y - drag.last.y;
@@ -1041,13 +1285,19 @@
         const s = d.spikes[drag.sel.index];
         s.x += dx;
         s.y += dy;
+      } else if (drag.sel.kind === 'gravity') {
+        const a = d.gravityArrows[drag.sel.index];
+        a.x += dx;
+        a.y += dy;
       }
       scheduleEditorRedraw();
     }
 
     function onUp() {
+      if (drag && !drag.resize) snapDraggedObject();
       drag = null;
       eraserDrag = false;
+      scheduleEditorRedraw();
     }
 
     window.addEventListener('mousemove', onMove);
@@ -2209,6 +2459,12 @@
       } else if (editorSelection.kind === 'mover') {
         const p = editorState.data.movingPlatforms[editorSelection.index];
         if (p && p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
+      } else if (editorSelection.kind === 'gravity') {
+        const a = editorState.data.gravityArrows[editorSelection.index];
+        if (a) {
+          rotatePlatform90(a);
+          a.targetDir = a.targetDir < 0 ? 1 : -1;
+        }
       }
       scheduleEditorRedraw();
     });
@@ -2246,6 +2502,8 @@
       el.addEventListener('change', applyMoverInspectorFromInputs);
       el.addEventListener('input', applyMoverInspectorFromInputs);
     });
+    const gravDir = document.getElementById('lvlEdGravDir');
+    if (gravDir) gravDir.addEventListener('change', applyGravityFromUi);
     ['lvlEdSizeW', 'lvlEdSizeH'].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -2283,6 +2541,7 @@
       if (editorSelection.kind === 'coin') d.coins.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'spike') d.spikes.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'gravity') d.gravityArrows.splice(editorSelection.index, 1);
       editorSelection = null;
       scheduleEditorRedraw();
     });
