@@ -4033,7 +4033,9 @@
   }
 
   function beginCampaignPlay() {
-    if (window.SkyHopRunAnticheat) window.SkyHopRunAnticheat.beginSession(true);
+    if (window.SkyHopRunAnticheat) {
+      window.SkyHopRunAnticheat.beginSession(window.SkyHopRunAnticheat.hostOn !== false);
+    }
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
     restoreBundledCampaignIfEmpty();
@@ -4124,6 +4126,9 @@
 
   function startUserLevel(stagesArr, meta) {
     if (!stagesArr || !stagesArr.length) return;
+    if (window.SkyHopRunAnticheat) {
+      window.SkyHopRunAnticheat.beginSession(window.SkyHopRunAnticheat.hostOn !== false);
+    }
     refreshRuntimeOptsFromMenu();
     closeWeaponScreen();
     woodenSwordReadyAt = 0;
