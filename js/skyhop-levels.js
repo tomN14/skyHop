@@ -70,6 +70,7 @@
     if (!Array.isArray(raw.coins)) raw.coins = [];
     if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
     raw.underhangDisabled = true;
+    normalizeEditorLevelInPlace(raw);
     return raw;
   }
 
@@ -113,6 +114,82 @@
     if (!Array.isArray(d.fireballEmitters)) d.fireballEmitters = [];
     if (!Array.isArray(d.coins)) d.coins = [];
     if (!Array.isArray(d.movingPlatforms)) d.movingPlatforms = [];
+    for (const p of d.movingPlatforms) normalizeMoverMotion(p);
+    for (const p of d.platforms) {
+      if (p && p.move) normalizeMoverMotion(p);
+    }
+  }
+
+  function normalizeMoverMotion(p) {
+    if (!p || typeof p !== 'object') return;
+    if (!p.move || typeof p.move !== 'object') {
+      p.move = { axis: 'x', amp: 80, omega: 1, phase: 0 };
+    }
+    p.move.axis = p.move.axis === 'y' ? 'y' : 'x';
+    let amp = Number(p.move.amp);
+    let omega = Number(p.move.omega);
+    let phase = Number(p.move.phase);
+    if (!Number.isFinite(amp)) amp = 80;
+    if (!Number.isFinite(omega) || omega <= 0) omega = 1;
+    if (!Number.isFinite(phase)) phase = 0;
+    p.move.amp = Math.min(600, Math.max(8, amp));
+    p.move.omega = Math.min(4, Math.max(0.15, omega));
+    p.move.phase = phase;
+  }
+
+  function selectedMoverPlatform() {
+    const d = editorState.data;
+    if (!d || !editorSelection) return null;
+    if (editorSelection.kind === 'mover') {
+      const p = (d.movingPlatforms || [])[editorSelection.index];
+      return p || null;
+    }
+    if (editorSelection.kind === 'platform') {
+      const p = (d.platforms || [])[editorSelection.index];
+      return p && p.move ? p : null;
+    }
+    return null;
+  }
+
+  function syncMoverInspector() {
+    const wrap = document.getElementById('lvlEdMoverProps');
+    const axisEl = document.getElementById('lvlEdMoverAxis');
+    const ampEl = document.getElementById('lvlEdMoverAmp');
+    const omegaEl = document.getElementById('lvlEdMoverOmega');
+    const p = selectedMoverPlatform();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !p);
+    wrap.classList.toggle('flex', !!p);
+    if (!p || !p.move) return;
+    if (axisEl && document.activeElement !== axisEl) axisEl.value = p.move.axis === 'y' ? 'y' : 'x';
+    if (ampEl && document.activeElement !== ampEl) ampEl.value = String(p.move.amp);
+    if (omegaEl && document.activeElement !== omegaEl) omegaEl.value = String(p.move.omega);
+  }
+
+  function drawMoverTravel(ctx, p) {
+    if (!p || !p.move) return;
+    const amp = p.move.amp;
+    const axis = p.move.axis === 'y' ? 'y' : 'x';
+    const a0 = axis === 'y' ? toScreen(p.x + p.w / 2, p.y - amp) : toScreen(p.x - amp, p.y + p.h / 2);
+    const a1 = axis === 'y' ? toScreen(p.x + p.w / 2, p.y + p.h + amp) : toScreen(p.x + p.w + amp, p.y + p.h / 2);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.55)';
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(a0.x, a0.y);
+    ctx.lineTo(a1.x, a1.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const ghostA = axis === 'y' ? toScreen(p.x, p.y - amp) : toScreen(p.x - amp, p.y);
+    const ghostB = axis === 'y' ? toScreen(p.x, p.y + amp) : toScreen(p.x + amp, p.y);
+    ctx.fillStyle = 'rgba(34, 211, 238, 0.12)';
+    ctx.strokeStyle = 'rgba(165, 243, 252, 0.45)';
+    ctx.fillRect(ghostA.x, ghostA.y, p.w * cam.s, p.h * cam.s);
+    ctx.strokeRect(ghostA.x + 0.5, ghostA.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+    ctx.fillRect(ghostB.x, ghostB.y, p.w * cam.s, p.h * cam.s);
+    ctx.strokeRect(ghostB.x + 0.5, ghostB.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+    ctx.restore();
   }
 
   /* ---------- Editor canvas ---------- */
@@ -311,23 +388,25 @@
       ctx.strokeStyle = 'rgba(165,180,252,0.6)';
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
       if (p.move) {
-        ctx.fillStyle = 'rgba(251,191,36,0.35)';
+        drawMoverTravel(ctx, p);
+        ctx.fillStyle = 'rgba(251,191,36,0.9)';
         ctx.font = `${Math.max(9, 10 * cam.s)}px sans-serif`;
-        ctx.fillText('move', a.x + 4, a.y + 14 * cam.s);
+        ctx.fillText(p.move.axis === 'y' ? '↕' : '↔', a.x + 4, a.y + 14 * cam.s);
       }
     }
 
     for (const p of d.movingPlatforms || []) {
+      drawMoverTravel(ctx, p);
       const a = toScreen(p.x, p.y);
-      ctx.fillStyle = '#4f46e5';
+      ctx.fillStyle = p.move && p.move.axis === 'y' ? '#0891b2' : '#4f46e5';
       ctx.fillRect(a.x, a.y, p.w * cam.s, p.h * cam.s);
-      ctx.strokeStyle = 'rgba(251, 191, 36, 0.9)';
+      ctx.strokeStyle = p.move && p.move.axis === 'y' ? 'rgba(34, 211, 238, 0.95)' : 'rgba(251, 191, 36, 0.9)';
       ctx.lineWidth = 2;
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
       ctx.lineWidth = 1;
       ctx.fillStyle = '#fde68a';
       ctx.font = `${Math.max(9, 10 * cam.s)}px sans-serif`;
-      ctx.fillText('M', a.x + 4, a.y + 14 * cam.s);
+      ctx.fillText(p.move && p.move.axis === 'y' ? '↕' : '↔', a.x + 4, a.y + 14 * cam.s);
     }
 
     for (const c of d.coins || []) {
@@ -422,6 +501,7 @@
     requestAnimationFrame(() => {
       try {
         drawEditor(canvas, ctx);
+        syncMoverInspector();
       } finally {
         editorRedrawScheduled = false;
       }
@@ -510,14 +590,14 @@
         if (!d.coins) d.coins = [];
         d.coins.push({ x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
         editorSelection = { kind: 'coin', index: d.coins.length - 1 };
-      } else if (editorTool === 'mover') {
+      } else if (editorTool === 'mover' || editorTool === 'mover-y') {
         if (!d.movingPlatforms) d.movingPlatforms = [];
         d.movingPlatforms.push({
           x: Math.round((w.x - 40) / 8) * 8,
           y: Math.round((w.y - 10) / 8) * 8,
           w: 80,
           h: 20,
-          move: { axis: 'x', amp: 80, omega: 1, phase: 0 },
+          move: { axis: editorTool === 'mover-y' ? 'y' : 'x', amp: 80, omega: 1, phase: 0 },
         });
         editorSelection = { kind: 'mover', index: d.movingPlatforms.length - 1 };
       }
@@ -1704,10 +1784,50 @@
       });
     }
     document.getElementById('btnLvlEdRotate').addEventListener('click', () => {
-      if (!editorSelection || editorSelection.kind !== 'platform') return;
-      const p = editorState.data.platforms[editorSelection.index];
-      rotatePlatform90(p);
+      if (!editorSelection) return;
+      if (editorSelection.kind === 'platform') {
+        const p = editorState.data.platforms[editorSelection.index];
+        rotatePlatform90(p);
+        if (p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
+      } else if (editorSelection.kind === 'mover') {
+        const p = editorState.data.movingPlatforms[editorSelection.index];
+        if (p && p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
+      }
       scheduleEditorRedraw();
+    });
+    const btnToMoverY = document.getElementById('btnLvlEdToMoverY');
+    if (btnToMoverY) {
+      btnToMoverY.addEventListener('click', () => {
+        if (!editorState.data || !editorSelection || editorSelection.kind !== 'platform') return;
+        const d = editorState.data;
+        const p = d.platforms.splice(editorSelection.index, 1)[0];
+        if (!p) return;
+        if (!d.movingPlatforms) d.movingPlatforms = [];
+        normalizeMoverMotion(p);
+        p.move.axis = 'y';
+        d.movingPlatforms.push(p);
+        editorSelection = { kind: 'mover', index: d.movingPlatforms.length - 1 };
+        scheduleEditorRedraw();
+      });
+    }
+    function applyMoverInspectorFromInputs() {
+      const p = selectedMoverPlatform();
+      if (!p) return;
+      normalizeMoverMotion(p);
+      const axisEl = document.getElementById('lvlEdMoverAxis');
+      const ampEl = document.getElementById('lvlEdMoverAmp');
+      const omegaEl = document.getElementById('lvlEdMoverOmega');
+      if (axisEl) p.move.axis = axisEl.value === 'y' ? 'y' : 'x';
+      if (ampEl) p.move.amp = Number(ampEl.value);
+      if (omegaEl) p.move.omega = Number(omegaEl.value);
+      normalizeMoverMotion(p);
+      scheduleEditorRedraw();
+    }
+    ['lvlEdMoverAxis', 'lvlEdMoverAmp', 'lvlEdMoverOmega'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applyMoverInspectorFromInputs);
+      el.addEventListener('input', applyMoverInspectorFromInputs);
     });
     document.getElementById('btnLvlEdDelete').addEventListener('click', () => {
       if (!editorSelection) return;
