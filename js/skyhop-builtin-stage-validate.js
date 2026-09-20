@@ -32,6 +32,8 @@
             noWallJump: p.noWallJump,
             warnVertical: p.warnVertical,
             bossPassThrough: p.bossPassThrough,
+            color: p.color,
+            invisible: p.invisible,
           };
         })
         .filter(function (p) {

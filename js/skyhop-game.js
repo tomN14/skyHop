@@ -2673,6 +2673,52 @@
     updateCamera(stage, dt);
   }
 
+  function stageHexColor(c) {
+    return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim()) ? c.trim() : null;
+  }
+
+  function shadeHex(hex, amt) {
+    const h = stageHexColor(hex);
+    if (!h) return hex;
+    const t = Math.max(-1, Math.min(1, amt));
+    return (
+      '#' +
+      [1, 3, 5]
+        .map(function (i) {
+          const n = parseInt(h.slice(i, i + 2), 16);
+          const v = Math.round(n + (t < 0 ? n * t : (255 - n) * t));
+          return Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0');
+        })
+        .join('')
+    );
+  }
+
+  function hexToRgba(hex, a) {
+    const h = stageHexColor(hex);
+    if (!h) return null;
+    const r = parseInt(h.slice(1, 3), 16);
+    const g = parseInt(h.slice(3, 5), 16);
+    const b = parseInt(h.slice(5, 7), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  function fillStageBackdrop(stage) {
+    const custom = stage && stageHexColor(stage.bgColor);
+    if (custom) {
+      ctx.fillStyle = custom;
+      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      return;
+    }
+    if (stage && stage.doubleJump) {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight);
+      bg.addColorStop(0, '#064e3b');
+      bg.addColorStop(0.45, '#065f46');
+      bg.addColorStop(1, '#022c22');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    }
+  }
+
   function drawStage(stage) {
     ctx.save();
     ctx.translate(-cameraX, -cameraY);
@@ -2701,17 +2747,19 @@
     const lava = stage.lava;
     if (lava) {
       for (const Lv of lava) {
+        if (Lv.invisible) continue;
+        const top = stageHexColor(Lv.color) || '#f97316';
         const g = ctx.createLinearGradient(Lv.x, Lv.y, Lv.x, Lv.y + Lv.h);
-        g.addColorStop(0, '#f97316');
-        g.addColorStop(0.35, '#ea580c');
-        g.addColorStop(0.7, '#c2410c');
-        g.addColorStop(1, '#7f1d1d');
+        g.addColorStop(0, top);
+        g.addColorStop(0.35, shadeHex(top, -0.12));
+        g.addColorStop(0.7, shadeHex(top, -0.32));
+        g.addColorStop(1, shadeHex(top, -0.55));
         ctx.fillStyle = g;
         ctx.fillRect(Lv.x, Lv.y, Lv.w, Lv.h);
-        ctx.strokeStyle = 'rgba(254, 215, 170, 0.35)';
+        ctx.strokeStyle = hexToRgba(top, 0.45) || 'rgba(254, 215, 170, 0.35)';
         ctx.lineWidth = 2;
         ctx.strokeRect(Lv.x + 0.5, Lv.y + 0.5, Lv.w - 1, Lv.h - 1);
-        ctx.fillStyle = 'rgba(255, 237, 213, 0.25)';
+        ctx.fillStyle = hexToRgba(top, 0.28) || 'rgba(255, 237, 213, 0.25)';
         for (let i = 0; i < Lv.w; i += 24) {
           const ox = ((performance.now() / 40 + i) % 20) - 10;
           ctx.fillRect(Lv.x + i + ox * 0.15, Lv.y + 8, 8, 6);
@@ -2719,7 +2767,12 @@
       }
     }
 
-    function drawPlatformRect(r, isMoving, noWallJump, warnVertical) {
+    function drawPlatformRect(r, src) {
+      if (src && src.invisible) return;
+      const isMoving = !!(src && src.move);
+      const noWallJump = !!(src && src.noWallJump);
+      const warnVertical = !!(src && src.warnVertical);
+      const custom = src && stageHexColor(src.color);
       const g = ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h);
       if (warnVertical) {
         g.addColorStop(0, '#f87171');
@@ -2734,7 +2787,10 @@
         ctx.lineWidth = 1;
         return;
       }
-      if (noWallJump) {
+      if (custom) {
+        g.addColorStop(0, shadeHex(custom, 0.18));
+        g.addColorStop(1, shadeHex(custom, -0.38));
+      } else if (noWallJump) {
         g.addColorStop(0, '#059669');
         g.addColorStop(1, '#064e3b');
       } else if (isMoving) {
@@ -2750,23 +2806,20 @@
         ? 'rgba(52, 211, 153, 0.95)'
         : isMoving
           ? 'rgba(251, 191, 36, 0.75)'
-          : 'rgba(165, 180, 252, 0.5)';
+          : custom
+            ? hexToRgba(custom, 0.55) || 'rgba(165, 180, 252, 0.5)'
+            : 'rgba(165, 180, 252, 0.5)';
       ctx.lineWidth = isMoving || noWallJump ? 2 : 1;
       ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
     }
 
     for (const p of stage.platforms || []) {
-      drawPlatformRect(
-        PHY.resolveMovingRect(p, tSec),
-        !!p.move,
-        !!p.noWallJump,
-        !!p.warnVertical
-      );
+      drawPlatformRect(PHY.resolveMovingRect(p, tSec), p);
     }
     const mp = stage.movingPlatforms;
     if (mp) {
       for (const p of mp) {
-        drawPlatformRect(PHY.resolveMovingRect(p, tSec), true, !!p.noWallJump, !!p.warnVertical);
+        drawPlatformRect(PHY.resolveMovingRect(p, tSec), p);
       }
     }
     ctx.lineWidth = 1;
@@ -2803,8 +2856,9 @@
       }
     }
 
-    function drawSpikeShape(s) {
-      ctx.fillStyle = '#f43f5e';
+    function drawSpikeShape(s, src) {
+      if (src && src.invisible) return;
+      ctx.fillStyle = (src && stageHexColor(src.color)) || '#f43f5e';
       const teeth = 6;
       const tw = s.w / teeth;
       ctx.beginPath();
@@ -2820,11 +2874,11 @@
     }
 
     for (const s of stage.spikes || []) {
-      drawSpikeShape(s);
+      drawSpikeShape(s, s);
     }
     if (stage.movingSpikes) {
       for (const s of stage.movingSpikes) {
-        drawSpikeShape(PHY.resolveMovingRect(s, tSec));
+        drawSpikeShape(PHY.resolveMovingRect(s, tSec), s);
       }
     }
 
@@ -3074,14 +3128,17 @@
 
     if (!stage.bossStage) {
       const g = stage.goal;
-      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
-      ctx.fillStyle = `rgba(52, 211, 153, ${0.35 + 0.25 * pulse})`;
-      ctx.fillRect(g.x - 6, g.y - 6, g.w + 12, g.h + 12);
-      ctx.fillStyle = '#34d399';
-      ctx.fillRect(g.x, g.y, g.w, g.h);
-      ctx.fillStyle = '#ecfdf5';
-      ctx.font = 'bold 14px Space Grotesk, sans-serif';
-      ctx.fillText('GOAL', g.x + g.w / 2 - 22, g.y + g.h / 2 + 5);
+      if (g && !g.invisible) {
+        const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
+        const gc = stageHexColor(g.color) || '#34d399';
+        ctx.fillStyle = hexToRgba(gc, 0.35 + 0.25 * pulse) || `rgba(52, 211, 153, ${0.35 + 0.25 * pulse})`;
+        ctx.fillRect(g.x - 6, g.y - 6, g.w + 12, g.h + 12);
+        ctx.fillStyle = gc;
+        ctx.fillRect(g.x, g.y, g.w, g.h);
+        ctx.fillStyle = '#ecfdf5';
+        ctx.font = 'bold 14px Space Grotesk, sans-serif';
+        ctx.fillText('GOAL', g.x + g.w / 2 - 22, g.y + g.h / 2 + 5);
+      }
     }
 
     if (grappleUnlocked() && grapple.aimValid) {
@@ -3309,17 +3366,11 @@
   function draw() {
     const stage = stagesNow()[stageIndex];
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
-    if (
-      (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') &&
-      stage &&
-      stage.doubleJump
-    ) {
-      const bg = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight);
-      bg.addColorStop(0, '#064e3b');
-      bg.addColorStop(0.45, '#065f46');
-      bg.addColorStop(1, '#022c22');
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
+      if (stage) fillStageBackdrop(stage);
+    } else if (gameState === 'win') {
+      const bc0 = builtinCampaign();
+      if (bc0 && bc0.length) fillStageBackdrop(bc0[bc0.length - 1]);
     }
     if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
       if (stage) drawStage(stage);

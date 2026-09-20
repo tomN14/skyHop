@@ -121,6 +121,14 @@
     for (const p of d.platforms) {
       if (p && p.move) normalizeMoverMotion(p);
     }
+    for (const p of d.platforms) normalizeLook(p);
+    for (const p of d.movingPlatforms) normalizeLook(p);
+    for (const L of d.lava) normalizeLook(L);
+    for (const s of d.spikes) normalizeLook(s);
+    normalizeLook(d.goal);
+    const bg = validHexColor(d.bgColor);
+    if (bg) d.bgColor = bg;
+    else delete d.bgColor;
   }
 
   function normalizeMoverMotion(p) {
@@ -138,6 +146,219 @@
     p.move.amp = Math.min(600, Math.max(8, amp));
     p.move.omega = Math.min(4, Math.max(0.15, omega));
     p.move.phase = phase;
+  }
+
+  const ERASER_W = 48;
+  const ERASER_H = 24;
+  let editorPaintColor = '#4338ca';
+  let eraserDrag = false;
+  let eraserHover = null;
+
+  function validHexColor(c) {
+    return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim()) ? c.trim() : null;
+  }
+
+  function normalizeLook(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    const c = validHexColor(obj.color);
+    if (c) obj.color = c;
+    else delete obj.color;
+    if (obj.invisible) obj.invisible = true;
+    else delete obj.invisible;
+  }
+
+  function editorFill(obj, fallback) {
+    return (obj && validHexColor(obj.color)) || fallback;
+  }
+
+  function withPaint(obj) {
+    const c = validHexColor(editorPaintColor);
+    if (c) obj.color = c;
+    return obj;
+  }
+
+  function subtractRect(src, cut) {
+    const ix = Math.max(src.x, cut.x);
+    const iy = Math.max(src.y, cut.y);
+    const ix2 = Math.min(src.x + src.w, cut.x + cut.w);
+    const iy2 = Math.min(src.y + src.h, cut.y + cut.h);
+    if (ix >= ix2 || iy >= iy2) return [src];
+    const out = [];
+    const keep = function (x, y, w, h) {
+      if (w < 4 || h < 4) return;
+      out.push(Object.assign({}, src, { x: x, y: y, w: w, h: h }));
+    };
+    if (src.x < ix) keep(src.x, src.y, ix - src.x, src.h);
+    if (src.x + src.w > ix2) keep(ix2, src.y, src.x + src.w - ix2, src.h);
+    if (src.y < iy) keep(ix, src.y, ix2 - ix, iy - src.y);
+    if (src.y + src.h > iy2) keep(ix, iy2, ix2 - ix, src.y + src.h - iy2);
+    return out;
+  }
+
+  function carveRectList(list, cut) {
+    if (!list) return;
+    const next = [];
+    for (let i = 0; i < list.length; i++) {
+      const bits = subtractRect(list[i], cut);
+      for (let j = 0; j < bits.length; j++) next.push(bits[j]);
+    }
+    list.length = 0;
+    for (let i = 0; i < next.length; i++) list.push(next[i]);
+  }
+
+  function eraserStampAt(wx, wy) {
+    return {
+      x: Math.round((wx - ERASER_W / 2) / 8) * 8,
+      y: Math.round((wy - ERASER_H / 2) / 8) * 8,
+      w: ERASER_W,
+      h: ERASER_H,
+    };
+  }
+
+  function eraseAt(wx, wy) {
+    const d = editorState.data;
+    if (!d) return;
+    const cut = eraserStampAt(wx, wy);
+    carveRectList(d.platforms, cut);
+    carveRectList(d.movingPlatforms, cut);
+    carveRectList(d.lava, cut);
+    carveRectList(d.spikes, cut);
+    if (d.coins && d.coins.length) {
+      d.coins = d.coins.filter(function (c) {
+        const r = Number(c.r) > 0 ? Number(c.r) : 14;
+        return !(c.x + r > cut.x && c.x - r < cut.x + cut.w && c.y + r > cut.y && c.y - r < cut.y + cut.h);
+      });
+    }
+    editorSelection = null;
+  }
+
+  function selectedLookTarget() {
+    const d = editorState.data;
+    if (!d || !editorSelection) return null;
+    if (editorSelection.kind === 'platform') return (d.platforms || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'mover') return (d.movingPlatforms || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'goal') return d.goal || null;
+    return null;
+  }
+
+  function defaultColorForKind(kind) {
+    if (kind === 'lava') return '#ea580c';
+    if (kind === 'spike') return '#9f1239';
+    if (kind === 'goal') return '#34d399';
+    if (kind === 'mover') return '#4f46e5';
+    return '#4338ca';
+  }
+
+  function syncAppearanceUi() {
+    const wrap = document.getElementById('lvlEdAppearProps');
+    const col = document.getElementById('lvlEdColorSel');
+    const inv = document.getElementById('lvlEdOptInvisible');
+    const bg = document.getElementById('lvlEdColorBg');
+    const paint = document.getElementById('lvlEdColorPaint');
+    const d = editorState.data;
+    const t = selectedLookTarget();
+    if (bg && d && document.activeElement !== bg) {
+      bg.value = validHexColor(d.bgColor) || '#1e1b4b';
+    }
+    if (paint && document.activeElement !== paint) {
+      paint.value = validHexColor(editorPaintColor) || '#4338ca';
+    }
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !t);
+    wrap.classList.toggle('flex', !!t);
+    if (!t) return;
+    if (col && document.activeElement !== col) {
+      col.value =
+        validHexColor(t.color) ||
+        (editorSelection && defaultColorForKind(editorSelection.kind)) ||
+        editorPaintColor ||
+        '#4338ca';
+    }
+    if (inv && document.activeElement !== inv) inv.checked = !!t.invisible;
+  }
+
+  function applySelectedColorFromUi() {
+    const t = selectedLookTarget();
+    const col = document.getElementById('lvlEdColorSel');
+    if (col && validHexColor(col.value)) {
+      editorPaintColor = col.value;
+      if (t) t.color = col.value;
+    }
+    scheduleEditorRedraw();
+  }
+
+  function applySelectedInvisibleFromUi() {
+    const t = selectedLookTarget();
+    const inv = document.getElementById('lvlEdOptInvisible');
+    if (t && inv) t.invisible = !!inv.checked;
+    scheduleEditorRedraw();
+  }
+
+  function applyPaintFromUi() {
+    const el = document.getElementById('lvlEdColorPaint');
+    if (el && validHexColor(el.value)) editorPaintColor = el.value;
+  }
+
+  function applyBgFromUi() {
+    const d = editorState.data;
+    const el = document.getElementById('lvlEdColorBg');
+    if (d && el && validHexColor(el.value)) d.bgColor = el.value;
+    scheduleEditorRedraw();
+  }
+
+  function selectedSizeRect() {
+    const d = editorState.data;
+    if (!d || !editorSelection) return null;
+    if (editorSelection.kind === 'platform') return (d.platforms || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'mover') return (d.movingPlatforms || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
+    return null;
+  }
+
+  function clampRectSize(p, w, h) {
+    if (!p) return;
+    let nw = Number(w);
+    let nh = Number(h);
+    if (!Number.isFinite(nw)) nw = p.w;
+    if (!Number.isFinite(nh)) nh = p.h;
+    p.w = Math.min(4000, Math.max(8, Math.round(nw)));
+    p.h = Math.min(4000, Math.max(8, Math.round(nh)));
+  }
+
+  function syncSizeInspector() {
+    const wrap = document.getElementById('lvlEdSizeProps');
+    const wEl = document.getElementById('lvlEdSizeW');
+    const hEl = document.getElementById('lvlEdSizeH');
+    const p = selectedSizeRect();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !p);
+    wrap.classList.toggle('flex', !!p);
+    if (!p) return;
+    if (wEl && document.activeElement !== wEl) wEl.value = String(Math.round(p.w));
+    if (hEl && document.activeElement !== hEl) hEl.value = String(Math.round(p.h));
+  }
+
+  function applySizeFromUi() {
+    const p = selectedSizeRect();
+    if (!p) return;
+    const wEl = document.getElementById('lvlEdSizeW');
+    const hEl = document.getElementById('lvlEdSizeH');
+    clampRectSize(p, wEl && wEl.value, hEl && hEl.value);
+    scheduleEditorRedraw();
+  }
+
+  function resizeHandleWorld(p) {
+    return { x: p.x + p.w, y: p.y + p.h };
+  }
+
+  function nearResizeHandle(wx, wy, p) {
+    if (!p) return false;
+    const h = resizeHandleWorld(p);
+    const slop = 14 / Math.max(0.15, cam.s);
+    return Math.abs(wx - h.x) <= slop && Math.abs(wy - h.y) <= slop;
   }
 
   function selectedMoverPlatform() {
@@ -414,20 +635,45 @@
       ctx.stroke();
     }
 
-    ctx.fillStyle = '#1e1b4b';
+    ctx.fillStyle = validHexColor(d.bgColor) || '#1e1b4b';
     ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+
+    function paintEditorRect(obj, x, y, w, h, fallback, stroke) {
+      ctx.save();
+      if (obj && obj.invisible) ctx.globalAlpha = 0.3;
+      ctx.fillStyle = editorFill(obj, fallback);
+      ctx.fillRect(x, y, w, h);
+      if (stroke) {
+        ctx.strokeStyle = stroke;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      }
+      if (obj && obj.invisible) {
+        ctx.globalAlpha = 0.95;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = 'rgba(248,250,252,0.8)';
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        ctx.setLineDash([]);
+        if (h > 10 && w > 20) {
+          ctx.fillStyle = 'rgba(248,250,252,0.92)';
+          ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+          ctx.fillText('inv', x + 3, y + Math.min(12, h - 2));
+        }
+      }
+      ctx.restore();
+    }
 
     for (const L of d.lava) {
       const a = toScreen(L.x, L.y);
-      ctx.fillStyle = 'rgba(234,88,12,0.85)';
-      ctx.fillRect(a.x, a.y, L.w * cam.s, L.h * cam.s);
+      paintEditorRect(L, a.x, a.y, L.w * cam.s, L.h * cam.s, '#ea580c', 'rgba(254, 215, 170, 0.45)');
     }
 
     for (const s of d.spikes || []) {
       const a = toScreen(s.x, s.y);
       const sw = s.w * cam.s;
       const sh = s.h * cam.s;
-      ctx.fillStyle = '#9f1239';
+      ctx.save();
+      if (s.invisible) ctx.globalAlpha = 0.3;
+      ctx.fillStyle = editorFill(s, '#9f1239');
       ctx.beginPath();
       ctx.moveTo(a.x, a.y + sh);
       const teeth = Math.max(2, Math.round(s.w / 10));
@@ -438,16 +684,22 @@
       }
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = 'rgba(254, 205, 211, 0.45)';
+      ctx.strokeStyle = s.invisible ? 'rgba(248,250,252,0.8)' : 'rgba(254, 205, 211, 0.45)';
+      if (s.invisible) ctx.setLineDash([4, 3]);
       ctx.stroke();
+      if (s.invisible && sh > 10 && sw > 20) {
+        ctx.globalAlpha = 0.95;
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(248,250,252,0.92)';
+        ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+        ctx.fillText('inv', a.x + 3, a.y + Math.min(12, sh - 2));
+      }
+      ctx.restore();
     }
 
     for (const p of d.platforms) {
       const a = toScreen(p.x, p.y);
-      ctx.fillStyle = '#4338ca';
-      ctx.fillRect(a.x, a.y, p.w * cam.s, p.h * cam.s);
-      ctx.strokeStyle = 'rgba(165,180,252,0.6)';
-      ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+      paintEditorRect(p, a.x, a.y, p.w * cam.s, p.h * cam.s, '#4338ca', 'rgba(165,180,252,0.6)');
       if (p.move) {
         drawMoverTravel(ctx, p);
         ctx.fillStyle = 'rgba(251,191,36,0.9)';
@@ -459,11 +711,10 @@
     for (const p of d.movingPlatforms || []) {
       drawMoverTravel(ctx, p);
       const a = toScreen(p.x, p.y);
-      ctx.fillStyle = p.move && p.move.axis === 'y' ? '#0891b2' : '#4f46e5';
-      ctx.fillRect(a.x, a.y, p.w * cam.s, p.h * cam.s);
-      ctx.strokeStyle = p.move && p.move.axis === 'y' ? 'rgba(34, 211, 238, 0.95)' : 'rgba(251, 191, 36, 0.9)';
+      const fallback = p.move && p.move.axis === 'y' ? '#0891b2' : '#4f46e5';
+      const stroke = p.move && p.move.axis === 'y' ? 'rgba(34, 211, 238, 0.95)' : 'rgba(251, 191, 36, 0.9)';
       ctx.lineWidth = 2;
-      ctx.strokeRect(a.x + 0.5, a.y + 0.5, p.w * cam.s - 1, p.h * cam.s - 1);
+      paintEditorRect(p, a.x, a.y, p.w * cam.s, p.h * cam.s, fallback, stroke);
       ctx.lineWidth = 1;
       ctx.fillStyle = '#fde68a';
       ctx.font = `${Math.max(9, 10 * cam.s)}px sans-serif`;
@@ -483,13 +734,10 @@
 
     const gg = d.goal;
     const ga = toScreen(gg.x, gg.y);
-    ctx.fillStyle = 'rgba(52,211,153,0.5)';
-    ctx.fillRect(ga.x, ga.y, gg.w * cam.s, gg.h * cam.s);
-    ctx.strokeStyle = '#34d399';
-    ctx.strokeRect(ga.x, ga.y, gg.w * cam.s, gg.h * cam.s);
-    ctx.fillStyle = '#a7f3d0';
+    paintEditorRect(gg, ga.x, ga.y, gg.w * cam.s, gg.h * cam.s, '#34d399', '#6ee7b7');
+    ctx.fillStyle = gg.invisible ? 'rgba(248,250,252,0.85)' : '#a7f3d0';
     ctx.font = `${Math.max(10, 12 * cam.s)}px sans-serif`;
-    ctx.fillText('Goal', ga.x + 4, ga.y + 18 * cam.s);
+    ctx.fillText(gg.invisible ? 'Goal (inv)' : 'Goal', ga.x + 4, ga.y + 18 * cam.s);
 
     const sp = d.spawn;
     const sa = toScreen(sp.x, sp.y);
@@ -552,7 +800,30 @@
         const s = d.spikes[editorSelection.index];
         const a = toScreen(s.x, s.y);
         ctx.strokeRect(a.x - 2, a.y - 2, s.w * cam.s + 4, s.h * cam.s + 4);
+      } else if (editorSelection.kind === 'goal') {
+        ctx.strokeRect(ga.x - 2, ga.y - 2, gg.w * cam.s + 4, gg.h * cam.s + 4);
       }
+      const sz = selectedSizeRect();
+      if (sz) {
+        const h = toScreen(sz.x + sz.w, sz.y + sz.h);
+        ctx.fillStyle = '#fbbf24';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.fillRect(h.x - 5, h.y - 5, 10, 10);
+        ctx.strokeRect(h.x - 5.5, h.y - 5.5, 11, 11);
+      }
+    }
+
+    if (editorTool === 'eraser' && eraserHover) {
+      const cut = eraserStampAt(eraserHover.x, eraserHover.y);
+      const a = toScreen(cut.x, cut.y);
+      ctx.save();
+      ctx.fillStyle = 'rgba(251,113,133,0.22)';
+      ctx.strokeStyle = 'rgba(254,205,211,0.95)';
+      ctx.setLineDash([4, 3]);
+      ctx.fillRect(a.x, a.y, cut.w * cam.s, cut.h * cam.s);
+      ctx.strokeRect(a.x + 0.5, a.y + 0.5, cut.w * cam.s - 1, cut.h * cam.s - 1);
+      ctx.restore();
     }
   }
 
@@ -567,7 +838,9 @@
       try {
         drawEditor(canvas, ctx);
         syncMoverInspector();
+        syncSizeInspector();
         syncStageFlagsUi();
+        syncAppearanceUi();
       } finally {
         editorRedrawScheduled = false;
       }
@@ -603,8 +876,22 @@
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
       const d = editorState.data;
+      eraserHover = w;
+
+      if (editorTool === 'eraser') {
+        eraserDrag = true;
+        eraseAt(w.x, w.y);
+        scheduleEditorRedraw();
+        return;
+      }
 
       if (editorTool === 'select') {
+        const already = selectedSizeRect();
+        if (already && nearResizeHandle(w.x, w.y, already)) {
+          drag = { sel: editorSelection, last: w, resize: true };
+          scheduleEditorRedraw();
+          return;
+        }
         editorSelection = hitTest(w.x, w.y, d);
         drag = editorSelection
           ? { sel: editorSelection, last: w, startPlatformPos: null, startLavaPos: null, startGoal: null }
@@ -638,15 +925,19 @@
 
       editorSelection = null;
       if (editorTool === 'platform') {
-        d.platforms.push({ x: Math.round((w.x - 24) / 8) * 8, y: Math.round((w.y - 12) / 8) * 8, w: 48, h: 24 });
+        d.platforms.push(
+          withPaint({ x: Math.round((w.x - 24) / 8) * 8, y: Math.round((w.y - 12) / 8) * 8, w: 48, h: 24 })
+        );
         editorSelection = { kind: 'platform', index: d.platforms.length - 1 };
       } else if (editorTool === 'lava') {
-        d.lava.push({
-          x: Math.round((w.x - 80) / 8) * 8,
-          y: Math.round((w.y - 20) / 8) * 8,
-          w: 160,
-          h: 40,
-        });
+        d.lava.push(
+          withPaint({
+            x: Math.round((w.x - 80) / 8) * 8,
+            y: Math.round((w.y - 20) / 8) * 8,
+            w: 160,
+            h: 40,
+          })
+        );
         editorSelection = { kind: 'lava', index: d.lava.length - 1 };
       } else if (editorTool === 'fireball') {
         addFireballEmitter(w.x, w.y, d);
@@ -656,41 +947,70 @@
       } else if (editorTool === 'goal') {
         d.goal.x = Math.round((w.x - d.goal.w / 2) / 4) * 4;
         d.goal.y = Math.round((w.y - d.goal.h / 2) / 4) * 4;
+        withPaint(d.goal);
       } else if (editorTool === 'coin') {
         if (!d.coins) d.coins = [];
         d.coins.push({ x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
         editorSelection = { kind: 'coin', index: d.coins.length - 1 };
       } else if (editorTool === 'spike') {
         if (!d.spikes) d.spikes = [];
-        d.spikes.push({
-          x: Math.round((w.x - 20) / 8) * 8,
-          y: Math.round((w.y - 16) / 8) * 8,
-          w: 40,
-          h: 32,
-        });
+        d.spikes.push(
+          withPaint({
+            x: Math.round((w.x - 20) / 8) * 8,
+            y: Math.round((w.y - 16) / 8) * 8,
+            w: 40,
+            h: 32,
+          })
+        );
         editorSelection = { kind: 'spike', index: d.spikes.length - 1 };
       } else if (editorTool === 'mover' || editorTool === 'mover-y') {
         if (!d.movingPlatforms) d.movingPlatforms = [];
-        d.movingPlatforms.push({
-          x: Math.round((w.x - 40) / 8) * 8,
-          y: Math.round((w.y - 10) / 8) * 8,
-          w: 80,
-          h: 20,
-          move: { axis: editorTool === 'mover-y' ? 'y' : 'x', amp: 80, omega: 1, phase: 0 },
-        });
+        d.movingPlatforms.push(
+          withPaint({
+            x: Math.round((w.x - 40) / 8) * 8,
+            y: Math.round((w.y - 10) / 8) * 8,
+            w: 80,
+            h: 20,
+            move: { axis: editorTool === 'mover-y' ? 'y' : 'x', amp: 80, omega: 1, phase: 0 },
+          })
+        );
         editorSelection = { kind: 'mover', index: d.movingPlatforms.length - 1 };
       }
       scheduleEditorRedraw();
     }
 
+    function pointerOnCanvas(e) {
+      const r = canvas.getBoundingClientRect();
+      const cx = e.clientX ?? e.touches?.[0]?.clientX;
+      const cy = e.clientY ?? e.touches?.[0]?.clientY;
+      return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+    }
+
     function onMove(e) {
-      if (!drag || !editorState.data) return;
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
+      if (editorTool === 'eraser') {
+        if (pointerOnCanvas(e) || eraserDrag) {
+          eraserHover = w;
+          if (eraserDrag) eraseAt(w.x, w.y);
+          scheduleEditorRedraw();
+        } else if (eraserHover) {
+          eraserHover = null;
+          scheduleEditorRedraw();
+        }
+        if (!drag) return;
+      }
+      if (!drag || !editorState.data) return;
       const d = editorState.data;
       const dx = w.x - drag.last.x;
       const dy = w.y - drag.last.y;
       drag.last = w;
+      if (drag.resize && drag.sel) {
+        const p = selectedSizeRect();
+        if (p) clampRectSize(p, w.x - p.x, w.y - p.y);
+        scheduleEditorRedraw();
+        return;
+      }
       if (drag.sel.kind === 'platform') {
         const p = d.platforms[drag.sel.index];
         p.x += dx;
@@ -727,12 +1047,20 @@
 
     function onUp() {
       drag = null;
+      eraserDrag = false;
     }
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     canvas.addEventListener('touchmove', (e) => onMove(e), { passive: false });
     canvas.addEventListener('touchend', onUp);
+    canvas.addEventListener('mouseleave', () => {
+      if (eraserDrag) return;
+      if (eraserHover) {
+        eraserHover = null;
+        scheduleEditorRedraw();
+      }
+    });
   }
 
   /* ---------- Screens ---------- */
@@ -1148,6 +1476,7 @@
 
   function syncEditorUi() {
     syncStageFlagsUi();
+    syncAppearanceUi();
     const up = document.getElementById('btnLvlEdUpload');
     const st = document.getElementById('lvlEdStatus');
     const sv = document.getElementById('btnLvlEdSave');
@@ -1822,6 +2151,10 @@
         document.querySelectorAll('.lvl-tool').forEach((x) => x.classList.remove('lvl-on'));
         b.classList.add('lvl-on');
         editorTool = b.getAttribute('data-tool') || 'select';
+        const edCanvas = document.getElementById('lvlEditorCanvas');
+        if (edCanvas) edCanvas.style.cursor = editorTool === 'eraser' ? 'crosshair' : '';
+        if (editorTool !== 'eraser') eraserHover = null;
+        scheduleEditorRedraw();
       });
     });
 
@@ -1913,11 +2246,34 @@
       el.addEventListener('change', applyMoverInspectorFromInputs);
       el.addEventListener('input', applyMoverInspectorFromInputs);
     });
+    ['lvlEdSizeW', 'lvlEdSizeH'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applySizeFromUi);
+      el.addEventListener('input', applySizeFromUi);
+    });
     ['lvlEdOptGrapple', 'lvlEdOptDoubleJump', 'lvlEdOptBeams'].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('change', applyStageFlagsFromUi);
     });
+    const colorSel = document.getElementById('lvlEdColorSel');
+    if (colorSel) {
+      colorSel.addEventListener('input', applySelectedColorFromUi);
+      colorSel.addEventListener('change', applySelectedColorFromUi);
+    }
+    const invEl = document.getElementById('lvlEdOptInvisible');
+    if (invEl) invEl.addEventListener('change', applySelectedInvisibleFromUi);
+    const paintEl = document.getElementById('lvlEdColorPaint');
+    if (paintEl) {
+      paintEl.addEventListener('input', applyPaintFromUi);
+      paintEl.addEventListener('change', applyPaintFromUi);
+    }
+    const bgEl = document.getElementById('lvlEdColorBg');
+    if (bgEl) {
+      bgEl.addEventListener('input', applyBgFromUi);
+      bgEl.addEventListener('change', applyBgFromUi);
+    }
     document.getElementById('btnLvlEdDelete').addEventListener('click', () => {
       if (!editorSelection) return;
       const d = editorState.data;
