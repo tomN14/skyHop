@@ -376,13 +376,6 @@
     scheduleEditorRedraw();
   }
 
-  function nearResizeHandle(wx, wy, p) {
-    if (!p) return false;
-    const h = toScreen(p.x + p.w, p.y + p.h);
-    const s = toScreen(wx, wy);
-    return Math.abs(s.x - h.x) <= 8 && Math.abs(s.y - h.y) <= 8;
-  }
-
   function selectedContainsPoint(wx, wy) {
     const d = editorState.data;
     if (!d || !editorSelection) return false;
@@ -437,7 +430,7 @@
       return;
     }
     const d = editorState.data;
-    drag = { sel: editorSelection, last: w, resize: false };
+    drag = { sel: editorSelection, last: w };
     if (drag.sel.kind === 'platform') {
       const p = d.platforms[drag.sel.index];
       drag.startPlatformPos = { x: p.x, y: p.y };
@@ -464,7 +457,7 @@
   }
 
   function snapDraggedObject() {
-    if (!drag || drag.resize || !drag.sel || !editorState.data) return;
+    if (!drag || !drag.sel || !editorState.data) return;
     const d = editorState.data;
     const snap8 = function (v) {
       return Math.round(v / 8) * 8;
@@ -1032,15 +1025,6 @@
         const a = toScreen(gv.x, gv.y);
         ctx.strokeRect(a.x - 2, a.y - 2, gv.w * cam.s + 4, gv.h * cam.s + 4);
       }
-      const sz = selectedSizeRect();
-      if (sz) {
-        const h = toScreen(sz.x + sz.w, sz.y + sz.h);
-        ctx.fillStyle = '#fbbf24';
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
-        ctx.fillRect(h.x - 5, h.y - 5, 10, 10);
-        ctx.strokeRect(h.x - 5.5, h.y - 5.5, 11, 11);
-      }
     }
 
     if (editorTool === 'eraser' && eraserHover) {
@@ -1111,14 +1095,6 @@
       if (editorTool === 'eraser') {
         eraserDrag = true;
         eraseAt(w.x, w.y);
-        scheduleEditorRedraw();
-        return;
-      }
-
-      const already = selectedSizeRect();
-      if (already && nearResizeHandle(w.x, w.y, already)) {
-        drag = { sel: editorSelection, last: w, resize: true };
-        canvas.style.cursor = 'nwse-resize';
         scheduleEditorRedraw();
         return;
       }
@@ -1219,8 +1195,6 @@
 
     function editorHoverCursor(w) {
       if (editorTool === 'eraser') return 'crosshair';
-      const sz = selectedSizeRect();
-      if (sz && nearResizeHandle(w.x, w.y, sz)) return 'nwse-resize';
       if (selectedContainsPoint(w.x, w.y)) return 'grab';
       return editorTool === 'select' ? 'default' : 'crosshair';
     }
@@ -1244,17 +1218,11 @@
         if (pointerOnCanvas(e)) canvas.style.cursor = editorHoverCursor(w);
         return;
       }
-      canvas.style.cursor = drag.resize ? 'nwse-resize' : 'grabbing';
+      canvas.style.cursor = 'grabbing';
       const d = editorState.data;
       const dx = w.x - drag.last.x;
       const dy = w.y - drag.last.y;
       drag.last = w;
-      if (drag.resize && drag.sel) {
-        const p = selectedSizeRect();
-        if (p) clampRectSize(p, w.x - p.x, w.y - p.y);
-        scheduleEditorRedraw();
-        return;
-      }
       if (drag.sel.kind === 'platform') {
         const p = d.platforms[drag.sel.index];
         p.x += dx;
@@ -1294,7 +1262,7 @@
     }
 
     function onUp() {
-      if (drag && !drag.resize) snapDraggedObject();
+      if (drag) snapDraggedObject();
       drag = null;
       eraserDrag = false;
       scheduleEditorRedraw();
