@@ -1408,6 +1408,7 @@
         <button type="button" class="lvl-tool rounded-lg border border-amber-400/45 px-2 py-1 text-xs font-semibold text-amber-100 hover:border-amber-200/70" data-tool="gravity">Gravity</button>
         <button type="button" class="lvl-tool rounded-lg border border-emerald-400/50 px-2 py-1 text-xs font-semibold text-emerald-100 hover:border-emerald-200/70" data-tool="portal">Portal</button>
         <button type="button" class="lvl-tool rounded-lg border border-lime-400/45 px-2 py-1 text-xs font-semibold text-lime-100 hover:border-lime-200/70" data-tool="switch">Switch</button>
+        <button type="button" class="lvl-tool rounded-lg border border-zinc-400/45 px-2 py-1 text-xs font-semibold text-zinc-100 hover:border-zinc-200/70" data-tool="blackout">Make level black</button>
         <button id="btnLvlEdToMoverY" type="button" class="rounded-lg border border-cyan-500/35 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Block to vertical mover</button>
         <button id="btnLvlEdRotate" type="button" class="rounded-lg border border-amber-500/40 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Rotate 90°</button>
         <button id="btnLvlEdDelete" type="button" class="rounded-lg border border-rose-500/40 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-950/40">Delete</button>
@@ -1448,6 +1449,10 @@
           <input id="lvlEdOptInvisible" type="checkbox" class="rounded border-white/20 bg-slate-950" />
           Make invisible
         </label>
+        <label class="inline-flex items-center gap-1.5">
+          <input id="lvlEdOptRainbow" type="checkbox" class="rounded border-white/20 bg-slate-950" />
+          Rainbow
+        </label>
       </div>
       <div id="lvlEdGravProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-amber-100">Gravity portal</span>
@@ -1480,6 +1485,22 @@
         </label>
         <span id="lvlEdSwitchTargetHint" class="text-[10px] text-slate-500">Click Edit Switch, then click the object. A faded copy shows where it will move.</span>
       </div>
+      <div id="lvlEdBlackoutProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
+        <span class="font-semibold text-zinc-100">Make screen black</span>
+        <label class="inline-flex items-center gap-1">Black for
+          <input id="lvlEdBlackSec" type="number" min="0.1" max="60" step="0.1" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+          sec
+        </label>
+        <label class="inline-flex items-center gap-1">after
+          <input id="lvlEdBlackAfter" type="number" min="0" max="120" step="0.1" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+          sec
+        </label>
+        <label class="inline-flex items-center gap-1.5">
+          <input id="lvlEdBlackOnTouch" type="checkbox" class="rounded border-white/20 bg-slate-950" />
+          Activate when touched
+        </label>
+        <span class="text-[10px] text-slate-500">Timer starts at stage start, or on first touch if checked.</span>
+      </div>
       <div id="lvlEdMoverProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-cyan-100">Selected mover</span>
         <label class="inline-flex items-center gap-1">Axis
@@ -1508,7 +1529,7 @@
       <div class="relative flex min-h-[220px] flex-1 flex-col overflow-auto bg-slate-950 p-2">
         <canvas id="lvlEditorCanvas" class="block w-full max-w-full touch-none border border-white/10 bg-slate-900" style="min-height:220px"></canvas>
       </div>
-      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Portals: select to edit the green landing dot. Switches: Edit Switch, then click the object — a faded copy shows the moved position. Eraser cuts a default-block hole (including ground). Beat Test play before Upload.</p>
+      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Rotate 90° works on any selected object (spikes change facing). Rainbow flashes selected objects through rainbow colors. Make level black: place a pad, set black-for / after seconds, optionally Activate when touched. Portals: select to edit the green landing dot. Switches: Edit Switch, then click the object — a faded copy shows the moved position. Eraser cuts a default-block hole (including ground). Beat Test play before Upload.</p>
     </div>
 
     <div id="screenMyMods" class="pointer-events-auto fixed inset-0 z-[36] hidden flex-col bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">

@@ -34,6 +34,8 @@
             bossPassThrough: p.bossPassThrough,
             color: p.color,
             invisible: p.invisible,
+            rainbow: p.rainbow,
+            rot: p.rot,
           };
           if (p.id != null && String(p.id)) row.id = String(p.id);
           return row;

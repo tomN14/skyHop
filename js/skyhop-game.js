@@ -749,6 +749,8 @@
         r: Number.isFinite(Number(c.r)) && Number(c.r) > 0 ? Number(c.r) : 14,
         collected: false,
         dim: !!already,
+        color: c.color,
+        rainbow: !!c.rainbow,
       });
     }
   }
@@ -898,6 +900,115 @@
   let switchWasInside = [];
   let switchOn = [];
   let switchAnims = [];
+  let blackoutStates = [];
+  const RAINBOW_HEX = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#4f46e5', '#a855f7'];
+
+  function normalizeRot(v) {
+    const n = Math.round(Number(v) / 90) * 90;
+    if (!Number.isFinite(n)) return 0;
+    return ((n % 360) + 360) % 360;
+  }
+
+  function rainbowHex(nowMs) {
+    const t = nowMs != null ? nowMs : performance.now();
+    return RAINBOW_HEX[Math.floor(t / 220) % RAINBOW_HEX.length];
+  }
+
+  function objectDrawColor(obj, fallback) {
+    if (obj && obj.rainbow) return rainbowHex();
+    return stageHexColor(obj && obj.color) || fallback;
+  }
+
+  function fillSpikeTeeth(ctx, x, y, w, h, rot) {
+    const r = normalizeRot(rot);
+    ctx.beginPath();
+    if (r === 90) {
+      ctx.moveTo(x, y);
+      const teeth = Math.max(2, Math.round(h / 10));
+      const th = h / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + w, y + i * th + th / 2);
+        ctx.lineTo(x, y + (i + 1) * th);
+      }
+    } else if (r === 180) {
+      ctx.moveTo(x, y);
+      const teeth = Math.max(2, Math.round(w / 10));
+      const tw = w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + i * tw + tw / 2, y + h);
+        ctx.lineTo(x + (i + 1) * tw, y);
+      }
+    } else if (r === 270) {
+      ctx.moveTo(x + w, y);
+      const teeth = Math.max(2, Math.round(h / 10));
+      const th = h / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x, y + i * th + th / 2);
+        ctx.lineTo(x + w, y + (i + 1) * th);
+      }
+    } else {
+      ctx.moveTo(x, y + h);
+      const teeth = Math.max(2, Math.round(w / 10));
+      const tw = w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + i * tw + tw / 2, y);
+        ctx.lineTo(x + (i + 1) * tw, y + h);
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function initBlackouts(stage) {
+    blackoutStates = [];
+    const list = stage && stage.blackouts;
+    if (!list || !list.length) return;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      blackoutStates.push({
+        armed: !b.onTouch,
+        elapsed: 0,
+      });
+    }
+  }
+
+  function tickBlackouts(stage, dt) {
+    const list = stage && stage.blackouts;
+    if (!list || !list.length) return;
+    const body = { x: player.x, y: player.y, w: player.w, h: player.h };
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      const st = blackoutStates[i];
+      if (!b || !st) continue;
+      if (b.onTouch && !st.armed && PHY.rectsOverlap(body, b)) {
+        st.armed = true;
+        st.elapsed = 0;
+      }
+      if (st.armed) st.elapsed += dt;
+    }
+  }
+
+  function isScreenBlack(stage) {
+    const list = stage && stage.blackouts;
+    if (!list || !list.length) return false;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      const st = blackoutStates[i];
+      if (!b || !st || !st.armed) continue;
+      const after = Number(b.afterSec);
+      const dur = Number(b.blackSec);
+      const delay = Number.isFinite(after) ? after : 0;
+      const hold = Number.isFinite(dur) ? dur : 0;
+      if (st.elapsed >= delay && st.elapsed < delay + hold) return true;
+    }
+    return false;
+  }
+
+  function drawBlackoutOverlay(stage) {
+    if (!isScreenBlack(stage)) return;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  }
 
   function stageLinkableObjects(stage) {
     const out = [];
@@ -1405,11 +1516,40 @@
   }
 
   function spikeLethalRect(sp) {
-    const x = sp.x + C.SPIKE_HIT_INSET_X;
-    const y = sp.y + C.SPIKE_HIT_INSET_TOP;
-    const w = Math.max(C.SPIKE_HIT_MIN_W, sp.w - 2 * C.SPIKE_HIT_INSET_X);
-    const h = Math.max(C.SPIKE_HIT_MIN_H, sp.h - C.SPIKE_HIT_INSET_TOP - C.SPIKE_HIT_INSET_BOTTOM);
-    return { x, y, w, h };
+    const rot = normalizeRot(sp && sp.rot);
+    const ix = C.SPIKE_HIT_INSET_X;
+    const it = C.SPIKE_HIT_INSET_TOP;
+    const ib = C.SPIKE_HIT_INSET_BOTTOM;
+    if (rot === 90) {
+      return {
+        x: sp.x + ib,
+        y: sp.y + ix,
+        w: Math.max(C.SPIKE_HIT_MIN_W, sp.w - it - ib),
+        h: Math.max(C.SPIKE_HIT_MIN_H, sp.h - 2 * ix),
+      };
+    }
+    if (rot === 180) {
+      return {
+        x: sp.x + ix,
+        y: sp.y + ib,
+        w: Math.max(C.SPIKE_HIT_MIN_W, sp.w - 2 * ix),
+        h: Math.max(C.SPIKE_HIT_MIN_H, sp.h - it - ib),
+      };
+    }
+    if (rot === 270) {
+      return {
+        x: sp.x + it,
+        y: sp.y + ix,
+        w: Math.max(C.SPIKE_HIT_MIN_W, sp.w - it - ib),
+        h: Math.max(C.SPIKE_HIT_MIN_H, sp.h - 2 * ix),
+      };
+    }
+    return {
+      x: sp.x + ix,
+      y: sp.y + it,
+      w: Math.max(C.SPIKE_HIT_MIN_W, sp.w - 2 * ix),
+      h: Math.max(C.SPIKE_HIT_MIN_H, sp.h - it - ib),
+    };
   }
 
   function resolveSpikeRect(sp, tSec) {
@@ -1426,13 +1566,7 @@
     if (ms) {
       for (const sp of ms) {
         const r = resolveSpikeRect(sp, tSec);
-        const adj = {
-          x: r.x + C.SPIKE_HIT_INSET_X,
-          y: r.y + C.SPIKE_HIT_INSET_TOP,
-          w: Math.max(C.SPIKE_HIT_MIN_W, r.w - 2 * C.SPIKE_HIT_INSET_X),
-          h: Math.max(C.SPIKE_HIT_MIN_H, r.h - C.SPIKE_HIT_INSET_TOP - C.SPIKE_HIT_INSET_BOTTOM),
-        };
-        if (PHY.rectsOverlap(body, adj)) return true;
+        if (PHY.rectsOverlap(body, spikeLethalRect({ x: r.x, y: r.y, w: r.w, h: r.h, rot: sp.rot }))) return true;
       }
     }
     return false;
@@ -1938,6 +2072,7 @@
       pbAntiFarm.lastPy = player.y;
     }
     initStageCoins(s);
+    initBlackouts(s);
     syncHudHint(i);
     syncWeaponHud(performance.now());
     saveRunProgress();
@@ -2542,6 +2677,7 @@
     if (!stage) return;
     const now = performance.now();
     tickSwitchAnims(now);
+    tickBlackouts(stage, dt);
     const tSec = now * 0.001;
     const sens = getSensitivity();
     const solidRects = PHY.buildSolidRects(stage, tSec);
@@ -3116,7 +3252,7 @@
     if (lava) {
       for (const Lv of lava) {
         if (Lv.invisible) continue;
-        const top = stageHexColor(Lv.color) || '#f97316';
+        const top = objectDrawColor(Lv, '#f97316');
         const g = ctx.createLinearGradient(Lv.x, Lv.y, Lv.x, Lv.y + Lv.h);
         g.addColorStop(0, top);
         g.addColorStop(0.35, shadeHex(top, -0.12));
@@ -3140,7 +3276,7 @@
       const isMoving = !!(src && src.move);
       const noWallJump = !!(src && src.noWallJump);
       const warnVertical = !!(src && src.warnVertical);
-      const custom = src && stageHexColor(src.color);
+      const custom = src && objectDrawColor(src, null);
       const g = ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h);
       if (warnVertical) {
         g.addColorStop(0, '#f87171');
@@ -3226,17 +3362,8 @@
 
     function drawSpikeShape(s, src) {
       if (src && src.invisible) return;
-      ctx.fillStyle = (src && stageHexColor(src.color)) || '#f43f5e';
-      const teeth = 6;
-      const tw = s.w / teeth;
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y + s.h);
-      for (let i = 0; i < teeth; i++) {
-        ctx.lineTo(s.x + i * tw + tw / 2, s.y);
-        ctx.lineTo(s.x + (i + 1) * tw, s.y + s.h);
-      }
-      ctx.closePath();
-      ctx.fill();
+      ctx.fillStyle = objectDrawColor(src, '#f43f5e');
+      fillSpikeTeeth(ctx, s.x, s.y, s.w, s.h, src && src.rot);
       ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.stroke();
     }
@@ -3277,7 +3404,7 @@
     if (stage.gravityArrows) {
       for (const a of stage.gravityArrows) {
         if (a.invisible) continue;
-        const gc = stageHexColor(a.color) || '#fbbf24';
+        const gc = objectDrawColor(a, '#fbbf24');
         ctx.fillStyle = hexToRgba(gc, 0.35) || 'rgba(251, 191, 36, 0.35)';
         ctx.fillRect(a.x, a.y, a.w, a.h);
         ctx.strokeStyle = hexToRgba(gc, 0.9) || 'rgba(251, 191, 36, 0.9)';
@@ -3304,7 +3431,7 @@
     if (stage.switches) {
       for (const sw of stage.switches) {
         if (sw.invisible) continue;
-        const sc = stageHexColor(sw.color) || '#65a30d';
+        const sc = objectDrawColor(sw, '#65a30d');
         ctx.fillStyle = shadeHex(sc, -0.25);
         ctx.fillRect(sw.x, sw.y, sw.w, sw.h);
         ctx.fillStyle = shadeHex(sc, 0.2);
@@ -3318,7 +3445,7 @@
     if (stage.portals) {
       for (const p of stage.portals) {
         if (p.invisible) continue;
-        const pc = stageHexColor(p.color) || '#059669';
+        const pc = objectDrawColor(p, '#059669');
         const cx = p.x + p.w / 2;
         const cy = p.y + p.h / 2;
         const pulse = 0.65 + 0.35 * Math.sin(performance.now() / 220);
@@ -3336,6 +3463,18 @@
         ctx.ellipse(cx, cy, Math.max(4, p.w / 2 - 6), Math.max(4, p.h / 2 - 6), 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
+      }
+    }
+
+    if (stage.blackouts) {
+      for (const b of stage.blackouts) {
+        if (!b.onTouch || b.invisible) continue;
+        const bc = objectDrawColor(b, '#111827');
+        ctx.fillStyle = hexToRgba(bc, 0.72) || 'rgba(15, 23, 42, 0.72)';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = hexToRgba(bc, 0.95) || 'rgba(226, 232, 240, 0.85)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
       }
     }
 
@@ -3519,9 +3658,10 @@
       const dim = c.dim;
       ctx.beginPath();
       ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-      ctx.fillStyle = dim ? 'rgba(100,116,139,0.45)' : 'rgba(251, 191, 36, 0.92)';
+      const coinCol = objectDrawColor(c, '#fbbf24');
+      ctx.fillStyle = dim ? 'rgba(100,116,139,0.45)' : coinCol;
       ctx.fill();
-      ctx.strokeStyle = dim ? 'rgba(148,163,184,0.5)' : 'rgba(245, 158, 11, 0.95)';
+      ctx.strokeStyle = dim ? 'rgba(148,163,184,0.5)' : shadeHex(coinCol, -0.2);
       ctx.lineWidth = 2;
       ctx.stroke();
       if (dim) {
@@ -3538,7 +3678,7 @@
       const g = stage.goal;
       if (g && !g.invisible) {
         const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
-        const gc = stageHexColor(g.color) || '#34d399';
+        const gc = objectDrawColor(g, '#34d399');
         ctx.fillStyle = hexToRgba(gc, 0.35 + 0.25 * pulse) || `rgba(52, 211, 153, ${0.35 + 0.25 * pulse})`;
         ctx.fillRect(g.x - 6, g.y - 6, g.w + 12, g.h + 12);
         ctx.fillStyle = gc;
@@ -3781,7 +3921,10 @@
       if (bc0 && bc0.length) fillStageBackdrop(bc0[bc0.length - 1]);
     }
     if (gameState === 'playing' || gameState === 'paused' || gameState === 'stage_clear' || gameState === 'weapon_modal') {
-      if (stage) drawStage(stage);
+      if (stage) {
+        drawStage(stage);
+        if (gameState === 'playing' || gameState === 'paused') drawBlackoutOverlay(stage);
+      }
     } else if (gameState === 'win') {
       const bc = builtinCampaign();
       drawStage(bc[bc.length - 1]);

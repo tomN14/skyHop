@@ -56,12 +56,68 @@
       ],
       spikes: [],
       lava: [],
+      fireballEmitters: [],
       coins: [],
       movingPlatforms: [],
       gravityArrows: [],
       portals: [],
       switches: [],
+      blackouts: [],
     };
+  }
+
+  const RAINBOW_HEX = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#4f46e5', '#a855f7'];
+  const FIREBALL_FROM_CYCLE = ['left', 'top', 'right', 'bottom'];
+
+  function normalizeRot(v) {
+    const n = Math.round(Number(v) / 90) * 90;
+    if (!Number.isFinite(n)) return 0;
+    return ((n % 360) + 360) % 360;
+  }
+
+  function rainbowHex(nowMs) {
+    const t = nowMs != null ? nowMs : (typeof performance !== 'undefined' ? performance.now() : 0);
+    return RAINBOW_HEX[Math.floor(t / 220) % RAINBOW_HEX.length];
+  }
+
+  function fillSpikeTeeth(ctx, x, y, w, h, rot) {
+    const r = normalizeRot(rot);
+    ctx.beginPath();
+    if (r === 90) {
+      ctx.moveTo(x, y);
+      const teeth = Math.max(2, Math.round(h / 10));
+      const th = h / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + w, y + i * th + th / 2);
+        ctx.lineTo(x, y + (i + 1) * th);
+      }
+    } else if (r === 180) {
+      ctx.moveTo(x, y);
+      const teeth = Math.max(2, Math.round(w / 10));
+      const tw = w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + i * tw + tw / 2, y + h);
+        ctx.lineTo(x + (i + 1) * tw, y);
+      }
+    } else if (r === 270) {
+      ctx.moveTo(x + w, y);
+      const teeth = Math.max(2, Math.round(h / 10));
+      const th = h / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x, y + i * th + th / 2);
+        ctx.lineTo(x + w, y + (i + 1) * th);
+      }
+    } else {
+      ctx.moveTo(x, y + h);
+      const teeth = Math.max(2, Math.round(w / 10));
+      const tw = w / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(x + i * tw + tw / 2, y);
+        ctx.lineTo(x + (i + 1) * tw, y + h);
+      }
+    }
+    ctx.closePath();
+    ctx.fill();
   }
 
   const ED_BLOCK_W = 48;
@@ -130,6 +186,33 @@
     normalizeLook(sw);
   }
 
+  function clampEditorSec(v, def, min, max) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return def;
+    return Math.min(max, Math.max(min, Math.round(n * 10) / 10));
+  }
+
+  function normalizeBlackout(d, b) {
+    if (!b || typeof b !== 'object') return;
+    ensureObjId(d, b);
+    let x = Number(b.x);
+    let y = Number(b.y);
+    let w = Number(b.w);
+    let h = Number(b.h);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    if (!Number.isFinite(w) || w < 8) w = 40;
+    if (!Number.isFinite(h) || h < 8) h = 40;
+    b.x = x;
+    b.y = y;
+    b.w = Math.min(4000, w);
+    b.h = Math.min(4000, h);
+    b.blackSec = clampEditorSec(b.blackSec, 3, 0.1, 60);
+    b.afterSec = clampEditorSec(b.afterSec, 2, 0, 120);
+    b.onTouch = !!b.onTouch;
+    normalizeLook(b);
+  }
+
   function portalDest(p) {
     if (!p) return { x: 0, y: 0 };
     return { x: p.x + Number(p.destOx || 0), y: p.y + Number(p.destOy || 0) };
@@ -158,6 +241,9 @@
     if (sel.kind === 'lava') return (d.lava || [])[sel.index] || null;
     if (sel.kind === 'gravity') return (d.gravityArrows || [])[sel.index] || null;
     if (sel.kind === 'coin') return (d.coins || [])[sel.index] || null;
+    if (sel.kind === 'blackout') return (d.blackouts || [])[sel.index] || null;
+    if (sel.kind === 'fireball') return (d.fireballEmitters || [])[sel.index] || null;
+    if (sel.kind === 'goal') return d.goal || null;
     return null;
   }
 
@@ -185,6 +271,7 @@
     if (!Array.isArray(raw.gravityArrows)) raw.gravityArrows = [];
     if (!Array.isArray(raw.portals)) raw.portals = [];
     if (!Array.isArray(raw.switches)) raw.switches = [];
+    if (!Array.isArray(raw.blackouts)) raw.blackouts = [];
     raw.grapple = !!raw.grapple;
     raw.doubleJump = !!raw.doubleJump;
     raw.underhangDisabled = !!raw.underhangDisabled;
@@ -235,6 +322,7 @@
     if (!Array.isArray(d.gravityArrows)) d.gravityArrows = [];
     if (!Array.isArray(d.portals)) d.portals = [];
     if (!Array.isArray(d.switches)) d.switches = [];
+    if (!Array.isArray(d.blackouts)) d.blackouts = [];
     for (const p of d.platforms || []) ensureObjId(d, p);
     for (const p of d.movingPlatforms || []) ensureObjId(d, p);
     for (const s of d.spikes || []) ensureObjId(d, s);
@@ -243,6 +331,7 @@
     for (const c of d.coins || []) ensureObjId(d, c);
     for (const p of d.portals) normalizePortal(d, p);
     for (const sw of d.switches) normalizeSwitch(d, sw);
+    for (const b of d.blackouts) normalizeBlackout(d, b);
     for (const p of d.movingPlatforms) normalizeMoverMotion(p);
     for (const p of d.platforms) {
       if (p && p.move) normalizeMoverMotion(p);
@@ -252,6 +341,7 @@
     for (const L of d.lava) normalizeLook(L);
     for (const s of d.spikes) normalizeLook(s);
     for (const a of d.gravityArrows) normalizeGravityArrow(a);
+    for (const c of d.coins) normalizeLook(c);
     normalizeLook(d.goal);
     const bg = validHexColor(d.bgColor);
     if (bg) d.bgColor = bg;
@@ -389,6 +479,39 @@
     scheduleEditorRedraw();
   }
 
+  function selectedBlackout() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'blackout') return null;
+    return (d.blackouts || [])[editorSelection.index] || null;
+  }
+
+  function syncBlackoutInspector() {
+    const wrap = document.getElementById('lvlEdBlackoutProps');
+    const blackEl = document.getElementById('lvlEdBlackSec');
+    const afterEl = document.getElementById('lvlEdBlackAfter');
+    const touchEl = document.getElementById('lvlEdBlackOnTouch');
+    const b = selectedBlackout();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !b);
+    wrap.classList.toggle('flex', !!b);
+    if (!b) return;
+    if (blackEl && document.activeElement !== blackEl) blackEl.value = String(b.blackSec);
+    if (afterEl && document.activeElement !== afterEl) afterEl.value = String(b.afterSec);
+    if (touchEl && document.activeElement !== touchEl) touchEl.checked = !!b.onTouch;
+  }
+
+  function applyBlackoutFromUi() {
+    const b = selectedBlackout();
+    if (!b) return;
+    const blackEl = document.getElementById('lvlEdBlackSec');
+    const afterEl = document.getElementById('lvlEdBlackAfter');
+    const touchEl = document.getElementById('lvlEdBlackOnTouch');
+    b.blackSec = clampEditorSec(blackEl && blackEl.value, b.blackSec, 0.1, 60);
+    b.afterSec = clampEditorSec(afterEl && afterEl.value, b.afterSec, 0, 120);
+    b.onTouch = !!(touchEl && touchEl.checked);
+    scheduleEditorRedraw();
+  }
+
   function startSwitchLinkMode() {
     if (!selectedSwitch()) return;
     switchLinkMode = true;
@@ -419,9 +542,15 @@
     else delete obj.color;
     if (obj.invisible) obj.invisible = true;
     else delete obj.invisible;
+    if (obj.rainbow) obj.rainbow = true;
+    else delete obj.rainbow;
+    const rot = normalizeRot(obj.rot);
+    if (rot) obj.rot = rot;
+    else delete obj.rot;
   }
 
   function editorFill(obj, fallback) {
+    if (obj && obj.rainbow) return rainbowHex();
     return (obj && validHexColor(obj.color)) || fallback;
   }
 
@@ -495,6 +624,7 @@
     carveRectList(d.gravityArrows, cut);
     removeOverlappingRects(d.portals, cut);
     removeOverlappingRects(d.switches, cut);
+    removeOverlappingRects(d.blackouts, cut);
     if (d.coins && d.coins.length) {
       d.coins = d.coins.filter(function (c) {
         const r = Number(c.r) > 0 ? Number(c.r) : 14;
@@ -514,6 +644,8 @@
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'coin') return (d.coins || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
     return null;
   }
@@ -526,6 +658,8 @@
     if (kind === 'gravity') return '#fbbf24';
     if (kind === 'portal') return '#059669';
     if (kind === 'switch') return '#65a30d';
+    if (kind === 'blackout') return '#111827';
+    if (kind === 'coin') return '#f59e0b';
     return '#4338ca';
   }
 
@@ -555,6 +689,8 @@
         '#4338ca';
     }
     if (inv && document.activeElement !== inv) inv.checked = !!t.invisible;
+    const rain = document.getElementById('lvlEdOptRainbow');
+    if (rain && document.activeElement !== rain) rain.checked = !!t.rainbow;
   }
 
   function applySelectedColorFromUi() {
@@ -571,6 +707,16 @@
     const t = selectedLookTarget();
     const inv = document.getElementById('lvlEdOptInvisible');
     if (t && inv) t.invisible = !!inv.checked;
+    scheduleEditorRedraw();
+  }
+
+  function applySelectedRainbowFromUi() {
+    const t = selectedLookTarget();
+    const rain = document.getElementById('lvlEdOptRainbow');
+    if (t && rain) {
+      if (rain.checked) t.rainbow = true;
+      else delete t.rainbow;
+    }
     scheduleEditorRedraw();
   }
 
@@ -596,6 +742,8 @@
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'goal') return d.goal || null;
     return null;
   }
 
@@ -678,6 +826,7 @@
     else if (k === 'gravity') r = (d.gravityArrows || [])[i];
     else if (k === 'portal') r = (d.portals || [])[i];
     else if (k === 'switch') r = (d.switches || [])[i];
+    else if (k === 'blackout') r = (d.blackouts || [])[i];
     return !!(r && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h);
   }
 
@@ -719,6 +868,9 @@
     } else if (drag.sel.kind === 'switch') {
       const sw = d.switches[drag.sel.index];
       drag.startSwitch = { x: sw.x, y: sw.y };
+    } else if (drag.sel.kind === 'blackout') {
+      const b = d.blackouts[drag.sel.index];
+      drag.startBlackout = { x: b.x, y: b.y };
     }
   }
 
@@ -779,6 +931,12 @@
       if (sw) {
         sw.x = snap8(sw.x);
         sw.y = snap8(sw.y);
+      }
+    } else if (k === 'blackout') {
+      const b = d.blackouts[drag.sel.index];
+      if (b) {
+        b.x = snap8(b.x);
+        b.y = snap8(b.y);
       }
     } else if (k === 'goal') {
       d.goal.x = snap4(d.goal.x);
@@ -981,6 +1139,11 @@
     for (let i = switches.length - 1; i >= 0; i--) {
       const sw = switches[i];
       if (wx >= sw.x && wx <= sw.x + sw.w && wy >= sw.y && wy <= sw.y + sw.h) return { kind: 'switch', index: i };
+    }
+    const blackouts = d.blackouts || [];
+    for (let i = blackouts.length - 1; i >= 0; i--) {
+      const b = blackouts[i];
+      if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) return { kind: 'blackout', index: i };
     }
     const spikes = d.spikes || [];
     for (let i = spikes.length - 1; i >= 0; i--) {
@@ -1190,9 +1353,9 @@
         const r = (Number(obj.r) > 0 ? Number(obj.r) : 14) * cam.s;
         ctx.beginPath();
         ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+        ctx.fillStyle = editorFill(obj, 'rgba(251, 191, 36, 0.95)');
         ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
+        ctx.strokeStyle = editorFill(obj, '#f59e0b');
         ctx.stroke();
       } else if (kind === 'portal') {
         const pw = obj.w * cam.s;
@@ -1213,16 +1376,9 @@
         const swid = obj.w * cam.s;
         const sh = obj.h * cam.s;
         ctx.fillStyle = editorFill(obj, '#9f1239');
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y + sh);
-        const teeth = Math.max(2, Math.round(obj.w / 10));
-        const tw = swid / teeth;
-        for (let i = 0; i < teeth; i++) {
-          ctx.lineTo(a.x + i * tw + tw / 2, a.y);
-          ctx.lineTo(a.x + (i + 1) * tw, a.y + sh);
-        }
-        ctx.closePath();
-        ctx.fill();
+        fillSpikeTeeth(ctx, a.x, a.y, swid, sh, obj.rot);
+      } else if (kind === 'blackout') {
+        paintEditorRect(obj, a.x, a.y, obj.w * cam.s, obj.h * cam.s, '#111827', 'rgba(226,232,240,0.7)');
       } else if (kind === 'gravity') {
         const swid = obj.w * cam.s;
         const sh = obj.h * cam.s;
@@ -1278,16 +1434,7 @@
       ctx.save();
       if (s.invisible) ctx.globalAlpha = 0.3;
       ctx.fillStyle = editorFill(s, '#9f1239');
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y + sh);
-      const teeth = Math.max(2, Math.round(s.w / 10));
-      const tw = sw / teeth;
-      for (let i = 0; i < teeth; i++) {
-        ctx.lineTo(a.x + i * tw + tw / 2, a.y);
-        ctx.lineTo(a.x + (i + 1) * tw, a.y + sh);
-      }
-      ctx.closePath();
-      ctx.fill();
+      fillSpikeTeeth(ctx, a.x, a.y, sw, sh, s.rot);
       ctx.strokeStyle = s.invisible ? 'rgba(248,250,252,0.8)' : 'rgba(254, 205, 211, 0.45)';
       if (s.invisible) ctx.setLineDash([4, 3]);
       ctx.stroke();
@@ -1330,10 +1477,20 @@
       const a = toScreen(c.x, c.y);
       ctx.beginPath();
       ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(251, 191, 36, 0.9)';
+      ctx.fillStyle = editorFill(c, 'rgba(251, 191, 36, 0.9)');
       ctx.fill();
-      ctx.strokeStyle = '#f59e0b';
+      ctx.strokeStyle = editorFill(c, '#f59e0b');
       ctx.stroke();
+    }
+
+    for (const b of d.blackouts || []) {
+      const a = toScreen(b.x, b.y);
+      const bw = b.w * cam.s;
+      const bh = b.h * cam.s;
+      paintEditorRect(b, a.x, a.y, bw, bh, '#111827', 'rgba(226,232,240,0.75)');
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+      ctx.fillText(b.onTouch ? 'BLK tap' : 'BLK', a.x + 3, a.y + Math.min(12, bh - 2));
     }
 
     for (const garr of d.gravityArrows || []) {
@@ -1541,6 +1698,10 @@
             ctx.restore();
           }
         }
+      } else if (editorSelection.kind === 'blackout') {
+        const b = d.blackouts[editorSelection.index];
+        const a = toScreen(b.x, b.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, b.w * cam.s + 4, b.h * cam.s + 4);
       }
     }
 
@@ -1577,6 +1738,31 @@
     }
   }
 
+  function editorHasRainbow() {
+    const d = editorState.data;
+    if (!d) return false;
+    const lists = [
+      d.platforms,
+      d.spikes,
+      d.lava,
+      d.movingPlatforms,
+      d.gravityArrows,
+      d.portals,
+      d.switches,
+      d.blackouts,
+      d.coins,
+      d.goal ? [d.goal] : [],
+    ];
+    for (let i = 0; i < lists.length; i++) {
+      const list = lists[i];
+      if (!list) continue;
+      for (let j = 0; j < list.length; j++) {
+        if (list[j] && list[j].rainbow) return true;
+      }
+    }
+    return false;
+  }
+
   let editorRedrawScheduled = false;
   function scheduleEditorRedraw() {
     const canvas = document.getElementById('lvlEditorCanvas');
@@ -1591,11 +1777,13 @@
         syncGravityInspector();
         syncPortalInspector();
         syncSwitchInspector();
+        syncBlackoutInspector();
         syncSizeInspector();
         syncStageFlagsUi();
         syncAppearanceUi();
       } finally {
         editorRedrawScheduled = false;
+        if (editorHasRainbow()) scheduleEditorRedraw();
       }
     });
   }
@@ -1790,6 +1978,21 @@
           })
         );
         editorSelection = { kind: 'switch', index: d.switches.length - 1 };
+      } else if (editorTool === 'blackout') {
+        if (!d.blackouts) d.blackouts = [];
+        d.blackouts.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - 20) / 8) * 8,
+            y: Math.round((w.y - 20) / 8) * 8,
+            w: 40,
+            h: 40,
+            blackSec: 3,
+            afterSec: 2,
+            onTouch: false,
+          })
+        );
+        editorSelection = { kind: 'blackout', index: d.blackouts.length - 1 };
       }
       scheduleEditorRedraw();
     }
@@ -1891,6 +2094,10 @@
         const sw = d.switches[drag.sel.index];
         sw.x += dx;
         sw.y += dy;
+      } else if (drag.sel.kind === 'blackout') {
+        const b = d.blackouts[drag.sel.index];
+        b.x += dx;
+        b.y += dy;
       }
       scheduleEditorRedraw();
     }
@@ -2376,6 +2583,7 @@
   function syncEditorUi() {
     syncStageFlagsUi();
     syncAppearanceUi();
+    syncBlackoutInspector();
     const up = document.getElementById('btnLvlEdUpload');
     const st = document.getElementById('lvlEdStatus');
     const sv = document.getElementById('btnLvlEdSave');
@@ -3157,31 +3365,42 @@
       });
     }
     document.getElementById('btnLvlEdRotate').addEventListener('click', () => {
-      if (!editorSelection) return;
+      if (!editorSelection || !editorState.data) return;
+      const d = editorState.data;
+      const sized = selectedSizeRect();
+      if (sized && sized.w != null && sized.h != null) {
+        if (editorSelection.kind === 'portal') {
+          const dest = portalDest(sized);
+          rotatePlatform90(sized);
+          sized.destOx = dest.x - sized.x;
+          sized.destOy = dest.y - sized.y;
+        } else {
+          rotatePlatform90(sized);
+        }
+      }
+      const obj = objectFromSel(d, editorSelection);
+      if (obj) obj.rot = (normalizeRot(obj.rot) + 90) % 360;
       if (editorSelection.kind === 'platform') {
-        const p = editorState.data.platforms[editorSelection.index];
-        rotatePlatform90(p);
-        if (p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
+        const p = d.platforms[editorSelection.index];
+        if (p && p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
       } else if (editorSelection.kind === 'mover') {
-        const p = editorState.data.movingPlatforms[editorSelection.index];
+        const p = d.movingPlatforms[editorSelection.index];
         if (p && p.move) p.move.axis = p.move.axis === 'y' ? 'x' : 'y';
       } else if (editorSelection.kind === 'gravity') {
-        const a = editorState.data.gravityArrows[editorSelection.index];
-        if (a) {
-          rotatePlatform90(a);
-          a.targetDir = a.targetDir < 0 ? 1 : -1;
+        const a = d.gravityArrows[editorSelection.index];
+        if (a) a.targetDir = a.targetDir < 0 ? 1 : -1;
+      } else if (editorSelection.kind === 'fireball') {
+        const e = d.fireballEmitters[editorSelection.index];
+        if (e) {
+          const i = FIREBALL_FROM_CYCLE.indexOf(e.from);
+          const next = FIREBALL_FROM_CYCLE[(i >= 0 ? i + 1 : 0) % FIREBALL_FROM_CYCLE.length];
+          if ((e.from === 'left' || e.from === 'right') && (next === 'top' || next === 'bottom')) {
+            e.pos = Math.max(64, Math.min(d.worldW - 64, e.pos));
+          } else if ((e.from === 'top' || e.from === 'bottom') && (next === 'left' || next === 'right')) {
+            e.pos = Math.max(64, Math.min(d.worldH - 64, e.pos));
+          }
+          e.from = next;
         }
-      } else if (editorSelection.kind === 'portal') {
-        const p = editorState.data.portals[editorSelection.index];
-        if (p) {
-          const dest = portalDest(p);
-          rotatePlatform90(p);
-          p.destOx = dest.x - p.x;
-          p.destOy = dest.y - p.y;
-        }
-      } else if (editorSelection.kind === 'switch') {
-        const sw = editorState.data.switches[editorSelection.index];
-        if (sw) rotatePlatform90(sw);
       }
       scheduleEditorRedraw();
     });
@@ -3269,6 +3488,16 @@
     }
     const invEl = document.getElementById('lvlEdOptInvisible');
     if (invEl) invEl.addEventListener('change', applySelectedInvisibleFromUi);
+    const rainEl = document.getElementById('lvlEdOptRainbow');
+    if (rainEl) rainEl.addEventListener('change', applySelectedRainbowFromUi);
+    ['lvlEdBlackSec', 'lvlEdBlackAfter'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applyBlackoutFromUi);
+      el.addEventListener('input', applyBlackoutFromUi);
+    });
+    const touchEl = document.getElementById('lvlEdBlackOnTouch');
+    if (touchEl) touchEl.addEventListener('change', applyBlackoutFromUi);
     const paintEl = document.getElementById('lvlEdColorPaint');
     if (paintEl) {
       paintEl.addEventListener('input', applyPaintFromUi);
@@ -3291,6 +3520,7 @@
       if (editorSelection.kind === 'gravity') d.gravityArrows.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'portal') d.portals.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'switch') d.switches.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'blackout' && d.blackouts) d.blackouts.splice(editorSelection.index, 1);
       editorSelection = null;
       scheduleEditorRedraw();
     });
