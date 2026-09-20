@@ -213,6 +213,7 @@
         menuProgressHint.textContent = '';
       }
       if (btnPlay) btnPlay.textContent = 'Play';
+      syncMenuCampaignCopy();
       return;
     }
     const p = loadRunProgress();
@@ -235,8 +236,137 @@
       }
       if (btnPlay) btnPlay.textContent = 'Play';
     }
+    syncMenuCampaignCopy();
   }
   window.syncMenuProgressUIForRace = syncMenuProgressUI;
+
+  function world1StageList() {
+    return window.SKYHOP_STAGES && window.SKYHOP_STAGES.length ? window.SKYHOP_STAGES : [];
+  }
+
+  function stagesWord(n) {
+    return n === 1 ? '1 stage' : n + ' stages';
+  }
+
+  function bossFightPhrase(n) {
+    if (n <= 0) return '';
+    if (n === 1) return 'one boss fight';
+    if (n === 2) return 'two boss fights';
+    return n + ' boss fights';
+  }
+
+  function analyzeCampaignStages(stages) {
+    const n = stages.length;
+    let bosses = 0;
+    let firstBoss = 0;
+    let firstWeapon = 0;
+    let hasSpikes = false;
+    let hasLava = false;
+    let hasMovers = false;
+    let hasGrav = false;
+    let hasGrapple = false;
+    for (let i = 0; i < n; i++) {
+      const st = stages[i] || {};
+      if (st.boss || st.bossStage) {
+        bosses += 1;
+        if (!firstBoss) firstBoss = i + 1;
+      }
+      const items = st.itemPickups || [];
+      for (let j = 0; j < items.length; j++) {
+        const k = items[j] && items[j].kind;
+        if ((k === 'sword' || k === 'shield') && !firstWeapon) firstWeapon = i + 1;
+      }
+      if (st.spikes && st.spikes.length) hasSpikes = true;
+      if (st.lava && st.lava.length) hasLava = true;
+      if (st.movingPlatforms && st.movingPlatforms.length) hasMovers = true;
+      if (st.gravityArrows && st.gravityArrows.length) hasGrav = true;
+      if (st.grapple === true) hasGrapple = true;
+      const plats = st.platforms || [];
+      for (let j = 0; j < plats.length; j++) {
+        if (plats[j] && plats[j].move) hasMovers = true;
+      }
+    }
+    return {
+      n: n,
+      bosses: bosses,
+      firstBoss: firstBoss,
+      firstWeapon: firstWeapon,
+      hasSpikes: hasSpikes,
+      hasLava: hasLava,
+      hasMovers: hasMovers,
+      hasGrav: hasGrav,
+      hasGrapple: hasGrapple,
+    };
+  }
+
+  function syncMenuCampaignCopy() {
+    const meta = analyzeCampaignStages(world1StageList());
+    if (!meta.n) return;
+    const n = meta.n;
+    const feats = [];
+    if (meta.hasSpikes) feats.push('spikes');
+    if (meta.hasLava) feats.push('lava');
+    if (meta.hasMovers) feats.push('moving ledges');
+    if (meta.hasGrav) feats.push('gravity arrows');
+    if (meta.hasGrapple) feats.push('grapple');
+    if (meta.bosses === 1) feats.push('a boss');
+    else if (meta.bosses === 2) feats.push('two bosses');
+    else if (meta.bosses > 2) feats.push(meta.bosses + ' bosses');
+
+    const blurb = document.getElementById('menuCampaignBlurb');
+    if (blurb) {
+      let line = stagesWord(n);
+      if (feats.length) line += ' — ' + feats.join(', ') + ', and more';
+      line += '. Reach each goal';
+      if (meta.bosses) line += ' (or defeat the boss)';
+      line += '.';
+      blurb.textContent = line;
+    }
+
+    const diff = document.getElementById('menuDifficultyBlurb');
+    if (diff) {
+      let extra = stagesWord(n);
+      const bf = bossFightPhrase(meta.bosses);
+      if (bf) extra += ', ' + bf;
+      if (meta.firstWeapon) extra += ', weapons on stage ' + meta.firstWeapon;
+      diff.textContent = 'Difficulty: Easy · Normal · Hard · Custom — ' + extra + '.';
+    }
+
+    const w2 = document.getElementById('menuWorld2UnlockHint');
+    if (w2) {
+      w2.textContent =
+        'Harder stages — moving platforms. Beat all ' + n + ' World 1 ' + (n === 1 ? 'stage' : 'stages') + ' to unlock.';
+    }
+
+    const win = document.getElementById('winAllStagesTitle');
+    if (win) {
+      const runN = campaignStageCount();
+      win.textContent = 'All ' + stagesWord(runN) + ' cleared';
+    }
+
+    const accHint = document.getElementById('accFinishStagesHint');
+    if (accHint) {
+      accHint.textContent =
+        'Finishing all ' +
+        stagesWord(n) +
+        ' (campaign or race) while logged in uploads that run. Progress mid-run is not saved until you win.';
+    }
+
+    const race = document.getElementById('raceMenuStageCount');
+    if (race) race.textContent = String(n);
+
+    const opt1 = document.getElementById('ownerBuiltinWorld1Opt');
+    if (opt1) opt1.textContent = 'World 1 (' + stagesWord(n) + ')';
+    const w2n = window.SKYHOP_WORLD2_STAGES && window.SKYHOP_WORLD2_STAGES.length ? window.SKYHOP_WORLD2_STAGES.length : 0;
+    const opt2 = document.getElementById('ownerBuiltinWorld2Opt');
+    if (opt2 && w2n) opt2.textContent = 'World 2 (' + stagesWord(w2n) + ')';
+
+    const bossN = meta.firstBoss || 35;
+    const bossEls = document.querySelectorAll('.js-first-boss-stage');
+    for (let i = 0; i < bossEls.length; i++) bossEls[i].textContent = String(bossN);
+  }
+
+  window.SkyHopSyncMenuCampaignCopy = syncMenuCampaignCopy;
 
   function formatTotalRunTime(ms) {
     if (!Number.isFinite(ms) || ms < 0) ms = 0;
@@ -2552,6 +2682,7 @@
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
         screenWin.classList.add('flex');
+        syncMenuCampaignCopy();
         winDeaths.textContent = String(deaths);
         if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
         if (window.SkyHopSubmitRun) {
@@ -2645,6 +2776,7 @@
         hud.classList.add('hidden');
         screenWin.classList.remove('hidden');
         screenWin.classList.add('flex');
+        syncMenuCampaignCopy();
         winDeaths.textContent = String(deaths);
         if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
         if (window.SkyHopSubmitRun) {
@@ -3522,6 +3654,7 @@
       if (btnSkipStage) btnSkipStage.classList.add('hidden');
       screenWin.classList.remove('hidden');
       screenWin.classList.add('flex');
+      syncMenuCampaignCopy();
       winDeaths.textContent = String(deaths);
       if (winTime) winTime.textContent = formatTotalRunTime(getRunElapsedMs());
       if (window.SkyHopSubmitRun) {
@@ -3681,6 +3814,7 @@
     hud.classList.add('hidden');
     screenWin.classList.remove('hidden');
     screenWin.classList.add('flex');
+    syncMenuCampaignCopy();
     winDeaths.textContent = String(deathsArg != null ? deathsArg : deaths);
     if (winTime) winTime.textContent = formatTotalRunTime(timeMs != null ? timeMs : getRunElapsedMs());
     setTouchHudVisible(false);
@@ -3807,6 +3941,7 @@
     startUserLevel,
     ensureGameShellVisible,
     goToMenu,
+    syncMenuCampaignCopy,
     isRacing: function () {
       return inRace;
     },
@@ -3849,6 +3984,7 @@
   try {
     window.addEventListener('skyhop-campaign-loaded', () => {
       syncMenuProgressUI();
+      syncMenuCampaignCopy();
     });
   } catch {
     /* */
