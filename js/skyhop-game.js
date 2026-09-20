@@ -444,6 +444,9 @@
   );
   let stageIndex = 0;
   function grappleUnlocked() {
+    const s = stagesNow()[stageIndex];
+    if (s && s.grapple === true) return true;
+    if (s && s.grapple === false) return false;
     return stageIndex >= grappleIntroIndex();
   }
   let deaths = 0;

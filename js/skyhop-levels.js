@@ -69,7 +69,10 @@
     if (!raw.platforms) raw.platforms = [];
     if (!Array.isArray(raw.coins)) raw.coins = [];
     if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
-    raw.underhangDisabled = true;
+    if (!Array.isArray(raw.spikes)) raw.spikes = [];
+    raw.grapple = !!raw.grapple;
+    raw.doubleJump = !!raw.doubleJump;
+    raw.underhangDisabled = !!raw.underhangDisabled;
     normalizeEditorLevelInPlace(raw);
     return raw;
   }
@@ -149,6 +152,40 @@
       return p && p.move ? p : null;
     }
     return null;
+  }
+
+  function editorGrappleChecked() {
+    const d = editorState.data;
+    if (!d) return false;
+    if (d.grapple === true) return true;
+    if (d.grapple === false) return false;
+    if (ownerBuiltinArr && ownerBuiltinArr.length) {
+      const intro = ownerBuiltinArr.findIndex((s) => s && s.grapple);
+      return intro >= 0 && ownerBuiltinIdx >= intro;
+    }
+    return false;
+  }
+
+  function syncStageFlagsUi() {
+    const d = editorState.data;
+    const g = document.getElementById('lvlEdOptGrapple');
+    const dj = document.getElementById('lvlEdOptDoubleJump');
+    const beams = document.getElementById('lvlEdOptBeams');
+    if (!d) return;
+    if (g && document.activeElement !== g) g.checked = editorGrappleChecked();
+    if (dj && document.activeElement !== dj) dj.checked = !!d.doubleJump;
+    if (beams && document.activeElement !== beams) beams.checked = !d.underhangDisabled;
+  }
+
+  function applyStageFlagsFromUi() {
+    const d = editorState.data;
+    if (!d) return;
+    const g = document.getElementById('lvlEdOptGrapple');
+    const dj = document.getElementById('lvlEdOptDoubleJump');
+    const beams = document.getElementById('lvlEdOptBeams');
+    if (g) d.grapple = !!g.checked;
+    if (dj) d.doubleJump = !!dj.checked;
+    if (beams) d.underhangDisabled = !beams.checked;
   }
 
   function syncMoverInspector() {
@@ -249,6 +286,11 @@
       const c = coins[i];
       const r = Number(c.r) > 0 ? Number(c.r) : 14;
       if (Math.hypot(wx - c.x, wy - c.y) < r + 10) return { kind: 'coin', index: i };
+    }
+    const spikes = d.spikes || [];
+    for (let i = spikes.length - 1; i >= 0; i--) {
+      const s = spikes[i];
+      if (wx >= s.x && wx <= s.x + s.w && wy >= s.y && wy <= s.y + s.h) return { kind: 'spike', index: i };
     }
     const mp = d.movingPlatforms || [];
     for (let i = mp.length - 1; i >= 0; i--) {
@@ -381,6 +423,25 @@
       ctx.fillRect(a.x, a.y, L.w * cam.s, L.h * cam.s);
     }
 
+    for (const s of d.spikes || []) {
+      const a = toScreen(s.x, s.y);
+      const sw = s.w * cam.s;
+      const sh = s.h * cam.s;
+      ctx.fillStyle = '#9f1239';
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y + sh);
+      const teeth = Math.max(2, Math.round(s.w / 10));
+      const tw = sw / teeth;
+      for (let i = 0; i < teeth; i++) {
+        ctx.lineTo(a.x + i * tw + tw / 2, a.y);
+        ctx.lineTo(a.x + (i + 1) * tw, a.y + sh);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(254, 205, 211, 0.45)';
+      ctx.stroke();
+    }
+
     for (const p of d.platforms) {
       const a = toScreen(p.x, p.y);
       ctx.fillStyle = '#4338ca';
@@ -487,6 +548,10 @@
         const p = d.movingPlatforms[editorSelection.index];
         const a = toScreen(p.x, p.y);
         ctx.strokeRect(a.x - 2, a.y - 2, p.w * cam.s + 4, p.h * cam.s + 4);
+      } else if (editorSelection.kind === 'spike') {
+        const s = d.spikes[editorSelection.index];
+        const a = toScreen(s.x, s.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, s.w * cam.s + 4, s.h * cam.s + 4);
       }
     }
   }
@@ -502,6 +567,7 @@
       try {
         drawEditor(canvas, ctx);
         syncMoverInspector();
+        syncStageFlagsUi();
       } finally {
         editorRedrawScheduled = false;
       }
@@ -562,6 +628,10 @@
           const p = d.movingPlatforms[drag.sel.index];
           drag.startMover = { x: p.x, y: p.y };
         }
+        if (drag && drag.sel.kind === 'spike') {
+          const s = d.spikes[drag.sel.index];
+          drag.startSpike = { x: s.x, y: s.y };
+        }
         scheduleEditorRedraw();
         return;
       }
@@ -590,6 +660,15 @@
         if (!d.coins) d.coins = [];
         d.coins.push({ x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
         editorSelection = { kind: 'coin', index: d.coins.length - 1 };
+      } else if (editorTool === 'spike') {
+        if (!d.spikes) d.spikes = [];
+        d.spikes.push({
+          x: Math.round((w.x - 20) / 8) * 8,
+          y: Math.round((w.y - 16) / 8) * 8,
+          w: 40,
+          h: 32,
+        });
+        editorSelection = { kind: 'spike', index: d.spikes.length - 1 };
       } else if (editorTool === 'mover' || editorTool === 'mover-y') {
         if (!d.movingPlatforms) d.movingPlatforms = [];
         d.movingPlatforms.push({
@@ -638,6 +717,10 @@
         const p = d.movingPlatforms[drag.sel.index];
         p.x += dx;
         p.y += dy;
+      } else if (drag.sel.kind === 'spike') {
+        const s = d.spikes[drag.sel.index];
+        s.x += dx;
+        s.y += dy;
       }
       scheduleEditorRedraw();
     }
@@ -1064,6 +1147,7 @@
   }
 
   function syncEditorUi() {
+    syncStageFlagsUi();
     const up = document.getElementById('btnLvlEdUpload');
     const st = document.getElementById('lvlEdStatus');
     const sv = document.getElementById('btnLvlEdSave');
@@ -1829,6 +1913,11 @@
       el.addEventListener('change', applyMoverInspectorFromInputs);
       el.addEventListener('input', applyMoverInspectorFromInputs);
     });
+    ['lvlEdOptGrapple', 'lvlEdOptDoubleJump', 'lvlEdOptBeams'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applyStageFlagsFromUi);
+    });
     document.getElementById('btnLvlEdDelete').addEventListener('click', () => {
       if (!editorSelection) return;
       const d = editorState.data;
@@ -1837,6 +1926,7 @@
       if (editorSelection.kind === 'fireball') d.fireballEmitters.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'coin') d.coins.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'spike') d.spikes.splice(editorSelection.index, 1);
       editorSelection = null;
       scheduleEditorRedraw();
     });
