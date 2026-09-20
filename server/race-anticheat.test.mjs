@@ -49,6 +49,28 @@ test('death respawn on the same stage is not a teleport', () => {
   assert.ok(!ev.flags.includes('teleport'));
 });
 
+test('portal warp on the same stage is not a teleport', () => {
+  const prev = {
+    stage: 0,
+    stageAt: 1000,
+    lastAt: 1100,
+    x: 80,
+    y: 520,
+    deaths: 0,
+    warps: 0,
+    suspicion: 0,
+    progressHits: 5,
+  };
+  const ev = evaluateProgress(
+    room,
+    prev,
+    { stage0: 0, timeMs: 200, x: 1200, y: 200, deaths: 0, warps: 1 },
+    1200
+  );
+  assert.equal(ev.ok, true);
+  assert.ok(!ev.flags.includes('teleport'));
+});
+
 test('same-stage teleport still kicks', () => {
   const prev = {
     stage: 0,

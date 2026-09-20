@@ -81,6 +81,29 @@
     return s && s.length ? s.length : builtinCampaign().length;
   }
 
+  function hasMoreStagesAfterCurrent() {
+    const list = stagesNow();
+    return !!(list && list.length && stageIndex < list.length - 1);
+  }
+
+  function syncNextStageButton() {
+    if (!btnNextStage) return;
+    if (hasMoreStagesAfterCurrent()) {
+      btnNextStage.textContent = 'Next stage';
+      return;
+    }
+    const ext = window.SKYHOP_EXTERNAL_LEVEL;
+    if (ext && ext.mode === 'test') {
+      btnNextStage.textContent = 'Back to editor';
+      return;
+    }
+    if (ext && ext.mode === 'play') {
+      btnNextStage.textContent = 'Back';
+      return;
+    }
+    btnNextStage.textContent = 'Next stage';
+  }
+
   function campaignHudStageLabel(stageIndex0) {
     const ext = window.SKYHOP_EXTERNAL_LEVEL;
     if (ext && ext.hudTitle) return ext.hudTitle;
@@ -859,6 +882,153 @@
 
   let gravityDir = 1;
   let gravityArrowWasInside = [];
+  let portalWasInside = [];
+  let portalCoolUntil = 0;
+  let portalWarpCount = 0;
+  let switchWasInside = [];
+  let switchOn = [];
+  let switchAnims = [];
+
+  function stageLinkableObjects(stage) {
+    const out = [];
+    function add(list) {
+      if (!list) return;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i]) out.push(list[i]);
+      }
+    }
+    add(stage.platforms);
+    add(stage.movingPlatforms);
+    add(stage.portals);
+    add(stage.spikes);
+    add(stage.lava);
+    add(stage.gravityArrows);
+    add(stage.coins);
+    return out;
+  }
+
+  function findStageObjById(stage, id) {
+    if (!id) return null;
+    const all = stageLinkableObjects(stage);
+    for (let i = 0; i < all.length; i++) {
+      if (all[i].id === id) return all[i];
+    }
+    return null;
+  }
+
+  function resetStageGadgets(stage) {
+    const all = stageLinkableObjects(stage);
+    for (let i = 0; i < all.length; i++) {
+      const o = all[i];
+      if (o.__restX != null) {
+        o.x = o.__restX;
+        o.y = o.__restY;
+      } else {
+        o.__restX = o.x;
+        o.__restY = o.y;
+      }
+    }
+    portalWasInside = (stage.portals || []).map(() => false);
+    switchWasInside = (stage.switches || []).map(() => false);
+    switchOn = (stage.switches || []).map(() => false);
+    switchAnims = [];
+    portalCoolUntil = 0;
+  }
+
+  function restoreStageGadgetRests(stage) {
+    if (!stage) return;
+    const all = stageLinkableObjects(stage);
+    for (let i = 0; i < all.length; i++) {
+      const o = all[i];
+      if (o && o.__restX != null) {
+        o.x = o.__restX;
+        o.y = o.__restY;
+      }
+    }
+  }
+
+  function restoreAllGadgetRests() {
+    const list = stagesNow();
+    if (!list) return;
+    for (let i = 0; i < list.length; i++) restoreStageGadgetRests(list[i]);
+    switchAnims = [];
+  }
+
+  function tickSwitchAnims(now) {
+    for (let i = 0; i < switchAnims.length; i++) {
+      const a = switchAnims[i];
+      if (!a || !a.obj) continue;
+      const dur = a.dur || 350;
+      const u = Math.max(0, Math.min(1, (now - a.t0) / dur));
+      const e = 1 - (1 - u) * (1 - u);
+      a.obj.x = a.x0 + (a.x1 - a.x0) * e;
+      a.obj.y = a.y0 + (a.y1 - a.y0) * e;
+      if (u >= 1) a.done = true;
+    }
+    switchAnims = switchAnims.filter((a) => a && !a.done);
+  }
+
+  function activateSwitch(stage, sw, now) {
+    if (!sw || !sw.targetId) return;
+    const obj = findStageObjById(stage, sw.targetId);
+    if (!obj) return;
+    if (obj.__restX == null) {
+      obj.__restX = obj.x;
+      obj.__restY = obj.y;
+    }
+    const idx = (stage.switches || []).indexOf(sw);
+    const on = idx >= 0 ? !switchOn[idx] : true;
+    if (idx >= 0) switchOn[idx] = on;
+    const mx = Number(sw.moveX) || 0;
+    const my = Number(sw.moveY) || 0;
+    const x1 = obj.__restX + (on ? mx : 0);
+    const y1 = obj.__restY + (on ? my : 0);
+    switchAnims = switchAnims.filter((a) => a.obj !== obj);
+    switchAnims.push({
+      obj,
+      x0: obj.x,
+      y0: obj.y,
+      x1,
+      y1,
+      t0: now,
+      dur: 380,
+    });
+  }
+
+  function portalDestWorld(p) {
+    return { x: p.x + Number(p.destOx || 0), y: p.y + Number(p.destOy || 0) };
+  }
+
+  function updatePortalsAndSwitches(stage, now) {
+    const body = { x: player.x, y: player.y, w: player.w, h: player.h };
+    const switches = stage.switches || [];
+    for (let i = 0; i < switches.length; i++) {
+      const sw = switches[i];
+      const inside = PHY.rectsOverlap(body, sw);
+      if (inside && !switchWasInside[i]) activateSwitch(stage, sw, now);
+      switchWasInside[i] = inside;
+    }
+    if (now < portalCoolUntil) return;
+    const portals = stage.portals || [];
+    for (let i = 0; i < portals.length; i++) {
+      const p = portals[i];
+      const inside = PHY.rectsOverlap(body, p);
+      if (inside && !portalWasInside[i]) {
+        const dest = portalDestWorld(p);
+        player.x = dest.x - player.w / 2;
+        player.y = dest.y - player.h;
+        player.vx = 0;
+        player.vy = 0;
+        player.onGround = false;
+        portalWarpCount += 1;
+        portalCoolUntil = now + 450;
+        portalWasInside = portals.map(() => false);
+        portalWasInside[i] = true;
+        return;
+      }
+      portalWasInside[i] = inside;
+    }
+  }
   let monsterStates = [];
   let bossState = null;
   let bossBullets = [];
@@ -1662,6 +1832,7 @@
     player.grappleZipUntil = 0;
     gravityDir = 1;
     gravityArrowWasInside = (s.gravityArrows || []).map(() => false);
+    resetStageGadgets(s);
     monsterStates = (s.monsters || []).map((m) => ({ ...m, vy: m.vy ?? 0 }));
     bossState = s.boss ? { ...s.boss } : null;
     if (bossState) {
@@ -1834,7 +2005,9 @@
     gameState = 'playing';
     stageIndex = 0;
     deaths = 0;
+    portalWarpCount = 0;
     resetRunClock();
+    syncNextStageButton();
     if (screenMenu) {
       screenMenu.classList.add('hidden');
       screenMenu.classList.remove('flex');
@@ -2340,6 +2513,7 @@
     const stage = stagesNow()[stageIndex];
     if (!stage) return;
     const now = performance.now();
+    tickSwitchAnims(now);
     const tSec = now * 0.001;
     const sens = getSensitivity();
     const solidRects = PHY.buildSolidRects(stage, tSec);
@@ -2492,6 +2666,8 @@
       }
     }
 
+    updatePortalsAndSwitches(stage, now);
+
     const springs = stage.springs;
     if (springs && springs.length && player.onGround && wasFalling) {
       const body = { x: player.x, y: player.y, w: player.w, h: player.h };
@@ -2627,9 +2803,21 @@
     if (stage.bossStage && bossDefeated()) {
       const extBoss = window.SKYHOP_EXTERNAL_LEVEL;
       if (extBoss) {
+        if (hasMoreStagesAfterCurrent()) {
+          gameState = 'stage_clear';
+          stageClearTitle.textContent = `Boss down!`;
+          stageClearSub.textContent = 'Next stage unlocked.';
+          syncNextStageButton();
+          screenStageClear.classList.remove('hidden');
+          screenStageClear.classList.add('flex');
+          setTouchHudVisible(false);
+          syncLevelsTopNav();
+          return;
+        }
         gameState = 'stage_clear';
         stageClearTitle.textContent = 'Level complete';
         stageClearSub.textContent = '';
+        syncNextStageButton();
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         setTouchHudVisible(false);
@@ -2704,6 +2892,7 @@
         gameState = 'stage_clear';
         stageClearTitle.textContent = `Boss down!`;
         stageClearSub.textContent = 'Next stage unlocked.';
+        syncNextStageButton();
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         saveRunProgress();
@@ -2716,6 +2905,17 @@
     if (goalReached(stage)) {
       const extGoal = window.SKYHOP_EXTERNAL_LEVEL;
       if (extGoal) {
+        if (hasMoreStagesAfterCurrent()) {
+          gameState = 'stage_clear';
+          stageClearTitle.textContent = `Stage ${stageIndex + 1} complete`;
+          stageClearSub.textContent = 'Good luck on the next climb.';
+          syncNextStageButton();
+          screenStageClear.classList.remove('hidden');
+          screenStageClear.classList.add('flex');
+          setTouchHudVisible(false);
+          syncLevelsTopNav();
+          return;
+        }
         gameState = 'stage_clear';
         if (extGoal.mode === 'test') {
           stageClearTitle.textContent = 'Test cleared';
@@ -2731,6 +2931,7 @@
           stageClearTitle.textContent = 'Level complete';
           stageClearSub.textContent = extGoal.levelTitle ? `“${extGoal.levelTitle}”` : '';
         }
+        syncNextStageButton();
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         setTouchHudVisible(false);
@@ -2799,6 +3000,7 @@
         stageClearTitle.textContent = `Stage ${stageIndex + 1} complete`;
         stageClearSub.textContent =
           'Good luck on the next climb.';
+        syncNextStageButton();
         screenStageClear.classList.remove('hidden');
         screenStageClear.classList.add('flex');
         saveRunProgress();
@@ -3068,6 +3270,44 @@
         }
         ctx.closePath();
         ctx.fill();
+      }
+    }
+
+    if (stage.switches) {
+      for (const sw of stage.switches) {
+        if (sw.invisible) continue;
+        const sc = stageHexColor(sw.color) || '#65a30d';
+        ctx.fillStyle = shadeHex(sc, -0.25);
+        ctx.fillRect(sw.x, sw.y, sw.w, sw.h);
+        ctx.fillStyle = shadeHex(sc, 0.2);
+        ctx.fillRect(sw.x + 3, sw.y + 2, Math.max(4, sw.w - 6), Math.max(3, sw.h - 6));
+        ctx.strokeStyle = hexToRgba(sc, 0.9) || 'rgba(190, 242, 100, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(sw.x + 0.5, sw.y + 0.5, sw.w - 1, sw.h - 1);
+      }
+    }
+
+    if (stage.portals) {
+      for (const p of stage.portals) {
+        if (p.invisible) continue;
+        const pc = stageHexColor(p.color) || '#059669';
+        const cx = p.x + p.w / 2;
+        const cy = p.y + p.h / 2;
+        const pulse = 0.65 + 0.35 * Math.sin(performance.now() / 220);
+        ctx.save();
+        ctx.fillStyle = hexToRgba(pc, 0.28 * pulse) || 'rgba(16, 185, 129, 0.28)';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, p.w / 2, p.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = hexToRgba(pc, 0.95) || 'rgba(110, 231, 183, 0.95)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(236, 253, 245, 0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, Math.max(4, p.w / 2 - 6), Math.max(4, p.h / 2 - 6), 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
       }
     }
 
@@ -3618,6 +3858,8 @@
     closeWeaponScreen();
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
+    restoreAllGadgetRests();
+    syncNextStageButton();
     setTouchHudVisible(false);
     syncLevelsTopNav();
     if (screenPause) {
@@ -3781,6 +4023,7 @@
       hasShield = false;
       stageIndex = debugStartStageIndex();
       deaths = 0;
+      portalWarpCount = 0;
     } else {
       resume = loadRunProgress();
       if (resume) {
@@ -3793,6 +4036,7 @@
         hasShield = false;
         stageIndex = 0;
         deaths = 0;
+        portalWarpCount = 0;
       }
     }
     resetRunClock();
@@ -3804,6 +4048,7 @@
       menuW2.classList.remove('flex');
     }
     hud.classList.remove('hidden');
+    syncNextStageButton();
     loadStage(stageIndex);
     if (resume) {
       if (resume.sword) hasWoodenSword = true;
@@ -3857,18 +4102,12 @@
     shieldRingAnim = null;
     window.SKYHOP_ACTIVE_STAGES = stagesArr;
     window.SKYHOP_EXTERNAL_LEVEL = meta || { mode: 'play' };
-    if (btnNextStage) {
-      btnNextStage.textContent =
-        window.SKYHOP_EXTERNAL_LEVEL && window.SKYHOP_EXTERNAL_LEVEL.mode === 'test'
-          ? 'Back to editor'
-          : window.SKYHOP_EXTERNAL_LEVEL && window.SKYHOP_EXTERNAL_LEVEL.mode === 'play'
-            ? 'Back'
-            : 'Next stage';
-    }
     stageIndex = 0;
     deaths = 0;
+    portalWarpCount = 0;
     hasWoodenSword = false;
     hasShield = false;
+    syncNextStageButton();
     gameState = 'playing';
     if (screenMenu) {
       screenMenu.classList.add('hidden');
@@ -3890,12 +4129,21 @@
   }
 
   btnNextStage.addEventListener('click', () => {
+    if (hasMoreStagesAfterCurrent()) {
+      stageIndex++;
+      screenStageClear.classList.add('hidden');
+      screenStageClear.classList.remove('flex');
+      gameState = 'playing';
+      loadStage(stageIndex);
+      updateSkipHud();
+      return;
+    }
     const ext = window.SKYHOP_EXTERNAL_LEVEL;
     if (ext && typeof ext.onContinue === 'function') {
       const cb = ext.onContinue;
       window.SKYHOP_ACTIVE_STAGES = null;
       window.SKYHOP_EXTERNAL_LEVEL = null;
-      if (btnNextStage) btnNextStage.textContent = 'Next stage';
+      syncNextStageButton();
       screenStageClear.classList.add('hidden');
       screenStageClear.classList.remove('flex');
       gameState = 'menu';
@@ -3933,6 +4181,7 @@
     gameState = 'playing';
     stageIndex = 0;
     deaths = 0;
+    portalWarpCount = 0;
     resetRunClock();
     loadStage(0);
     updateSkipHud();
@@ -3985,6 +4234,7 @@
         finished: false,
         tMs: getRunElapsedMs(),
         deaths: deaths,
+        warps: portalWarpCount,
         x: player.x,
         y: player.y,
         g: gravityDir,

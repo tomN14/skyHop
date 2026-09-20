@@ -88,6 +88,14 @@ export function evaluateProgress(room, prev, msg, now) {
     suspicion += 2;
   }
 
+  const warps = Math.max(0, Math.floor(Number(msg.warps) || 0));
+  const prevWarps = prev && Number.isFinite(prev.warps) ? prev.warps : 0;
+  const warped = warps > prevWarps && warps - prevWarps <= 2;
+  if (warps > prevWarps + 2) {
+    flags.push('warp_spike');
+    suspicion += 2;
+  }
+
   let nx = null;
   let ny = null;
   if (msg.x != null && msg.y != null) {
@@ -99,10 +107,11 @@ export function evaluateProgress(room, prev, msg, now) {
     }
   }
 
-  // New stage spawn and death respawn both jump x/y; that is not a teleport.
+  // New stage spawn, death respawn, and portal warps all jump x/y; that is not a cheat teleport.
   if (
     !stageChanged &&
     !respawned &&
+    !warped &&
     nx != null &&
     ny != null &&
     prev &&
@@ -163,6 +172,7 @@ export function evaluateProgress(room, prev, msg, now) {
     stageAt: stageChanged ? now : prevStageAt,
     timeMs,
     deaths,
+    warps,
     x: nx,
     y: ny,
     rateHits,

@@ -642,6 +642,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Platforms (including rotated); underhang rules; moving platforms (horizontal &amp; vertical)</li>
             <li>Spikes, lava, goals, spawn points</li>
+            <li>Teleport portals (green landing dot) and simple switches that move a linked object</li>
             <li>Collectible coins in stages</li>
             <li>Stage prep / normalization pipeline for bundled &amp; API stages</li>
           </ul>
@@ -649,7 +650,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>My Levels: draft, save, test play, beat-to-upload, publish</li>
             <li>Online levels list: browse, play, metadata</li>
-            <li>Visual level editor (platforms, spikes, lava, coins, movers, grapple / double-jump stage rules)</li>
+            <li>Visual level editor (platforms, spikes, lava, coins, movers, portals, switches, grapple / double-jump stage rules)</li>
             <li>Profanity filter on level titles (client NN + server censor)</li>
             <li>Staff can edit non-owner user levels from mod dashboard</li>
             <li>Admin (exactly one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
@@ -1387,6 +1388,8 @@
         <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="mover">Move ↔</button>
         <button type="button" class="lvl-tool rounded-lg border border-cyan-500/40 px-2 py-1 text-xs font-semibold text-cyan-100 hover:border-cyan-300/70" data-tool="mover-y">Move ↕</button>
         <button type="button" class="lvl-tool rounded-lg border border-amber-400/45 px-2 py-1 text-xs font-semibold text-amber-100 hover:border-amber-200/70" data-tool="gravity">Gravity</button>
+        <button type="button" class="lvl-tool rounded-lg border border-emerald-400/50 px-2 py-1 text-xs font-semibold text-emerald-100 hover:border-emerald-200/70" data-tool="portal">Portal</button>
+        <button type="button" class="lvl-tool rounded-lg border border-lime-400/45 px-2 py-1 text-xs font-semibold text-lime-100 hover:border-lime-200/70" data-tool="switch">Switch</button>
         <button id="btnLvlEdToMoverY" type="button" class="rounded-lg border border-cyan-500/35 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Block to vertical mover</button>
         <button id="btnLvlEdRotate" type="button" class="rounded-lg border border-amber-500/40 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Rotate 90°</button>
         <button id="btnLvlEdDelete" type="button" class="rounded-lg border border-rose-500/40 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-950/40">Delete</button>
@@ -1438,6 +1441,27 @@
         </label>
         <span class="text-[10px] text-slate-500">Walk through to flip. Rotate 90° also flips the arrow.</span>
       </div>
+      <div id="lvlEdPortalProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
+        <span class="font-semibold text-emerald-100">Teleport portal</span>
+        <label class="inline-flex items-center gap-1">Offset X
+          <input id="lvlEdPortalDestX" type="number" step="4" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <label class="inline-flex items-center gap-1">Offset Y
+          <input id="lvlEdPortalDestY" type="number" step="4" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <span class="text-[10px] text-slate-500">Green dot = landing (default 3 blocks up). Drag the dot or type.</span>
+      </div>
+      <div id="lvlEdSwitchProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
+        <span class="font-semibold text-lime-100">Switch</span>
+        <button id="btnLvlEdEditSwitch" type="button" class="rounded-md border border-lime-400/50 bg-lime-950/50 px-2 py-0.5 text-xs font-semibold text-lime-100 hover:bg-lime-900/50">Edit Switch</button>
+        <label class="inline-flex items-center gap-1">Move X
+          <input id="lvlEdSwitchMoveX" type="number" step="4" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <label class="inline-flex items-center gap-1">Move Y
+          <input id="lvlEdSwitchMoveY" type="number" step="4" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <span id="lvlEdSwitchTargetHint" class="text-[10px] text-slate-500">Click Edit Switch, then click the object to move (block, mover, portal, …).</span>
+      </div>
       <div id="lvlEdMoverProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-cyan-100">Selected mover</span>
         <label class="inline-flex items-center gap-1">Axis
@@ -1466,7 +1490,7 @@
       <div class="relative flex min-h-[220px] flex-1 flex-col overflow-auto bg-slate-950 p-2">
         <canvas id="lvlEditorCanvas" class="block w-full max-w-full touch-none border border-white/10 bg-slate-900" style="min-height:220px"></canvas>
       </div>
-      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Eraser cuts a default-block hole (including ground). Selected objects can be recolored or made invisible (still solid in play). Beat Test play before Upload.</p>
+      <p class="px-3 py-2 text-center text-[10px] text-slate-500">Touch or click anywhere on an object to drag it. Change size with Width / Height. Portals: select to edit the green landing dot. Switches: Edit Switch, then click the object to move. Eraser cuts a default-block hole (including ground). Beat Test play before Upload.</p>
     </div>
 
     <div id="screenMyMods" class="pointer-events-auto fixed inset-0 z-[36] hidden flex-col bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">

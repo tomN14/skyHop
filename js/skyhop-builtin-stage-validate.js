@@ -23,7 +23,7 @@
           return p && typeof p === 'object';
         })
         .map(function (p) {
-          return {
+          var row = {
             x: Number(p.x),
             y: Number(p.y),
             w: Number(p.w),
@@ -35,6 +35,8 @@
             color: p.color,
             invisible: p.invisible,
           };
+          if (p.id != null && String(p.id)) row.id = String(p.id);
+          return row;
         })
         .filter(function (p) {
           return Number.isFinite(p.x) && Number.isFinite(p.y) && p.w > 0 && p.h > 0;

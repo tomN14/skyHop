@@ -59,7 +59,130 @@
       coins: [],
       movingPlatforms: [],
       gravityArrows: [],
+      portals: [],
+      switches: [],
     };
+  }
+
+  const ED_BLOCK_W = 48;
+  const ED_BLOCK_H = 24;
+  const PORTAL_DEST_DEFAULT_OY = -ED_BLOCK_H * 3;
+
+  function nextEditorId(d) {
+    if (!d) return 'e1';
+    d._idSeq = (Number(d._idSeq) || 0) + 1;
+    return 'e' + d._idSeq;
+  }
+
+  function ensureObjId(d, o) {
+    if (!o || typeof o !== 'object') return '';
+    if (!o.id) o.id = nextEditorId(d);
+    return o.id;
+  }
+
+  function normalizePortal(d, p) {
+    if (!p || typeof p !== 'object') return;
+    ensureObjId(d, p);
+    let x = Number(p.x);
+    let y = Number(p.y);
+    let w = Number(p.w);
+    let h = Number(p.h);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    if (!Number.isFinite(w) || w < 8) w = ED_BLOCK_W;
+    if (!Number.isFinite(h) || h < 8) h = ED_BLOCK_W;
+    p.x = x;
+    p.y = y;
+    p.w = Math.min(4000, w);
+    p.h = Math.min(4000, h);
+    let ox = Number(p.destOx);
+    let oy = Number(p.destOy);
+    if (!Number.isFinite(ox)) ox = Math.round(p.w / 2);
+    if (!Number.isFinite(oy)) oy = PORTAL_DEST_DEFAULT_OY;
+    p.destOx = ox;
+    p.destOy = oy;
+    normalizeLook(p);
+  }
+
+  function normalizeSwitch(d, sw) {
+    if (!sw || typeof sw !== 'object') return;
+    ensureObjId(d, sw);
+    let x = Number(sw.x);
+    let y = Number(sw.y);
+    let w = Number(sw.w);
+    let h = Number(sw.h);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    if (!Number.isFinite(w) || w < 8) w = 40;
+    if (!Number.isFinite(h) || h < 8) h = 16;
+    sw.x = x;
+    sw.y = y;
+    sw.w = Math.min(4000, w);
+    sw.h = Math.min(4000, h);
+    let mx = Number(sw.moveX);
+    let my = Number(sw.moveY);
+    if (!Number.isFinite(mx)) mx = ED_BLOCK_W;
+    if (!Number.isFinite(my)) my = 0;
+    sw.moveX = mx;
+    sw.moveY = my;
+    if (sw.targetId != null) sw.targetId = String(sw.targetId);
+    else delete sw.targetId;
+    normalizeLook(sw);
+  }
+
+  function portalDest(p) {
+    if (!p) return { x: 0, y: 0 };
+    return { x: p.x + Number(p.destOx || 0), y: p.y + Number(p.destOy || 0) };
+  }
+
+  function linkableLists(d) {
+    if (!d) return [];
+    return [
+      { kind: 'platform', list: d.platforms || [] },
+      { kind: 'mover', list: d.movingPlatforms || [] },
+      { kind: 'portal', list: d.portals || [] },
+      { kind: 'spike', list: d.spikes || [] },
+      { kind: 'lava', list: d.lava || [] },
+      { kind: 'gravity', list: d.gravityArrows || [] },
+      { kind: 'coin', list: d.coins || [] },
+    ];
+  }
+
+  function objectFromSel(d, sel) {
+    if (!d || !sel) return null;
+    if (sel.kind === 'platform') return (d.platforms || [])[sel.index] || null;
+    if (sel.kind === 'mover') return (d.movingPlatforms || [])[sel.index] || null;
+    if (sel.kind === 'portal') return (d.portals || [])[sel.index] || null;
+    if (sel.kind === 'switch') return (d.switches || [])[sel.index] || null;
+    if (sel.kind === 'spike') return (d.spikes || [])[sel.index] || null;
+    if (sel.kind === 'lava') return (d.lava || [])[sel.index] || null;
+    if (sel.kind === 'gravity') return (d.gravityArrows || [])[sel.index] || null;
+    if (sel.kind === 'coin') return (d.coins || [])[sel.index] || null;
+    return null;
+  }
+
+  function findObjById(d, id) {
+    if (!d || !id) return null;
+    const lists = linkableLists(d);
+    for (let i = 0; i < lists.length; i++) {
+      const list = lists[i].list;
+      for (let j = 0; j < list.length; j++) {
+        if (list[j] && list[j].id === id) return { kind: lists[i].kind, index: j, obj: list[j] };
+      }
+    }
+    return null;
+  }
+
+  function isLinkableKind(kind) {
+    return (
+      kind === 'platform' ||
+      kind === 'mover' ||
+      kind === 'portal' ||
+      kind === 'spike' ||
+      kind === 'lava' ||
+      kind === 'gravity' ||
+      kind === 'coin'
+    );
   }
 
   function stagePayloadFromEditor(d) {
@@ -72,6 +195,8 @@
     if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
     if (!Array.isArray(raw.spikes)) raw.spikes = [];
     if (!Array.isArray(raw.gravityArrows)) raw.gravityArrows = [];
+    if (!Array.isArray(raw.portals)) raw.portals = [];
+    if (!Array.isArray(raw.switches)) raw.switches = [];
     raw.grapple = !!raw.grapple;
     raw.doubleJump = !!raw.doubleJump;
     raw.underhangDisabled = !!raw.underhangDisabled;
@@ -120,6 +245,16 @@
     if (!Array.isArray(d.coins)) d.coins = [];
     if (!Array.isArray(d.movingPlatforms)) d.movingPlatforms = [];
     if (!Array.isArray(d.gravityArrows)) d.gravityArrows = [];
+    if (!Array.isArray(d.portals)) d.portals = [];
+    if (!Array.isArray(d.switches)) d.switches = [];
+    for (const p of d.platforms || []) ensureObjId(d, p);
+    for (const p of d.movingPlatforms || []) ensureObjId(d, p);
+    for (const s of d.spikes || []) ensureObjId(d, s);
+    for (const L of d.lava || []) ensureObjId(d, L);
+    for (const a of d.gravityArrows) ensureObjId(d, a);
+    for (const c of d.coins || []) ensureObjId(d, c);
+    for (const p of d.portals) normalizePortal(d, p);
+    for (const sw of d.switches) normalizeSwitch(d, sw);
     for (const p of d.movingPlatforms) normalizeMoverMotion(p);
     for (const p of d.platforms) {
       if (p && p.move) normalizeMoverMotion(p);
@@ -168,6 +303,111 @@
     a.h = Math.min(4000, h);
     a.targetDir = Number(a.targetDir) < 0 ? -1 : 1;
     normalizeLook(a);
+  }
+
+  let switchLinkMode = false;
+
+  function selectedPortal() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'portal') return null;
+    return (d.portals || [])[editorSelection.index] || null;
+  }
+
+  function selectedSwitch() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'switch') return null;
+    return (d.switches || [])[editorSelection.index] || null;
+  }
+
+  function portalDestHit(wx, wy, p) {
+    if (!p) return false;
+    const dest = portalDest(p);
+    return Math.hypot(wx - dest.x, wy - dest.y) < 16;
+  }
+
+  function syncPortalInspector() {
+    const wrap = document.getElementById('lvlEdPortalProps');
+    const xEl = document.getElementById('lvlEdPortalDestX');
+    const yEl = document.getElementById('lvlEdPortalDestY');
+    const p = selectedPortal();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !p);
+    wrap.classList.toggle('flex', !!p);
+    if (!p) return;
+    if (xEl && document.activeElement !== xEl) xEl.value = String(Math.round(p.destOx));
+    if (yEl && document.activeElement !== yEl) yEl.value = String(Math.round(p.destOy));
+  }
+
+  function applyPortalDestFromUi() {
+    const p = selectedPortal();
+    if (!p) return;
+    const xEl = document.getElementById('lvlEdPortalDestX');
+    const yEl = document.getElementById('lvlEdPortalDestY');
+    let ox = Number(xEl && xEl.value);
+    let oy = Number(yEl && yEl.value);
+    if (!Number.isFinite(ox)) ox = p.destOx;
+    if (!Number.isFinite(oy)) oy = p.destOy;
+    p.destOx = ox;
+    p.destOy = oy;
+    scheduleEditorRedraw();
+  }
+
+  function syncSwitchInspector() {
+    const wrap = document.getElementById('lvlEdSwitchProps');
+    const xEl = document.getElementById('lvlEdSwitchMoveX');
+    const yEl = document.getElementById('lvlEdSwitchMoveY');
+    const hint = document.getElementById('lvlEdSwitchTargetHint');
+    const sw = selectedSwitch();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !sw);
+    wrap.classList.toggle('flex', !!sw);
+    if (!sw) {
+      switchLinkMode = false;
+      return;
+    }
+    if (xEl && document.activeElement !== xEl) xEl.value = String(Math.round(sw.moveX));
+    if (yEl && document.activeElement !== yEl) yEl.value = String(Math.round(sw.moveY));
+    const btn = document.getElementById('btnLvlEdEditSwitch');
+    if (btn) {
+      btn.classList.toggle('ring-2', switchLinkMode);
+      btn.classList.toggle('ring-lime-300', switchLinkMode);
+      btn.classList.toggle('bg-lime-800/70', switchLinkMode);
+    }
+    if (hint) {
+      if (switchLinkMode) {
+        hint.textContent = 'Click the object this switch should move.';
+      } else if (sw.targetId && findObjById(editorState.data, sw.targetId)) {
+        const t = findObjById(editorState.data, sw.targetId);
+        hint.textContent = 'Linked: ' + t.kind + ' (moves when the switch is pressed).';
+      } else {
+        hint.textContent = 'No object linked. Click Edit Switch, then click an object.';
+      }
+    }
+  }
+
+  function applySwitchMoveFromUi() {
+    const sw = selectedSwitch();
+    if (!sw) return;
+    const xEl = document.getElementById('lvlEdSwitchMoveX');
+    const yEl = document.getElementById('lvlEdSwitchMoveY');
+    let mx = Number(xEl && xEl.value);
+    let my = Number(yEl && yEl.value);
+    if (!Number.isFinite(mx)) mx = sw.moveX;
+    if (!Number.isFinite(my)) my = sw.moveY;
+    sw.moveX = mx;
+    sw.moveY = my;
+    scheduleEditorRedraw();
+  }
+
+  function startSwitchLinkMode() {
+    if (!selectedSwitch()) return;
+    switchLinkMode = true;
+    editorTool = 'select';
+    document.querySelectorAll('.lvl-tool').forEach(function (x) {
+      x.classList.toggle('lvl-on', x.getAttribute('data-tool') === 'select');
+    });
+    if (lvlEdStatus) lvlEdStatus.textContent = 'Edit Switch: click the object to move.';
+    scheduleEditorRedraw();
   }
 
   const ERASER_W = 48;
@@ -222,10 +462,25 @@
     const next = [];
     for (let i = 0; i < list.length; i++) {
       const bits = subtractRect(list[i], cut);
-      for (let j = 0; j < bits.length; j++) next.push(bits[j]);
+      for (let j = 0; j < bits.length; j++) {
+        const piece = bits[j];
+        if (j > 0) piece.id = nextEditorId(editorState.data);
+        next.push(piece);
+      }
     }
     list.length = 0;
     for (let i = 0; i < next.length; i++) list.push(next[i]);
+  }
+
+  function removeOverlappingRects(list, cut) {
+    if (!list) return;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (!r) continue;
+      if (r.x < cut.x + cut.w && r.x + r.w > cut.x && r.y < cut.y + cut.h && r.y + r.h > cut.y) {
+        list.splice(i, 1);
+      }
+    }
   }
 
   function eraserStampAt(wx, wy) {
@@ -246,6 +501,8 @@
     carveRectList(d.lava, cut);
     carveRectList(d.spikes, cut);
     carveRectList(d.gravityArrows, cut);
+    removeOverlappingRects(d.portals, cut);
+    removeOverlappingRects(d.switches, cut);
     if (d.coins && d.coins.length) {
       d.coins = d.coins.filter(function (c) {
         const r = Number(c.r) > 0 ? Number(c.r) : 14;
@@ -263,6 +520,8 @@
     if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
     return null;
   }
@@ -273,6 +532,8 @@
     if (kind === 'goal') return '#34d399';
     if (kind === 'mover') return '#4f46e5';
     if (kind === 'gravity') return '#fbbf24';
+    if (kind === 'portal') return '#059669';
+    if (kind === 'switch') return '#65a30d';
     return '#4338ca';
   }
 
@@ -341,6 +602,8 @@
     if (editorSelection.kind === 'lava') return (d.lava || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'spike') return (d.spikes || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
     return null;
   }
 
@@ -421,6 +684,8 @@
     else if (k === 'lava') r = (d.lava || [])[i];
     else if (k === 'spike') r = (d.spikes || [])[i];
     else if (k === 'gravity') r = (d.gravityArrows || [])[i];
+    else if (k === 'portal') r = (d.portals || [])[i];
+    else if (k === 'switch') r = (d.switches || [])[i];
     return !!(r && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h);
   }
 
@@ -453,6 +718,15 @@
     } else if (drag.sel.kind === 'gravity') {
       const a = d.gravityArrows[drag.sel.index];
       drag.startGravity = { x: a.x, y: a.y };
+    } else if (drag.sel.kind === 'portal') {
+      const p = d.portals[drag.sel.index];
+      drag.startPortal = { x: p.x, y: p.y };
+    } else if (drag.sel.kind === 'portal-dest') {
+      const p = d.portals[drag.sel.index];
+      drag.startPortalDest = { x: p.destOx, y: p.destOy };
+    } else if (drag.sel.kind === 'switch') {
+      const sw = d.switches[drag.sel.index];
+      drag.startSwitch = { x: sw.x, y: sw.y };
     }
   }
 
@@ -495,6 +769,24 @@
       if (a) {
         a.x = snap8(a.x);
         a.y = snap8(a.y);
+      }
+    } else if (k === 'portal') {
+      const p = d.portals[drag.sel.index];
+      if (p) {
+        p.x = snap8(p.x);
+        p.y = snap8(p.y);
+      }
+    } else if (k === 'portal-dest') {
+      const p = d.portals[drag.sel.index];
+      if (p) {
+        p.destOx = snap4(p.destOx);
+        p.destOy = snap4(p.destOy);
+      }
+    } else if (k === 'switch') {
+      const sw = d.switches[drag.sel.index];
+      if (sw) {
+        sw.x = snap8(sw.x);
+        sw.y = snap8(sw.y);
       }
     } else if (k === 'goal') {
       d.goal.x = snap4(d.goal.x);
@@ -687,6 +979,16 @@
     for (let i = grav.length - 1; i >= 0; i--) {
       const a = grav[i];
       if (wx >= a.x && wx <= a.x + a.w && wy >= a.y && wy <= a.y + a.h) return { kind: 'gravity', index: i };
+    }
+    const portals = d.portals || [];
+    for (let i = portals.length - 1; i >= 0; i--) {
+      const p = portals[i];
+      if (wx >= p.x && wx <= p.x + p.w && wy >= p.y && wy <= p.y + p.h) return { kind: 'portal', index: i };
+    }
+    const switches = d.switches || [];
+    for (let i = switches.length - 1; i >= 0; i--) {
+      const sw = switches[i];
+      if (wx >= sw.x && wx <= sw.x + sw.w && wy >= sw.y && wy <= sw.y + sw.h) return { kind: 'switch', index: i };
     }
     const spikes = d.spikes || [];
     for (let i = spikes.length - 1; i >= 0; i--) {
@@ -950,6 +1252,52 @@
       ctx.restore();
     }
 
+    for (const p of d.portals || []) {
+      const a = toScreen(p.x, p.y);
+      const pw = p.w * cam.s;
+      const ph = p.h * cam.s;
+      ctx.save();
+      if (p.invisible) ctx.globalAlpha = 0.32;
+      ctx.fillStyle = editorFill(p, '#059669');
+      ctx.globalAlpha = p.invisible ? 0.28 : 0.55;
+      ctx.beginPath();
+      ctx.ellipse(a.x + pw / 2, a.y + ph / 2, Math.max(4, pw / 2), Math.max(4, ph / 2), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = p.invisible ? 0.8 : 1;
+      ctx.strokeStyle = '#6ee7b7';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#ecfdf5';
+      ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+      ctx.fillText('Portal', a.x + 4, a.y + Math.min(14, ph - 2));
+      ctx.restore();
+    }
+
+    for (const sw of d.switches || []) {
+      const a = toScreen(sw.x, sw.y);
+      paintEditorRect(sw, a.x, a.y, sw.w * cam.s, sw.h * cam.s, '#65a30d', 'rgba(190, 242, 100, 0.9)');
+      ctx.fillStyle = '#ecfccb';
+      ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+      ctx.fillText('Sw', a.x + 3, a.y + Math.min(12, sw.h * cam.s - 2));
+      if (sw.targetId) {
+        const linked = findObjById(d, sw.targetId);
+        if (linked && linked.obj) {
+          const t = linked.obj;
+          const gx = (t.x || 0) + Number(sw.moveX || 0);
+          const gy = (t.y || 0) + Number(sw.moveY || 0);
+          const ga = toScreen(gx, gy);
+          const tw = (t.w != null ? t.w : 20) * cam.s;
+          const th = (t.h != null ? t.h : 20) * cam.s;
+          ctx.save();
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = 'rgba(163, 230, 53, 0.85)';
+          ctx.strokeRect(ga.x, ga.y, tw, th);
+          ctx.setLineDash([]);
+          ctx.restore();
+        }
+      }
+    }
+
     const gg = d.goal;
     const ga = toScreen(gg.x, gg.y);
     paintEditorRect(gg, ga.x, ga.y, gg.w * cam.s, gg.h * cam.s, '#34d399', '#6ee7b7');
@@ -1024,6 +1372,48 @@
         const gv = d.gravityArrows[editorSelection.index];
         const a = toScreen(gv.x, gv.y);
         ctx.strokeRect(a.x - 2, a.y - 2, gv.w * cam.s + 4, gv.h * cam.s + 4);
+      } else if (editorSelection.kind === 'portal') {
+        const p = d.portals[editorSelection.index];
+        const a = toScreen(p.x, p.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, p.w * cam.s + 4, p.h * cam.s + 4);
+        const dest = portalDest(p);
+        const da = toScreen(dest.x, dest.y);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(74, 222, 128, 0.75)';
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(a.x + (p.w * cam.s) / 2, a.y + (p.h * cam.s) / 2);
+        ctx.lineTo(da.x, da.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#4ade80';
+        ctx.beginPath();
+        ctx.arc(da.x, da.y, Math.max(5, 6 * cam.s), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#bbf7d0';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      } else if (editorSelection.kind === 'switch') {
+        const sw = d.switches[editorSelection.index];
+        const a = toScreen(sw.x, sw.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, sw.w * cam.s + 4, sw.h * cam.s + 4);
+        if (sw.targetId) {
+          const linked = findObjById(d, sw.targetId);
+          if (linked && linked.obj) {
+            const t = linked.obj;
+            const ta = toScreen(t.x, t.y);
+            ctx.save();
+            ctx.strokeStyle = switchLinkMode ? '#fde047' : 'rgba(163, 230, 53, 0.95)';
+            ctx.setLineDash([5, 4]);
+            ctx.beginPath();
+            ctx.moveTo(a.x + (sw.w * cam.s) / 2, a.y + (sw.h * cam.s) / 2);
+            ctx.lineTo(ta.x + ((t.w || 20) * cam.s) / 2, ta.y + ((t.h || 20) * cam.s) / 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+          }
+        }
       }
     }
 
@@ -1052,6 +1442,8 @@
         drawEditor(canvas, ctx);
         syncMoverInspector();
         syncGravityInspector();
+        syncPortalInspector();
+        syncSwitchInspector();
         syncSizeInspector();
         syncStageFlagsUi();
         syncAppearanceUi();
@@ -1092,6 +1484,32 @@
       const d = editorState.data;
       eraserHover = w;
 
+      if (switchLinkMode && selectedSwitch()) {
+        const hit = hitTest(w.x, w.y, d);
+        const sw = selectedSwitch();
+        if (hit && isLinkableKind(hit.kind)) {
+          if (!(hit.kind === 'switch' && hit.index === editorSelection.index)) {
+            const obj = objectFromSel(d, hit);
+            if (obj) {
+              sw.targetId = ensureObjId(d, obj);
+              switchLinkMode = false;
+              if (lvlEdStatus) lvlEdStatus.textContent = 'Switch linked. Set Move X / Move Y.';
+            }
+          }
+        }
+        scheduleEditorRedraw();
+        return;
+      }
+
+      const selPortal = selectedPortal();
+      if (selPortal && portalDestHit(w.x, w.y, selPortal)) {
+        editorSelection = { kind: 'portal', index: editorSelection.index };
+        drag = { sel: { kind: 'portal-dest', index: editorSelection.index }, last: w };
+        canvas.style.cursor = 'grabbing';
+        scheduleEditorRedraw();
+        return;
+      }
+
       if (editorTool === 'eraser') {
         eraserDrag = true;
         eraseAt(w.x, w.y);
@@ -1121,12 +1539,19 @@
       editorSelection = null;
       if (editorTool === 'platform') {
         d.platforms.push(
-          withPaint({ x: Math.round((w.x - 24) / 8) * 8, y: Math.round((w.y - 12) / 8) * 8, w: 48, h: 24 })
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - 24) / 8) * 8,
+            y: Math.round((w.y - 12) / 8) * 8,
+            w: 48,
+            h: 24,
+          })
         );
         editorSelection = { kind: 'platform', index: d.platforms.length - 1 };
       } else if (editorTool === 'lava') {
         d.lava.push(
           withPaint({
+            id: nextEditorId(d),
             x: Math.round((w.x - 80) / 8) * 8,
             y: Math.round((w.y - 20) / 8) * 8,
             w: 160,
@@ -1145,12 +1570,13 @@
         withPaint(d.goal);
       } else if (editorTool === 'coin') {
         if (!d.coins) d.coins = [];
-        d.coins.push({ x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
+        d.coins.push({ id: nextEditorId(d), x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
         editorSelection = { kind: 'coin', index: d.coins.length - 1 };
       } else if (editorTool === 'spike') {
         if (!d.spikes) d.spikes = [];
         d.spikes.push(
           withPaint({
+            id: nextEditorId(d),
             x: Math.round((w.x - 20) / 8) * 8,
             y: Math.round((w.y - 16) / 8) * 8,
             w: 40,
@@ -1162,6 +1588,7 @@
         if (!d.movingPlatforms) d.movingPlatforms = [];
         d.movingPlatforms.push(
           withPaint({
+            id: nextEditorId(d),
             x: Math.round((w.x - 40) / 8) * 8,
             y: Math.round((w.y - 10) / 8) * 8,
             w: 80,
@@ -1174,6 +1601,7 @@
         if (!d.gravityArrows) d.gravityArrows = [];
         d.gravityArrows.push(
           withPaint({
+            id: nextEditorId(d),
             x: Math.round((w.x - 20) / 8) * 8,
             y: Math.round((w.y - 32) / 8) * 8,
             w: 40,
@@ -1182,6 +1610,36 @@
           })
         );
         editorSelection = { kind: 'gravity', index: d.gravityArrows.length - 1 };
+      } else if (editorTool === 'portal') {
+        if (!d.portals) d.portals = [];
+        const pw = ED_BLOCK_W;
+        const ph = ED_BLOCK_W;
+        d.portals.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - pw / 2) / 8) * 8,
+            y: Math.round((w.y - ph / 2) / 8) * 8,
+            w: pw,
+            h: ph,
+            destOx: Math.round(pw / 2),
+            destOy: PORTAL_DEST_DEFAULT_OY,
+          })
+        );
+        editorSelection = { kind: 'portal', index: d.portals.length - 1 };
+      } else if (editorTool === 'switch') {
+        if (!d.switches) d.switches = [];
+        d.switches.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - 20) / 8) * 8,
+            y: Math.round((w.y - 8) / 8) * 8,
+            w: 40,
+            h: 16,
+            moveX: ED_BLOCK_W,
+            moveY: 0,
+          })
+        );
+        editorSelection = { kind: 'switch', index: d.switches.length - 1 };
       }
       scheduleEditorRedraw();
     }
@@ -1195,6 +1653,9 @@
 
     function editorHoverCursor(w) {
       if (editorTool === 'eraser') return 'crosshair';
+      if (switchLinkMode) return 'copy';
+      const p = selectedPortal();
+      if (p && portalDestHit(w.x, w.y, p)) return 'grab';
       if (selectedContainsPoint(w.x, w.y)) return 'grab';
       return editorTool === 'select' ? 'default' : 'crosshair';
     }
@@ -1257,6 +1718,18 @@
         const a = d.gravityArrows[drag.sel.index];
         a.x += dx;
         a.y += dy;
+      } else if (drag.sel.kind === 'portal') {
+        const p = d.portals[drag.sel.index];
+        p.x += dx;
+        p.y += dy;
+      } else if (drag.sel.kind === 'portal-dest') {
+        const p = d.portals[drag.sel.index];
+        p.destOx += dx;
+        p.destOy += dy;
+      } else if (drag.sel.kind === 'switch') {
+        const sw = d.switches[drag.sel.index];
+        sw.x += dx;
+        sw.y += dy;
       }
       scheduleEditorRedraw();
     }
@@ -2123,16 +2596,26 @@
       lvlEdStatus.textContent = 'Save the level before Test play (so we can verify your clear).';
       return;
     }
-    const data = stagePayloadFromEditor(editorState.data);
-    const stage = JSON.parse(JSON.stringify(data));
-    if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST([stage]);
-
     const title = (document.getElementById('lvlEdTitle').value || '').trim() || 'Test';
+    let stages;
+    if (ownerBuiltinArr && ownerBuiltinArr.length) {
+      const from = Math.max(0, ownerBuiltinIdx);
+      stages = ownerBuiltinArr.slice(from).map(function (d, i) {
+        const src = i === 0 ? editorState.data : d;
+        return JSON.parse(JSON.stringify(stagePayloadFromEditor(src)));
+      });
+    } else {
+      stages = [JSON.parse(JSON.stringify(stagePayloadFromEditor(editorState.data)))];
+    }
+    if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(stages);
+
     if (window.SKYHOP && window.SKYHOP.startUserLevel) {
       showEditorScreen(false);
-      window.SKYHOP.startUserLevel([stage], {
+      window.SKYHOP.startUserLevel(stages, {
         mode: 'test',
-        hudTitle: 'Test: ' + title,
+        hudTitle: ownerBuiltinArr
+          ? 'Test: World ' + ownerBuiltinWorld + ' from ' + (ownerBuiltinIdx + 1)
+          : 'Test: ' + title,
         levelTitle: title,
         onTestCleared: function () {
           if (!editorState.id) {
@@ -2150,7 +2633,9 @@
         onContinue: function () {
           showEditorScreen(true);
           syncEditorUi();
-          lvlEdStatus.textContent = 'Test complete. Upload is available after a successful beat.';
+          lvlEdStatus.textContent = ownerBuiltinArr
+            ? 'Test complete.'
+            : 'Test complete. Upload is available after a successful beat.';
           revealMainMenuIfIdle();
           if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
             window.SKYHOP.ensureGameShellVisible();
@@ -2456,6 +2941,7 @@
         document.querySelectorAll('.lvl-tool').forEach((x) => x.classList.remove('lvl-on'));
         b.classList.add('lvl-on');
         editorTool = b.getAttribute('data-tool') || 'select';
+        switchLinkMode = false;
         const edCanvas = document.getElementById('lvlEditorCanvas');
         if (edCanvas) edCanvas.style.cursor = editorTool === 'eraser' ? 'crosshair' : '';
         if (editorTool !== 'eraser') eraserHover = null;
@@ -2521,6 +3007,17 @@
           rotatePlatform90(a);
           a.targetDir = a.targetDir < 0 ? 1 : -1;
         }
+      } else if (editorSelection.kind === 'portal') {
+        const p = editorState.data.portals[editorSelection.index];
+        if (p) {
+          const dest = portalDest(p);
+          rotatePlatform90(p);
+          p.destOx = dest.x - p.x;
+          p.destOy = dest.y - p.y;
+        }
+      } else if (editorSelection.kind === 'switch') {
+        const sw = editorState.data.switches[editorSelection.index];
+        if (sw) rotatePlatform90(sw);
       }
       scheduleEditorRedraw();
     });
@@ -2560,6 +3057,29 @@
     });
     const gravDir = document.getElementById('lvlEdGravDir');
     if (gravDir) gravDir.addEventListener('change', applyGravityFromUi);
+    ['lvlEdPortalDestX', 'lvlEdPortalDestY'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applyPortalDestFromUi);
+      el.addEventListener('input', applyPortalDestFromUi);
+    });
+    ['lvlEdSwitchMoveX', 'lvlEdSwitchMoveY'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applySwitchMoveFromUi);
+      el.addEventListener('input', applySwitchMoveFromUi);
+    });
+    const btnEditSwitch = document.getElementById('btnLvlEdEditSwitch');
+    if (btnEditSwitch) btnEditSwitch.addEventListener('click', startSwitchLinkMode);
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      const ed = document.getElementById('screenLevelEditor');
+      if (!ed || ed.classList.contains('hidden')) return;
+      if (!switchLinkMode) return;
+      switchLinkMode = false;
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Switch link cancelled.';
+      scheduleEditorRedraw();
+    });
     ['lvlEdSizeW', 'lvlEdSizeH'].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;
@@ -2598,6 +3118,8 @@
       if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'spike') d.spikes.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'gravity') d.gravityArrows.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'portal') d.portals.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'switch') d.switches.splice(editorSelection.index, 1);
       editorSelection = null;
       scheduleEditorRedraw();
     });
