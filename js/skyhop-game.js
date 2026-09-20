@@ -963,11 +963,15 @@
     blackoutStates = [];
     const list = stage && stage.blackouts;
     if (!list || !list.length) return;
+    const body = { x: player.x, y: player.y, w: player.w, h: player.h };
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
+      const touch = !!(b && b.onTouch);
+      const inside = !!(touch && PHY.rectsOverlap(body, b));
       blackoutStates.push({
-        armed: !b.onTouch,
+        armed: !touch,
         elapsed: 0,
+        wasInside: inside,
       });
     }
   }
@@ -980,9 +984,13 @@
       const b = list[i];
       const st = blackoutStates[i];
       if (!b || !st) continue;
-      if (b.onTouch && !st.armed && PHY.rectsOverlap(body, b)) {
-        st.armed = true;
-        st.elapsed = 0;
+      if (b.onTouch) {
+        const inside = PHY.rectsOverlap(body, b);
+        if (!st.armed && inside && !st.wasInside) {
+          st.armed = true;
+          st.elapsed = 0;
+        }
+        st.wasInside = inside;
       }
       if (st.armed) st.elapsed += dt;
     }

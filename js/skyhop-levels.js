@@ -498,6 +498,21 @@
     if (blackEl && document.activeElement !== blackEl) blackEl.value = String(b.blackSec);
     if (afterEl && document.activeElement !== afterEl) afterEl.value = String(b.afterSec);
     if (touchEl && document.activeElement !== touchEl) touchEl.checked = !!b.onTouch;
+    const afterPrefix = document.getElementById('lvlEdBlackAfterPrefix');
+    const afterSuffix = document.getElementById('lvlEdBlackAfterSuffix');
+    const secPrefix = document.getElementById('lvlEdBlackSecPrefix');
+    const hint = document.getElementById('lvlEdBlackoutHint');
+    if (b.onTouch) {
+      if (afterPrefix) afterPrefix.textContent = 'Wait';
+      if (afterSuffix) afterSuffix.textContent = 'sec after you touch';
+      if (secPrefix) secPrefix.textContent = 'then black for';
+      if (hint) hint.textContent = 'Walk onto the pad, wait the delay, then the screen goes black.';
+    } else {
+      if (afterPrefix) afterPrefix.textContent = 'After';
+      if (afterSuffix) afterSuffix.textContent = 'sec from stage start';
+      if (secPrefix) secPrefix.textContent = 'black for';
+      if (hint) hint.textContent = 'Starts by itself. Check Activate when touched to wait until you walk onto the pad.';
+    }
   }
 
   function applyBlackoutFromUi() {
@@ -1989,7 +2004,7 @@
             h: 40,
             blackSec: 3,
             afterSec: 2,
-            onTouch: false,
+            onTouch: true,
           })
         );
         editorSelection = { kind: 'blackout', index: d.blackouts.length - 1 };

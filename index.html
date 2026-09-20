@@ -1487,19 +1487,21 @@
       </div>
       <div id="lvlEdBlackoutProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-zinc-100">Make screen black</span>
-        <label class="inline-flex items-center gap-1">Black for
-          <input id="lvlEdBlackSec" type="number" min="0.1" max="60" step="0.1" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
-          sec
-        </label>
-        <label class="inline-flex items-center gap-1">after
+        <label class="inline-flex items-center gap-1">
+          <span id="lvlEdBlackAfterPrefix">Wait</span>
           <input id="lvlEdBlackAfter" type="number" min="0" max="120" step="0.1" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+          <span id="lvlEdBlackAfterSuffix">sec after you touch</span>
+        </label>
+        <label class="inline-flex items-center gap-1">
+          <span id="lvlEdBlackSecPrefix">then black for</span>
+          <input id="lvlEdBlackSec" type="number" min="0.1" max="60" step="0.1" class="w-16 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
           sec
         </label>
         <label class="inline-flex items-center gap-1.5">
           <input id="lvlEdBlackOnTouch" type="checkbox" class="rounded border-white/20 bg-slate-950" />
           Activate when touched
         </label>
-        <span class="text-[10px] text-slate-500">Timer starts at stage start, or on first touch if checked.</span>
+        <span id="lvlEdBlackoutHint" class="text-[10px] text-slate-500">Walk onto the pad, wait the delay, then the screen goes black.</span>
       </div>
       <div id="lvlEdMoverProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-cyan-100">Selected mover</span>
