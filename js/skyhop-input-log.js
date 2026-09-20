@@ -4,7 +4,9 @@
 (function () {
   let logging = false;
   let gameplayActive = false;
-  let sessionMeta = { title: 'Run', source: 'campaign' };
+  let sessionMeta = { title: 'Run', source: 'campaign', anticheatOn: true };
+  var LOG_AC_OFF_MSG =
+    'You can record the input log for this, but you would not be able to submit this run. Runs without anti-cheat are not eligible for leaderboards.';
   let startedAt = 0;
   let events = [];
 
@@ -64,6 +66,7 @@
         'Content-Type': 'application/json',
         'X-Input-Log-Title': encodeURIComponent(String(payload.title || 'Run').slice(0, 120)),
         'X-Input-Log-Source': encodeURIComponent(String(payload.source || 'campaign').slice(0, 40)),
+        'X-Anticheat-On': payload.anticheatOn === false ? '0' : '1',
       },
       body: body,
     });
@@ -115,6 +118,9 @@
       window.alert('Sign in to record input logs — they save to your account.');
       return false;
     }
+    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn()) {
+      window.alert(LOG_AC_OFF_MSG);
+    }
     events = [];
     startedAt = performance.now();
     logging = true;
@@ -131,6 +137,7 @@
       v: 1,
       title: meta.title,
       source: meta.source,
+      anticheatOn: meta.anticheatOn !== false,
       recordedAt: Date.now(),
       events: events.slice(),
     };
@@ -153,6 +160,10 @@
       sessionMeta = {
         title: meta.title || sessionMeta.title,
         source: meta.source || sessionMeta.source,
+        anticheatOn:
+          meta.anticheatOn != null
+            ? meta.anticheatOn !== false
+            : !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.isRunOn(),
       };
     }
     if (!gameplayActive && logging) {

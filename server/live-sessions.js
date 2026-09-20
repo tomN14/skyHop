@@ -29,7 +29,7 @@ export function makePlayerId() {
   return 'p' + Math.random().toString(36).slice(2, 12);
 }
 
-export function createRoom(roomId, hostWs, hostPlayerId, name, isCollab) {
+export function createRoom(roomId, hostWs, hostPlayerId, name, isCollab, anticheatEnabled) {
   const room = {
     id: roomId,
     host: hostWs,
@@ -37,6 +37,7 @@ export function createRoom(roomId, hostWs, hostPlayerId, name, isCollab) {
     startAt: 0,
     createdAt: Date.now(),
     collab: !!isCollab,
+    anticheatEnabled: anticheatEnabled !== false,
     worldScope: 'w1',
     maxStage0: 49,
     bossHpByStage: {},
@@ -101,6 +102,7 @@ export function serializeRoom(room) {
   return {
     id: room.id,
     mode: room.collab ? 'collab' : 'race',
+    anticheatEnabled: room.anticheatEnabled !== false,
     started: !!room.started,
     worldScope: room.collab ? room.worldScope || 'w1' : null,
     createdAt: room.createdAt || 0,
@@ -177,10 +179,43 @@ export function minUntokenedRaceMs() {
   return MIN_UNTTOKENED_RACE_MS;
 }
 
+function applyProgressTrusted(room, prev, msg, now) {
+  const cap =
+    room.maxStage0 != null && Number.isFinite(room.maxStage0)
+      ? Math.max(0, Math.floor(room.maxStage0))
+      : 49;
+  const stage = msg.stage0 != null ? Math.max(0, Math.min(cap, Math.floor(msg.stage0))) : 0;
+  const timeMs = Number.isFinite(Number(msg.timeMs)) ? Math.max(0, Number(msg.timeMs)) : 0;
+  const deaths = Math.max(0, Math.floor(Number(msg.deaths) || 0));
+  const warps = Math.max(0, Math.floor(Number(msg.warps) || 0));
+  const x = Number.isFinite(Number(msg.x)) ? Number(msg.x) : prev.x;
+  const y = Number.isFinite(Number(msg.y)) ? Number(msg.y) : prev.y;
+  return {
+    ok: true,
+    kick: null,
+    drop: false,
+    flags: [],
+    suspicion: 0,
+    stage,
+    stageAt: now,
+    timeMs,
+    deaths,
+    warps,
+    x,
+    y,
+    rateHits: 0,
+    rateWindowAt: now,
+    progressHits: (prev.progressHits || 0) + 1,
+  };
+}
+
 export function applyProgress(room, playerId, msg, now) {
   if (!room.progress[playerId]) room.progress[playerId] = emptyProgress();
   const prev = room.progress[playerId];
-  const ev = evaluateProgress(room, prev, msg, now);
+  const ev =
+    room.anticheatEnabled === false
+      ? applyProgressTrusted(room, prev, msg, now)
+      : evaluateProgress(room, prev, msg, now);
   if (ev.drop) return ev;
   if (ev.kick) {
     prev.flags = (prev.flags || []).concat(ev.flags || ['kick']);
@@ -211,6 +246,16 @@ export function applyProgress(room, playerId, msg, now) {
 export function applyFinish(room, playerId, msg, now) {
   if (!room.progress[playerId]) room.progress[playerId] = emptyProgress();
   const prev = room.progress[playerId];
+  if (room.anticheatEnabled === false) {
+    const timeMs = Number.isFinite(Number(msg.timeMs)) ? Math.max(0, Number(msg.timeMs)) : 0;
+    const deaths = Math.max(0, Math.floor(Number(msg.deaths) || 0));
+    prev.finished = true;
+    prev.finalTimeMs = timeMs;
+    prev.deaths = deaths;
+    prev.stage = room.maxStage0 != null ? room.maxStage0 : prev.stage;
+    const token = room.collab ? null : issueRaceFinishReceipt(timeMs, deaths);
+    return { ok: true, timeMs, deaths, token };
+  }
   const ev = evaluateFinish(room, prev, msg, now);
   if (!ev.ok) {
     prev.flags = (prev.flags || []).concat(['bad_finish']);

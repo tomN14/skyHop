@@ -7,10 +7,15 @@ export function banStatusForUser(u) {
   if (!u) return { banned: false };
   const until = u.banUntilMs != null ? Number(u.banUntilMs) : null;
   const reason = u.banReason || null;
+  const appealDeclineReason = u.appealDeclineReason || u.appeal_decline_reason || null;
   if (until == null || Number.isNaN(until)) return { banned: false };
-  if (until === BAN_PERMANENT_MS) return { banned: true, permanent: true, untilMs: null, reason };
+  if (until === BAN_PERMANENT_MS) {
+    return { banned: true, permanent: true, untilMs: null, reason, appealDeclineReason };
+  }
   const now = Date.now();
-  if (until > now) return { banned: true, permanent: false, untilMs: until, reason };
+  if (until > now) {
+    return { banned: true, permanent: false, untilMs: until, reason, appealDeclineReason };
+  }
   return { banned: false };
 }
 

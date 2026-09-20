@@ -2076,7 +2076,7 @@
         const li = document.createElement('li');
         li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3';
         const when = new Date(clip.created_at || clip.createdAt || Date.now()).toLocaleString();
-        const srcLabel =
+        let srcLabel =
           clip.source === 'user-level'
             ? 'Online level'
             : clip.source === 'user-test'
@@ -2084,6 +2084,7 @@
               : clip.source === 'custom'
                 ? 'Custom'
                 : 'Campaign';
+        if (clip.anticheatOn === false || clip.anticheat_on === false) srcLabel += ' · Anti-cheat off';
         li.innerHTML =
           '<div class="mb-2 flex flex-wrap items-center justify-between gap-2">' +
           '<span class="font-sem text-white">' +
@@ -2183,6 +2184,7 @@
           '</span>' +
           '<span class="text-xs text-slate-500">' +
           escapeHtml(log.source || '') +
+          (log.anticheatOn === false || log.anticheat_on === false ? ' · Anti-cheat off' : '') +
           ' · ' +
           escapeHtml(when) +
           '</span></div>' +

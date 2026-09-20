@@ -91,6 +91,13 @@ export async function submittedRunCreate(userId, payload) {
   if (!Number.isFinite(deaths) || deaths < 0) throw new Error('Invalid deaths');
   await assertUserOwnsRecording(userId, recordingId);
   await assertUserOwnsInputLog(userId, inputLogId);
+  const { recordingsMetaForUser } = await import('./recordings.js');
+  const { inputLogsMetaForUser } = await import('./input-logs.js');
+  const recMeta = await recordingsMetaForUser(userId, recordingId);
+  const logMeta = await inputLogsMetaForUser(userId, inputLogId);
+  if ((recMeta && recMeta.anticheatOn === false) || (logMeta && logMeta.anticheatOn === false)) {
+    throw new Error('You may not submit this run as anti-cheat was off.');
+  }
   const note = String(payload.playerNote || '').trim().slice(0, 500);
   const id = crypto.randomUUID();
   const createdAt = Date.now();

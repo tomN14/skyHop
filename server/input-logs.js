@@ -53,11 +53,25 @@ function storagePath(userId, id) {
   return `${userId}/${id}.json`;
 }
 
+function parseAnticheatOn(v) {
+  if (v === false || v === 0) return false;
+  const s = String(v == null ? '1' : v).trim().toLowerCase();
+  if (s === '0' || s === 'false' || s === 'off' || s === 'no') return false;
+  return true;
+}
+
+function rowAnticheatOn(row) {
+  if (!row) return true;
+  if (row.anticheat_on === false || row.anticheatOn === false) return false;
+  return true;
+}
+
 export async function inputLogsCreate(userId, buffer, meta) {
   if (!buffer || !buffer.length) throw new Error('Empty input log');
   if (buffer.length > MAX_INPUT_LOG_BYTES) throw new Error('Input log too large (max 4 MB)');
   const title = String(meta?.title || 'Run').trim().slice(0, 120) || 'Run';
   const source = String(meta?.source || 'campaign').trim().slice(0, 40) || 'campaign';
+  const anticheatOn = parseAnticheatOn(meta?.anticheatOn);
   const id = crypto.randomUUID();
 
   if (useSupabase()) {
@@ -68,19 +82,25 @@ export async function inputLogsCreate(userId, buffer, meta) {
       upsert: false,
     });
     if (upErr) throw new Error(upErr.message);
-    const { error: insErr } = await sb.from('skyhop_input_logs').insert({
+    const insertRow = {
       id,
       user_id: userId,
       title,
       source,
       storage_path: pathStored,
       byte_size: buffer.length,
-    });
+      anticheat_on: anticheatOn,
+    };
+    let { error: insErr } = await sb.from('skyhop_input_logs').insert(insertRow);
+    if (insErr && String(insErr.message).includes('anticheat_on')) {
+      delete insertRow.anticheat_on;
+      ({ error: insErr } = await sb.from('skyhop_input_logs').insert(insertRow));
+    }
     if (insErr) {
       await sb.storage.from(INPUT_LOGS_BUCKET).remove([pathStored]);
       throw new Error(insErr.message);
     }
-    return { id, title, source, byte_size: buffer.length, created_at: Date.now() };
+    return { id, title, source, byte_size: buffer.length, created_at: Date.now(), anticheatOn };
   }
 
   const rel = storagePath(userId, id);
@@ -95,6 +115,7 @@ export async function inputLogsCreate(userId, buffer, meta) {
     storage_path: `file:${rel}`,
     byte_size: buffer.length,
     created_at: Date.now(),
+    anticheat_on: anticheatOn,
   };
   const db = fileLoadIndex();
   db.logs.push(row);
@@ -105,6 +126,7 @@ export async function inputLogsCreate(userId, buffer, meta) {
     source: row.source,
     byte_size: row.byte_size,
     created_at: row.created_at,
+    anticheatOn,
   };
 }
 
@@ -113,12 +135,22 @@ export async function inputLogsListForUser(userId) {
     const sb = sbClient();
     const { data, error } = await sb
       .from('skyhop_input_logs')
-      .select('id, title, source, byte_size, created_at')
+      .select('id, title, source, byte_size, created_at, anticheat_on')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
+    if (error && String(error.message).includes('anticheat_on')) {
+      const retry = await sb
+        .from('skyhop_input_logs')
+        .select('id, title, source, byte_size, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (retry.error) throw new Error(retry.error.message);
+      return (retry.data || []).map((r) => ({ ...r, anticheatOn: true }));
+    }
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).map((r) => ({ ...r, anticheatOn: rowAnticheatOn(r) }));
   }
   const db = fileLoadIndex();
   return db.logs
@@ -131,6 +163,7 @@ export async function inputLogsListForUser(userId) {
       source: r.source,
       byte_size: r.byte_size,
       created_at: r.created_at,
+      anticheatOn: rowAnticheatOn(r),
     }));
 }
 
@@ -139,9 +172,19 @@ async function getOwnedRow(userId, logId) {
     const sb = sbClient();
     const { data, error } = await sb
       .from('skyhop_input_logs')
-      .select('id, user_id, title, source, storage_path, byte_size, created_at')
+      .select('id, user_id, title, source, storage_path, byte_size, created_at, anticheat_on')
       .eq('id', logId)
       .maybeSingle();
+    if (error && String(error.message).includes('anticheat_on')) {
+      const retry = await sb
+        .from('skyhop_input_logs')
+        .select('id, user_id, title, source, storage_path, byte_size, created_at')
+        .eq('id', logId)
+        .maybeSingle();
+      if (retry.error) throw new Error(retry.error.message);
+      if (!retry.data || Number(retry.data.user_id) !== Number(userId)) return null;
+      return retry.data;
+    }
     if (error) throw new Error(error.message);
     if (!data || Number(data.user_id) !== Number(userId)) return null;
     return data;
@@ -149,6 +192,12 @@ async function getOwnedRow(userId, logId) {
   const db = fileLoadIndex();
   const row = db.logs.find((r) => r.id === logId && Number(r.user_id) === Number(userId));
   return row || null;
+}
+
+export async function inputLogsMetaForUser(userId, logId) {
+  const row = await getOwnedRow(userId, logId);
+  if (!row) return null;
+  return { id: row.id, anticheatOn: rowAnticheatOn(row) };
 }
 
 export async function inputLogsRead(userId, logId) {

@@ -42,6 +42,7 @@ function mapUser(row) {
     promotionTo: row.promotion_to ?? null,
     strikes: row.strikes != null ? Math.max(0, Math.floor(Number(row.strikes) || 0)) : 0,
     modsWarningSeen: !!row.mods_warning_seen,
+    appealDeclineReason: row.appeal_decline_reason || null,
   };
 }
 
@@ -66,6 +67,7 @@ async function updateUserRow(sb, userId, patch) {
       delete rest.promotion_to;
     }
     if (msg.includes('mods_warning_seen')) delete rest.mods_warning_seen;
+    if (msg.includes('appeal_decline_reason')) delete rest.appeal_decline_reason;
     if (!Object.keys(rest).length) return;
     ({ error } = await sb.from('skyhop_users').update(rest).eq('id', userId));
   }
@@ -163,27 +165,37 @@ export function createSupabaseStore() {
       if (!u || u.banUntilMs == null || u.banUntilMs === BAN_PERMANENT_MS) return;
       const until = Number(u.banUntilMs);
       if (Number.isFinite(until) && until <= Date.now()) {
-        await sb.from('skyhop_users').update({ ban_until_ms: null, ban_reason: null }).eq('id', userId);
+        await updateUserRow(sb, userId, {
+          ban_until_ms: null,
+          ban_reason: null,
+          appeal_decline_reason: null,
+        });
       }
     },
 
     async clearUserBan(userId) {
-      const { error } = await sb.from('skyhop_users').update({ ban_until_ms: null, ban_reason: null }).eq('id', userId);
-      if (error) throw new Error(error.message);
+      await updateUserRow(sb, userId, {
+        ban_until_ms: null,
+        ban_reason: null,
+        appeal_decline_reason: null,
+      });
     },
 
     async applyBan(userId, banUntilMs, reason) {
       const u = await this.findUserById(userId);
       if (!u) throw new Error('User not found');
-      const { error } = await sb
-        .from('skyhop_users')
-        .update({
-          ban_until_ms: banUntilMs,
-          ban_reason: reason != null ? String(reason).slice(0, 500) : null,
-        })
-        .eq('id', userId);
-      if (error) throw new Error(error.message);
+      await updateUserRow(sb, userId, {
+        ban_until_ms: banUntilMs,
+        ban_reason: reason != null ? String(reason).slice(0, 500) : null,
+        appeal_decline_reason: null,
+      });
       await sb.from('skyhop_sessions').delete().eq('user_id', userId);
+    },
+
+    async setAppealDeclineReason(userId, reason) {
+      await updateUserRow(sb, userId, {
+        appeal_decline_reason: reason != null ? String(reason).slice(0, 4000) : null,
+      });
     },
 
     async setStrikes(userId, count) {
@@ -213,6 +225,7 @@ export function createSupabaseStore() {
       if (banUntilMs != null) {
         patch.ban_until_ms = banUntilMs;
         patch.ban_reason = banReason != null ? String(banReason).slice(0, 500) : null;
+        patch.appeal_decline_reason = null;
       }
       await updateUserRow(sb, userId, patch);
       if (banUntilMs != null) {
@@ -1053,6 +1066,7 @@ export function createSupabaseStore() {
         reason: data.reason,
         status: data.status,
         outcome: data.outcome,
+        declineReason: data.decline_reason || null,
         createdAt: Number(data.created_at),
         resolvedAt: data.resolved_at != null ? Number(data.resolved_at) : null,
       };
@@ -1068,6 +1082,7 @@ export function createSupabaseStore() {
         reason: data.reason,
         status: data.status,
         outcome: data.outcome,
+        declineReason: data.decline_reason || null,
         createdAt: Number(data.created_at),
         resolvedAt: data.resolved_at != null ? Number(data.resolved_at) : null,
       };
@@ -1129,13 +1144,33 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
     },
 
-    async setBanAppealResolved(appealId, status, outcome) {
+    async setBanAppealResolved(appealId, status, outcome, declineReason) {
       const now = Date.now();
-      const { error } = await sb
-        .from('skyhop_ban_appeals')
-        .update({ status, outcome, resolved_at: now })
-        .eq('id', appealId);
+      const patch = { status, outcome, resolved_at: now };
+      if (declineReason != null) patch.decline_reason = String(declineReason).slice(0, 4000);
+      else if (status === 'upheld') patch.decline_reason = null;
+      let { error } = await sb.from('skyhop_ban_appeals').update(patch).eq('id', appealId);
+      if (error && String(error.message).includes('decline_reason')) {
+        delete patch.decline_reason;
+        ({ error } = await sb.from('skyhop_ban_appeals').update(patch).eq('id', appealId));
+      }
       if (error) throw new Error(error.message);
+    },
+
+    async getLatestAppealDeclineReason(userId) {
+      const { data, error } = await sb
+        .from('skyhop_ban_appeals')
+        .select('decline_reason, resolved_at')
+        .eq('user_id', userId)
+        .eq('status', 'upheld')
+        .order('resolved_at', { ascending: false })
+        .limit(1);
+      if (error) {
+        if (String(error.message).includes('decline_reason')) return null;
+        throw new Error(error.message);
+      }
+      const row = (data || [])[0];
+      return row && row.decline_reason ? String(row.decline_reason) : null;
     },
 
     async listAdmins() {

@@ -85,6 +85,7 @@ alter table public.skyhop_users add column if not exists promotion_from text;
 alter table public.skyhop_users add column if not exists promotion_to text;
 alter table public.skyhop_users add column if not exists strikes integer not null default 0;
 alter table public.skyhop_users add column if not exists mods_warning_seen boolean not null default false;
+alter table public.skyhop_users add column if not exists appeal_decline_reason text;
 
 create table if not exists public.skyhop_builtin_campaign (
   id smallint primary key default 1 constraint skyhop_builtin_singleton check (id = 1),
@@ -156,6 +157,7 @@ create table if not exists public.skyhop_recordings (
   storage_path text not null,
   mime_type text not null default 'video/webm',
   byte_size bigint not null default 0,
+  anticheat_on boolean not null default true,
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
 );
 
@@ -169,6 +171,7 @@ create table if not exists public.skyhop_ban_appeals (
   reason text not null,
   status text not null default 'open',
   outcome text,
+  decline_reason text,
   created_at bigint not null,
   resolved_at bigint
 );

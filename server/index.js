@@ -233,7 +233,12 @@ wss.on('connection', (ws) => {
         while (rooms.has(roomId)) roomId = makeRoomId();
         const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
         const isCollab = String(msg.mode || '').toLowerCase() === 'collab';
-        const room = createRoom(roomId, ws, playerId, name, isCollab);
+        const anticheatEnabled = !(
+          msg.anticheatEnabled === false ||
+          msg.anticheatOn === false ||
+          msg.anticheat === false
+        );
+        const room = createRoom(roomId, ws, playerId, name, isCollab, anticheatEnabled);
         const meta = socketMeta.get(ws);
         meta.roomId = roomId;
         meta.displayName = name;
@@ -250,6 +255,7 @@ wss.on('connection', (ws) => {
           playerId,
           players: playerList(room),
           chat: room.chat,
+          anticheatEnabled: room.anticheatEnabled !== false,
         });
       })();
       return;
@@ -294,7 +300,16 @@ wss.on('connection', (ws) => {
           room.usernames[playerId] = user.username;
         }
         const players = playerList(room);
-        send(ws, { type: 'joined', roomId, youAreHost: false, name, playerId, players, chat: room.chat });
+        send(ws, {
+          type: 'joined',
+          roomId,
+          youAreHost: false,
+          name,
+          playerId,
+          players,
+          chat: room.chat,
+          anticheatEnabled: room.anticheatEnabled !== false,
+        });
         broadcastAll(room, { type: 'playerJoined', playerId, name, players }, ws);
       })();
       return;
@@ -354,6 +369,11 @@ wss.on('connection', (ws) => {
       room.started = true;
       const startAt = Date.now();
       room.startAt = startAt;
+      if (msg.anticheatEnabled === false || msg.anticheatOn === false || msg.anticheat === false) {
+        room.anticheatEnabled = false;
+      } else if (msg.anticheatEnabled === true || msg.anticheatOn === true) {
+        room.anticheatEnabled = true;
+      }
       const diffRaw = msg.difficulty != null ? String(msg.difficulty).toLowerCase() : 'normal';
       const difficulty = ['easy', 'normal', 'hard', 'custom'].includes(diffRaw) ? diffRaw : 'normal';
       let customOpts = null;
@@ -378,13 +398,26 @@ wss.on('connection', (ws) => {
         const sc = Number(msg.stageCount);
         const nStages = Number.isFinite(sc) && sc >= 1 ? Math.min(200, Math.floor(sc)) : 50;
         room.maxStage0 = Math.max(0, nStages - 1);
-        const pack = { type: 'collabStart', startAt, roomId: room.id, worldScope, difficulty };
+        const pack = {
+          type: 'collabStart',
+          startAt,
+          roomId: room.id,
+          worldScope,
+          difficulty,
+          anticheatEnabled: room.anticheatEnabled !== false,
+        };
         if (customOpts) pack.customOpts = customOpts;
         broadcastAll(room, pack);
         return;
       }
       room.maxStage0 = 49;
-      const pack = { type: 'raceStart', startAt, roomId: room.id, difficulty };
+      const pack = {
+        type: 'raceStart',
+        startAt,
+        roomId: room.id,
+        difficulty,
+        anticheatEnabled: room.anticheatEnabled !== false,
+      };
       if (customOpts) pack.customOpts = customOpts;
       broadcastAll(room, pack);
       return;

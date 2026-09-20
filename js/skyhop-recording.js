@@ -2,12 +2,59 @@
  * Run recordings — canvas capture, uploaded to the signed-in account (server storage).
  */
 (function () {
+  var RECORD_AC_OFF_MSG =
+    'You can record this, but you would not be able to submit this run. Runs without anti-cheat are not eligible for leaderboards.';
+
+  window.SkyHopRunAnticheat = {
+    hostOn: true,
+    runOn: true,
+    isRunOn: function () {
+      return this.runOn !== false;
+    },
+    setHostOn: function (on) {
+      this.hostOn = !!on;
+      this.syncToggles();
+    },
+    beginSession: function (on) {
+      this.runOn = on !== false;
+    },
+    endSession: function () {
+      this.runOn = true;
+    },
+    syncToggles: function () {
+      var on = this.hostOn !== false;
+      document.querySelectorAll('.skyhop-anticheat-toggle').forEach(function (btn) {
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        var st = btn.querySelector('.anticheat-state');
+        if (st) st.textContent = on ? 'On' : 'Off';
+        btn.classList.toggle('border-emerald-500/50', on);
+        btn.classList.toggle('bg-emerald-950/50', on);
+        btn.classList.toggle('text-emerald-100', on);
+        btn.classList.toggle('hover:bg-emerald-900/50', on);
+        btn.classList.toggle('border-white/20', !on);
+        btn.classList.toggle('bg-slate-800/80', !on);
+        btn.classList.toggle('text-slate-300', !on);
+        btn.classList.toggle('hover:bg-slate-700', !on);
+      });
+    },
+    bindToggles: function () {
+      var self = this;
+      document.querySelectorAll('.skyhop-anticheat-toggle').forEach(function (btn) {
+        if (btn.dataset.acBound) return;
+        btn.dataset.acBound = '1';
+        btn.addEventListener('click', function () {
+          self.setHostOn(!self.hostOn);
+        });
+      });
+      this.syncToggles();
+    },
+  };
   let mediaRecorder = null;
   let recordChunks = [];
   let captureStream = null;
   let recording = false;
   let gameplayActive = false;
-  let sessionMeta = { title: 'Run', source: 'campaign' };
+  let sessionMeta = { title: 'Run', source: 'campaign', anticheatOn: true };
   let namedTitle = null;
 
   const btn = () => document.getElementById('btnRecordRun');
@@ -71,6 +118,7 @@
         'Content-Type': blob.type || meta.mimeType || 'video/webm',
         'X-Recording-Title': encodeURIComponent(String(meta.title || 'Run').slice(0, 120)),
         'X-Recording-Source': encodeURIComponent(String(meta.source || 'campaign').slice(0, 40)),
+        'X-Anticheat-On': meta.anticheatOn === false ? '0' : '1',
       },
       body: blob,
     });
@@ -138,6 +186,9 @@
     if (!authToken()) {
       window.alert('Sign in to record runs — clips save to your account.');
       return false;
+    }
+    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn()) {
+      window.alert(RECORD_AC_OFF_MSG);
     }
     var defName = namedTitle || sessionMeta.title || 'Run';
     var typed = window.prompt('Name this recording', defName);
@@ -209,6 +260,7 @@
         title: titleForSave,
         source: meta.source,
         mimeType: mimeType,
+        anticheatOn: meta.anticheatOn !== false,
       });
       namedTitle = null;
       window.dispatchEvent(new CustomEvent('skyhop-recording-saved', { detail: { id: saved && saved.id } }));
@@ -226,6 +278,10 @@
       sessionMeta = {
         title: namedTitle || meta.title || sessionMeta.title,
         source: meta.source || sessionMeta.source,
+        anticheatOn:
+          meta.anticheatOn != null
+            ? meta.anticheatOn !== false
+            : !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.isRunOn(),
       };
     }
     if (!gameplayActive && recording) {
@@ -249,9 +305,13 @@
   window.addEventListener('skyhop-auth-changed', syncRecordButton);
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindButton);
+    document.addEventListener('DOMContentLoaded', function () {
+      bindButton();
+      window.SkyHopRunAnticheat.bindToggles();
+    });
   } else {
     bindButton();
+    window.SkyHopRunAnticheat.bindToggles();
   }
 
   window.SkyHopRecording = {

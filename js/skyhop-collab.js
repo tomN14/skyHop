@@ -136,6 +136,7 @@
         difficulty: msg.difficulty || 'normal',
         customOpts: msg.customOpts,
         worldScope: msg.worldScope || 'w1',
+        anticheatEnabled: msg.anticheatEnabled !== false,
       });
       startCollabProgressPinger();
       return;
@@ -239,6 +240,7 @@
             type: 'create',
             mode: 'collab',
             name: (el('collabName') && el('collabName').value) || 'Host',
+            anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
             authToken: authToken(),
           });
         };
@@ -308,7 +310,13 @@
           else if (scope === 'both') stageCount = window.SkyHopWorlds.bothStages().length;
           else stageCount = window.SkyHopWorlds.stageCount(1);
         }
-        send({ type: 'start', worldScope: scope, difficulty: 'hard', stageCount: stageCount });
+        send({
+          type: 'start',
+          worldScope: scope,
+          difficulty: 'hard',
+          stageCount: stageCount,
+          anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+        });
       });
     }
   }

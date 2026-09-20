@@ -57,6 +57,7 @@ function migrateUsersAndReports(s) {
     if (!('promotionTo' in u)) u.promotionTo = null;
     if (!('strikes' in u) || !Number.isFinite(Number(u.strikes))) u.strikes = 0;
     if (!('modsWarningSeen' in u)) u.modsWarningSeen = false;
+    if (!('appealDeclineReason' in u)) u.appealDeclineReason = null;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -64,6 +65,9 @@ function migrateUsersAndReports(s) {
         s.textureGrants.push({ userId: u.id, filename: fn, at: Date.now() });
       }
     }
+  }
+  for (const a of s.banAppeals) {
+    if (!('declineReason' in a)) a.declineReason = null;
   }
 }
 
@@ -162,6 +166,7 @@ export function createFileStore() {
         skinTexture: null,
         strikes: 0,
         modsWarningSeen: false,
+        appealDeclineReason: null,
       };
       s.users.push(user);
       saveStore();
@@ -184,6 +189,7 @@ export function createFileStore() {
       if (Number.isFinite(until) && until <= Date.now()) {
         u.banUntilMs = null;
         u.banReason = null;
+        u.appealDeclineReason = null;
         saveStore();
       }
     },
@@ -194,6 +200,7 @@ export function createFileStore() {
       if (!u) throw new Error('User not found');
       u.banUntilMs = null;
       u.banReason = null;
+      u.appealDeclineReason = null;
       saveStore();
     },
 
@@ -203,8 +210,17 @@ export function createFileStore() {
       if (!u) throw new Error('User not found');
       u.banUntilMs = banUntilMs;
       u.banReason = reason != null ? String(reason).slice(0, 500) : null;
+      u.appealDeclineReason = null;
       saveStore();
       s.sessions = s.sessions.filter((sess) => sess.userId !== userId);
+      saveStore();
+    },
+
+    async setAppealDeclineReason(userId, reason) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) return;
+      u.appealDeclineReason = reason != null ? String(reason).slice(0, 4000) : null;
       saveStore();
     },
 
@@ -240,6 +256,7 @@ export function createFileStore() {
       if (banUntilMs != null) {
         u.banUntilMs = banUntilMs;
         u.banReason = banReason != null ? String(banReason).slice(0, 500) : null;
+        u.appealDeclineReason = null;
         s.sessions = s.sessions.filter((sess) => sess.userId !== userId);
       }
       saveStore();
@@ -970,6 +987,7 @@ export function createFileStore() {
         reason: String(reason).slice(0, 4000),
         status: 'open',
         outcome: null,
+        declineReason: null,
         createdAt: Date.now(),
         resolvedAt: null,
       };
@@ -1018,14 +1036,23 @@ export function createFileStore() {
       return row;
     },
 
-    async setBanAppealResolved(appealId, status, outcome) {
+    async setBanAppealResolved(appealId, status, outcome, declineReason) {
       const s = loadStore();
       const a = s.banAppeals.find((x) => x.id === appealId);
       if (!a) throw new Error('Appeal not found');
       a.status = status;
       a.outcome = outcome;
+      a.declineReason = declineReason != null ? String(declineReason).slice(0, 4000) : null;
       a.resolvedAt = Date.now();
       saveStore();
+    },
+
+    async getLatestAppealDeclineReason(userId) {
+      const s = loadStore();
+      const rows = s.banAppeals
+        .filter((a) => a.userId === userId && a.status === 'upheld' && a.declineReason)
+        .sort((a, b) => (Number(b.resolvedAt) || 0) - (Number(a.resolvedAt) || 0));
+      return rows[0] ? String(rows[0].declineReason) : null;
     },
 
     async listAdmins() {

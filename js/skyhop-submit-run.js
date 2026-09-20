@@ -61,6 +61,12 @@
     if (next2) next2.disabled = !pickedLogId;
   }
 
+  var SUBMIT_AC_OFF_MSG = 'You may not submit this run as anti-cheat was off.';
+
+  function isAnticheatOff(it) {
+    return !!(it && (it.anticheatOn === false || it.anticheat_on === false));
+  }
+
   function renderPickList(ul, items, kind, selectedId) {
     if (!ul) return;
     ul.innerHTML = '';
@@ -79,26 +85,32 @@
         (sel ? 'border-violet-400 bg-violet-950/50' : 'border-white/10 bg-slate-900/60 hover:bg-slate-800/80');
       var title = it.title || (kind === 'recording' ? 'Recording' : 'Input log');
       var when = it.created_at ? new Date(it.created_at).toLocaleString() : '';
+      var acOff = isAnticheatOff(it);
       li.innerHTML =
         '<p class="font-semibold text-white">' +
         title.replace(/</g, '&lt;') +
         '</p><p class="mt-1 text-xs text-slate-400">' +
         (it.source || '') +
         (when ? ' · ' + when : '') +
+        (acOff ? ' · Anti-cheat off' : '') +
         '</p>';
-      li.addEventListener('click', function (itemId, k) {
+      li.addEventListener('click', function (item, k) {
         return function () {
+          if (isAnticheatOff(item)) {
+            window.alert(SUBMIT_AC_OFF_MSG);
+            return;
+          }
           if (k === 'recording') {
-            pickedRecordingId = itemId;
+            pickedRecordingId = item.id;
             step = 1;
           } else {
-            pickedLogId = itemId;
+            pickedLogId = item.id;
           }
           syncSteps();
           if (k === 'recording') void loadStep1();
           else void loadStep2();
         };
-      }(id, kind));
+      }(it, kind));
       ul.appendChild(li);
     }
   }

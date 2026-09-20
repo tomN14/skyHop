@@ -675,6 +675,15 @@
       } else {
         if (reasonWrap) reasonWrap.classList.add('hidden');
       }
+      const declineWrap = document.getElementById('banAppealDeclineWrap');
+      const declineLabel = document.getElementById('banAppealDeclineLabel');
+      if (sh && sh.appealDeclineReason) {
+        if (declineWrap) declineWrap.classList.remove('hidden');
+        if (declineLabel) declineLabel.textContent = String(sh.appealDeclineReason);
+      } else {
+        if (declineWrap) declineWrap.classList.add('hidden');
+        if (declineLabel) declineLabel.textContent = '';
+      }
       el.classList.remove('hidden');
       el.classList.add('flex');
     }
@@ -685,6 +694,10 @@
       el.classList.add('hidden');
       el.classList.remove('flex');
       lastBanAppealCreds = null;
+      const declineWrap = document.getElementById('banAppealDeclineWrap');
+      const declineLabel = document.getElementById('banAppealDeclineLabel');
+      if (declineWrap) declineWrap.classList.add('hidden');
+      if (declineLabel) declineLabel.textContent = '';
     }
 
     var btnBanAppealSubmit = document.getElementById('btnBanAppealSubmit');
@@ -2539,6 +2552,10 @@
               '<p class="mt-1 whitespace-pre-wrap text-[11px] text-slate-400">' +
               safe(a.reason) +
               '</p>' +
+              '<label class="mt-2 block text-[11px] text-rose-200/90">Decline reason (required to decline — the player will see this)</label>' +
+              '<textarea data-owner-decline-reason="' +
+              safe(a.id) +
+              '" rows="4" maxlength="4000" placeholder="Write why you are declining (a short paragraph)…" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-2 py-2 text-[11px] text-slate-100"></textarea>' +
               '<div class="mt-2 flex flex-wrap gap-2">' +
               '<button type="button" data-owner-appeal="accept" data-appeal-id="' +
               safe(a.id) +
@@ -2554,13 +2571,27 @@
           btn.addEventListener('click', async function () {
             var decision = btn.getAttribute('data-owner-appeal');
             var aid = btn.getAttribute('data-appeal-id');
-            var label = decision === 'accept' ? 'Accept and unban' : 'Decline and keep ban';
-            if (!window.confirm(label + ' this appeal?')) return;
+            var declineReason = '';
+            if (decision === 'decline') {
+              var ta = ownerAppealsList.querySelector(
+                'textarea[data-owner-decline-reason="' + String(aid).replace(/"/g, '') + '"]'
+              );
+              declineReason = ta ? String(ta.value || '').trim() : '';
+              if (declineReason.length < 20) {
+                setOwnerAppealsMsg(
+                  'Write a decline reason (at least 20 characters). The player will see this paragraph when they try to sign in.',
+                  true
+                );
+                return;
+              }
+            } else if (!window.confirm('Accept and unban this appeal?')) {
+              return;
+            }
             try {
               var res = await api('/api/owner/appeals/' + encodeURIComponent(aid) + '/resolve', {
                 method: 'POST',
                 headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ decision: decision }),
+                body: JSON.stringify({ decision: decision, declineReason: declineReason }),
               });
               if (res.resolved === 'lifted') {
                 setOwnerAppealsMsg('Appeal accepted — user unbanned.', false);

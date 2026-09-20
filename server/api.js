@@ -323,6 +323,7 @@ function loginBanJson(bs) {
     permanent: !!bs.permanent,
     untilMs: bs.untilMs,
     reason: bs.reason,
+    appealDeclineReason: bs.appealDeclineReason || null,
   };
 }
 
@@ -407,7 +408,15 @@ export async function handleApi(req, res) {
     const fresh = await store.findUserById(user.id);
     const bs = banStatusForUser(fresh);
     if (bs.banned) {
-      json(res, 403, loginBanJson(bs));
+      const payload = loginBanJson(bs);
+      if (!payload.appealDeclineReason && typeof store.getLatestAppealDeclineReason === 'function') {
+        try {
+          payload.appealDeclineReason = await store.getLatestAppealDeclineReason(user.id);
+        } catch {
+          /* column may be missing until extend_v19 */
+        }
+      }
+      json(res, 403, payload);
       return true;
     }
     const { token } = await store.createSession(user.id);
@@ -996,7 +1005,12 @@ export async function handleApi(req, res) {
         return true;
       }
       try {
-        const resolved = await resolveBanAppealDirect(store, appealId, body.decision);
+        const resolved = await resolveBanAppealDirect(
+          store,
+          appealId,
+          body.decision,
+          body.declineReason != null ? body.declineReason : body.reason
+        );
         json(res, 200, { ok: true, resolved });
       } catch (e) {
         json(res, 400, { error: String(e.message || e) });
@@ -3016,7 +3030,8 @@ export async function handleApi(req, res) {
       title = title.slice(0, 120);
       source = source.slice(0, 40);
       title = censorProfanity(title).text.slice(0, 120) || 'Run';
-      const saved = await Recordings.recordingsCreate(uid, buf, contentType, { title, source });
+      const anticheatOn = Recordings.parseAnticheatOn(req.headers['x-anticheat-on']);
+      const saved = await Recordings.recordingsCreate(uid, buf, contentType, { title, source, anticheatOn });
       json(res, 201, { ok: true, recording: saved });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
@@ -3156,6 +3171,7 @@ export async function handleApi(req, res) {
       const saved = await InputLogs.inputLogsCreate(uid, buf, {
         title: title.slice(0, 120),
         source: source.slice(0, 40),
+        anticheatOn: Recordings.parseAnticheatOn(req.headers['x-anticheat-on']),
       });
       json(res, 201, { ok: true, log: saved });
     } catch (e) {

@@ -61,6 +61,19 @@ function storageObjectPath(userId, recordingId, mimeType) {
   return `${userId}/${recordingId}.${ext}`;
 }
 
+export function parseAnticheatOn(v) {
+  if (v === false || v === 0) return false;
+  const s = String(v == null ? '1' : v).trim().toLowerCase();
+  if (s === '0' || s === 'false' || s === 'off' || s === 'no') return false;
+  return true;
+}
+
+function rowAnticheatOn(row) {
+  if (!row) return true;
+  if (row.anticheat_on === false || row.anticheatOn === false) return false;
+  return true;
+}
+
 function validateUpload(buffer, contentType) {
   if (!buffer || !buffer.length) throw new Error('Empty recording');
   if (buffer.length > MAX_RECORDING_BYTES) throw new Error('Recording too large (max 25 MB)');
@@ -77,6 +90,7 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
   const mime = validateUpload(buffer, contentType);
   const title = String(meta?.title || 'Run').trim().slice(0, 120) || 'Run';
   const source = String(meta?.source || 'campaign').trim().slice(0, 40) || 'campaign';
+  const anticheatOn = parseAnticheatOn(meta?.anticheatOn);
   const id = crypto.randomUUID();
 
   if (useSupabase()) {
@@ -87,7 +101,7 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
       upsert: false,
     });
     if (upErr) throw new Error(upErr.message);
-    const { error: insErr } = await sb.from('skyhop_recordings').insert({
+    const insertRow = {
       id,
       user_id: userId,
       title,
@@ -95,12 +109,26 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
       storage_path: storagePath,
       mime_type: mime,
       byte_size: buffer.length,
-    });
+      anticheat_on: anticheatOn,
+    };
+    let { error: insErr } = await sb.from('skyhop_recordings').insert(insertRow);
+    if (insErr && String(insErr.message).includes('anticheat_on')) {
+      delete insertRow.anticheat_on;
+      ({ error: insErr } = await sb.from('skyhop_recordings').insert(insertRow));
+    }
     if (insErr) {
       await sb.storage.from(RECORDINGS_BUCKET).remove([storagePath]);
       throw new Error(insErr.message);
     }
-    return { id, title, source, mime_type: mime, byte_size: buffer.length, created_at: new Date().toISOString() };
+    return {
+      id,
+      title,
+      source,
+      mime_type: mime,
+      byte_size: buffer.length,
+      created_at: new Date().toISOString(),
+      anticheatOn,
+    };
   }
 
   const storagePath = storageObjectPath(userId, id, mime);
@@ -116,6 +144,7 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
     mime_type: mime,
     byte_size: buffer.length,
     created_at: new Date().toISOString(),
+    anticheat_on: anticheatOn,
   };
   const db = fileLoadIndex();
   db.recordings.push(row);
@@ -127,6 +156,7 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
     mime_type: row.mime_type,
     byte_size: row.byte_size,
     created_at: row.created_at,
+    anticheatOn,
   };
 }
 
@@ -135,12 +165,22 @@ export async function recordingsListForUser(userId) {
     const sb = sbClient();
     const { data, error } = await sb
       .from('skyhop_recordings')
-      .select('id, title, source, mime_type, byte_size, created_at')
+      .select('id, title, source, mime_type, byte_size, created_at, anticheat_on')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
+    if (error && String(error.message).includes('anticheat_on')) {
+      const retry = await sb
+        .from('skyhop_recordings')
+        .select('id, title, source, mime_type, byte_size, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (retry.error) throw new Error(retry.error.message);
+      return (retry.data || []).map((r) => ({ ...r, anticheatOn: true }));
+    }
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).map((r) => ({ ...r, anticheatOn: rowAnticheatOn(r) }));
   }
   const db = fileLoadIndex();
   return db.recordings
@@ -154,17 +194,25 @@ export async function recordingsListForUser(userId) {
       mime_type: r.mime_type,
       byte_size: r.byte_size,
       created_at: r.created_at,
+      anticheatOn: rowAnticheatOn(r),
     }));
 }
 
 async function getOwnedRow(userId, recordingId) {
   if (useSupabase()) {
     const sb = sbClient();
-    const { data, error } = await sb
+    let { data, error } = await sb
       .from('skyhop_recordings')
-      .select('id, user_id, title, source, storage_path, mime_type, byte_size, created_at')
+      .select('id, user_id, title, source, storage_path, mime_type, byte_size, created_at, anticheat_on')
       .eq('id', recordingId)
       .maybeSingle();
+    if (error && String(error.message).includes('anticheat_on')) {
+      ({ data, error } = await sb
+        .from('skyhop_recordings')
+        .select('id, user_id, title, source, storage_path, mime_type, byte_size, created_at')
+        .eq('id', recordingId)
+        .maybeSingle());
+    }
     if (error) throw new Error(error.message);
     if (!data || data.user_id !== userId) return null;
     return data;
@@ -172,6 +220,12 @@ async function getOwnedRow(userId, recordingId) {
   const db = fileLoadIndex();
   const row = db.recordings.find((r) => r.id === recordingId && r.user_id === userId);
   return row || null;
+}
+
+export async function recordingsMetaForUser(userId, recordingId) {
+  const row = await getOwnedRow(userId, recordingId);
+  if (!row) return null;
+  return { id: row.id, anticheatOn: rowAnticheatOn(row) };
 }
 
 export async function recordingsReadVideo(userId, recordingId) {

@@ -7,6 +7,15 @@ export function validateAppealReason(reason) {
   return s;
 }
 
+export function validateAppealDeclineReason(reason) {
+  const s = String(reason || '').trim();
+  if (s.length < 20) {
+    throw new Error('Write a decline reason (at least 20 characters). The player will see it when they try to sign in.');
+  }
+  if (s.length > 4000) throw new Error('Decline reason is too long.');
+  return s;
+}
+
 export async function tryResolveAppeal(store, appealId) {
   if (typeof store.getBanAppealById !== 'function') return null;
   const appeal = await store.getBanAppealById(appealId);
@@ -28,8 +37,8 @@ export async function tryResolveAppeal(store, appealId) {
   return null;
 }
 
-/** Owner final decision — no vote tally required. */
-export async function resolveBanAppealDirect(store, appealId, decision) {
+/** Owner final decision — no vote tally required. Decline requires a player-visible reason. */
+export async function resolveBanAppealDirect(store, appealId, decision, declineReason) {
   if (typeof store.getBanAppealById !== 'function') {
     throw new Error('Appeals not configured.');
   }
@@ -42,10 +51,14 @@ export async function resolveBanAppealDirect(store, appealId, decision) {
   if (!appeal || appeal.status !== 'open') throw new Error('Appeal not open.');
   if (accept) {
     if (typeof store.clearUserBan === 'function') await store.clearUserBan(appeal.userId);
-    await store.setBanAppealResolved(appealId, 'lifted', 'owner_unban');
+    await store.setBanAppealResolved(appealId, 'lifted', 'owner_unban', null);
     return 'lifted';
   }
-  await store.setBanAppealResolved(appealId, 'upheld', 'owner_keep_ban');
+  const note = validateAppealDeclineReason(declineReason);
+  await store.setBanAppealResolved(appealId, 'upheld', 'owner_keep_ban', note);
+  if (typeof store.setAppealDeclineReason === 'function') {
+    await store.setAppealDeclineReason(appeal.userId, note);
+  }
   return 'upheld';
 }
 

@@ -565,6 +565,7 @@
         type: 'mp',
         difficulty: msg.difficulty,
         customOpts: msg.customOpts,
+        anticheatEnabled: msg.anticheatEnabled !== false,
       });
       if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) {
         window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
@@ -828,7 +829,8 @@
           el.menu.classList.remove('flex');
         }
         if (el.hud) el.hud.classList.remove('hidden');
-        window.SKYHOP.beginRacing({ type: 'bot' });
+        var botAc = !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false;
+        window.SKYHOP.beginRacing({ type: 'bot', anticheatEnabled: botAc });
         if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
         startBotTick();
       });
@@ -848,6 +850,7 @@
             JSON.stringify({
               type: 'create',
               name: (el.name && el.name.value) || 'Host',
+              anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
               authToken: (function () {
                 try {
                   return localStorage.getItem('SKYHOP_AUTH_TOKEN') || undefined;
@@ -930,7 +933,10 @@
       el.btnStartRace.addEventListener('click', () => {
         if (ws && ws.readyState === 1) {
           try {
-            const payload = { type: 'start' };
+            const payload = {
+              type: 'start',
+              anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+            };
             try {
               if (window.SKYHOP && typeof window.SKYHOP.getRaceStartSettings === 'function') {
                 const s = window.SKYHOP.getRaceStartSettings();

@@ -1965,7 +1965,11 @@
     } else {
       title = `Campaign — stage ${stageIndex + 1}`;
     }
-    return { title, source };
+    return {
+      title,
+      source,
+      anticheatOn: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.isRunOn(),
+    };
   }
 
   function syncRecordingUi() {
@@ -2014,6 +2018,10 @@
       refreshRuntimeOptsFromMenu();
     }
     inRace = true;
+    if (window.SkyHopRunAnticheat) {
+      var acOn = !opts || opts.anticheatEnabled !== false;
+      window.SkyHopRunAnticheat.beginSession(acOn);
+    }
     hasWoodenSword = false;
     hasShield = false;
     woodenSwordReadyAt = 0;
@@ -3857,6 +3865,7 @@
   }
 
   function goToMenu() {
+    if (window.SkyHopRunAnticheat) window.SkyHopRunAnticheat.endSession();
     const wasRacing = inRace;
     const wasCollab = inCollab;
     if (wasCollab && window.SkyHopCollabReset) window.SkyHopCollabReset();
@@ -4024,6 +4033,7 @@
   }
 
   function beginCampaignPlay() {
+    if (window.SkyHopRunAnticheat) window.SkyHopRunAnticheat.beginSession(true);
     window.SKYHOP_ACTIVE_STAGES = null;
     window.SKYHOP_EXTERNAL_LEVEL = null;
     restoreBundledCampaignIfEmpty();
