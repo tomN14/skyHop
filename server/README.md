@@ -73,7 +73,7 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Promotion notice:** Run **`server/supabase/extend_v16_promotion_notice.sql`** after v15 — `promotion_from` / `promotion_to` on `skyhop_users`. Promoted players see a one-time “Congratulations! You have been promoted from old_role to new_role” on next login (`POST /api/me/ack-promotion` dismisses it). Demotions are silent.
 
-**Strikes:** Run **`server/supabase/extend_v17_strikes.sql`** after v16 — `strikes` on `skyhop_users`. Owner adds/removes from the 📋 feature list panel. Player 3 → automatic 1-week ban; moderator / Report Advisor 2 → demoted to player; Admin 1 → demoted to moderator. Strikes never decay. Admin can look up counts for players / advisors / mods (`GET /api/strikes`, `POST /api/owner/strikes`).
+**Strikes:** Run **`server/supabase/extend_v17_strikes.sql`** after v16 — `strikes` on `skyhop_users`. Owner adds/removes from the ⚠️ FAB under 📋. Player 3 → automatic 1-week ban; moderator / Report Advisor 2 → demoted to player; Admin 1 → demoted to moderator. Strikes never decay. Admin can look up counts for players / advisors / mods (`GET /api/strikes`, `POST /api/owner/strikes`).
 
 **Empty campaign / blank levels on Play:** Play now always uses bundled **`stages.js`** / **`stages-world2.js`**. Server campaign JSON is only for the owner editor. Owner can also **Account administration → Reset server campaign override**. Optional SQL: **`server/supabase/reset_builtin_campaign_to_bundled.sql`**.
 

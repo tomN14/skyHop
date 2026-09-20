@@ -582,9 +582,17 @@
     }
 
     function syncOwnerStrikeTools(me) {
-      var el = document.getElementById('ownerStrikeTools');
-      if (!el) return;
-      el.classList.toggle('hidden', !(me && me.role === 'owner'));
+      var fab = document.getElementById('btnOwnerStrikesFab');
+      var screen = document.getElementById('screenOwnerStrikes');
+      var show = !!(me && me.role === 'owner');
+      if (fab) {
+        fab.classList.toggle('hidden', !show);
+        if (show) fab.style.display = 'flex';
+      }
+      if (!show && screen) {
+        screen.classList.add('hidden');
+        screen.classList.remove('flex');
+      }
     }
     window.SkyHopSyncOwnerStrikeTools = function () {
       syncOwnerStrikeTools(window.__skyhopLastMe || null);
@@ -2382,6 +2390,27 @@
       el.classList.toggle('hidden', !t);
       el.classList.toggle('text-rose-300', !!isErr);
       el.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    var screenOwnerStrikes = document.getElementById('screenOwnerStrikes');
+    var btnOwnerStrikesFab = document.getElementById('btnOwnerStrikesFab');
+    var btnOwnerStrikesClose = document.getElementById('btnOwnerStrikesClose');
+    function openOwnerStrikes() {
+      var me = window.__skyhopLastMe;
+      if (!me || me.role !== 'owner' || !screenOwnerStrikes) return;
+      setOwnerStrikeEditMsg('', false);
+      screenOwnerStrikes.classList.remove('hidden');
+      screenOwnerStrikes.classList.add('flex');
+    }
+    function closeOwnerStrikes() {
+      if (!screenOwnerStrikes) return;
+      screenOwnerStrikes.classList.add('hidden');
+      screenOwnerStrikes.classList.remove('flex');
+    }
+    if (btnOwnerStrikesFab) {
+      btnOwnerStrikesFab.addEventListener('click', openOwnerStrikes);
+    }
+    if (btnOwnerStrikesClose) {
+      btnOwnerStrikesClose.addEventListener('click', closeOwnerStrikes);
     }
     function describeStrikePenalty(penalty) {
       if (!penalty) return '';
