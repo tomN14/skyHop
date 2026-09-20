@@ -31,6 +31,28 @@
     return (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + raw.replace(/\/$/, '');
   }
 
+  function probeFields() {
+    try {
+      if (window.SkyHopAnticheatProbe && typeof window.SkyHopAnticheatProbe.take === 'function') {
+        return window.SkyHopAnticheatProbe.take();
+      }
+    } catch {
+      /* */
+    }
+    return {};
+  }
+
+  function sendChatLine(text) {
+    send({ type: 'chat', text: text });
+  }
+
+  function attachChat(history) {
+    if (window.SkyHopSessionChat) {
+      window.SkyHopSessionChat.attach(sendChatLine);
+      if (history && history.length) window.SkyHopSessionChat.load(history);
+    }
+  }
+
   function disconnect() {
     if (collabPinger) {
       clearInterval(collabPinger);
@@ -44,6 +66,7 @@
       }
     }
     ws = null;
+    if (window.SkyHopSessionChat) window.SkyHopSessionChat.detach();
   }
 
   function startCollabProgressPinger() {
@@ -76,6 +99,7 @@
         payload.vy = st.vy;
       }
       if (st.og != null) payload.og = st.og;
+      Object.assign(payload, probeFields());
       window.SkyHopCollabProgressTick(payload);
     }, 100);
   }
@@ -138,6 +162,24 @@
       if (typeof window.SkyHopTriggerCollabWin === 'function') {
         window.SkyHopTriggerCollabWin(msg.timeMs, msg.deaths);
       }
+      return;
+    }
+    if (msg.type === 'roomChat') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.push(msg);
+      return;
+    }
+    if (msg.type === 'cheatKick') {
+      var stKick = el('collabMpStatus');
+      if (stKick) stKick.textContent = String(msg.reason || 'Removed from session.');
+      if (window.SKYHOP && typeof window.SKYHOP.goToMenu === 'function') {
+        try {
+          window.SKYHOP.goToMenu();
+        } catch {
+          /* */
+        }
+      }
+      disconnect();
+      window.alert(msg.reason || 'Removed from this collab — automated play is blocked.');
       return;
     }
     if (msg.type === 'error') {
@@ -207,6 +249,7 @@
           }
           if (msg.type === 'roomCreated') {
             window.__skyhopCollabPlayerId = msg.playerId;
+            attachChat(msg.chat);
             if (el('collabRoomIdText')) el('collabRoomIdText').textContent = msg.roomId || '';
             if (el('collabHostPanel')) el('collabHostPanel').classList.remove('hidden');
             if (el('collabMpStatus')) el('collabMpStatus').textContent = 'Share session ID. Start when ready.';
@@ -245,6 +288,7 @@
           }
           if (msg.type === 'joined') {
             window.__skyhopCollabPlayerId = msg.playerId;
+            attachChat(msg.chat);
             if (el('collabMpStatus')) el('collabMpStatus').textContent = 'Waiting for host to start…';
           } else handleMsg(msg);
         };

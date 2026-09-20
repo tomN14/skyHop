@@ -45,7 +45,7 @@ export async function resolveFeatureListHtml(store) {
 
 export const DEFAULT_BRANDING = Object.freeze({
   title: 'Sky Hop',
-  version: '3.18',
+  version: '3.19',
   updateName: 'The Editor Update',
 });
 

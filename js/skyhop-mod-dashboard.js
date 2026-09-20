@@ -244,6 +244,249 @@
     }
   }
 
+  var livePoll = 0;
+  var watchWs = null;
+  var watchPlayers = [];
+
+  function fmtStage(p) {
+    if (!p) return '—';
+    if (p.finished) return 'Done';
+    var s = p.stage != null ? p.stage : 0;
+    return 'St ' + (s + 1);
+  }
+
+  function stopWatch() {
+    if (watchWs) {
+      try {
+        watchWs.close();
+      } catch {
+        /* */
+      }
+    }
+    watchWs = null;
+    var ov = document.getElementById('screenModWatch');
+    if (ov) {
+      ov.classList.add('hidden');
+      ov.classList.remove('flex');
+    }
+  }
+
+  function renderWatchPlayers(players) {
+    var ul = document.getElementById('modWatchPlayers');
+    if (!ul) return;
+    if (!players || !players.length) {
+      ul.innerHTML = '<li class="text-slate-500">No players.</li>';
+      return;
+    }
+    ul.innerHTML = players
+      .map(function (p) {
+        var flags = p.flags && p.flags.length ? ' · ' + p.flags.join(', ') : '';
+        var un = p.username ? ' (@' + p.username + ')' : '';
+        return (
+          '<li class="rounded-lg border border-white/10 bg-slate-950/60 px-2 py-1.5 text-slate-200">' +
+          '<span class="font-semibold text-white">' +
+          escapeHtml(p.name || '?') +
+          '</span>' +
+          '<span class="text-slate-500">' +
+          escapeHtml(un) +
+          '</span>' +
+          ' · ' +
+          fmtStage(p) +
+          (p.host ? ' · host' : '') +
+          '<span class="text-amber-200/80">' +
+          escapeHtml(flags) +
+          '</span></li>'
+        );
+      })
+      .join('');
+  }
+
+  function pushWatchChat(row) {
+    var ul = document.getElementById('modWatchChat');
+    if (!ul || !row) return;
+    var li = document.createElement('li');
+    li.className = row.staff ? 'text-emerald-200' : 'text-slate-200';
+    li.innerHTML =
+      '<span class="font-semibold text-amber-200/90">' +
+      escapeHtml(row.from || 'Player') +
+      ':</span> ' +
+      escapeHtml(row.text || '');
+    ul.appendChild(li);
+    ul.scrollTop = ul.scrollHeight;
+  }
+
+  function applyWatchRoom(room) {
+    if (!room) return;
+    watchPlayers = room.players ? room.players.slice() : [];
+    var title = document.getElementById('modWatchTitle');
+    var meta = document.getElementById('modWatchMeta');
+    if (title) title.textContent = (room.mode === 'collab' ? 'Collab' : 'Race') + ' ' + (room.id || '');
+    if (meta) {
+      meta.textContent =
+        (room.started ? 'In progress' : 'Lobby') +
+        ' · ' +
+        (room.playerCount || 0) +
+        ' player(s)' +
+        (room.spectatorCount ? ' · ' + room.spectatorCount + ' watching' : '');
+    }
+    renderWatchPlayers(watchPlayers);
+  }
+
+  function upsertWatchPlayer(msg) {
+    if (!msg || !msg.playerId) return;
+    var found = null;
+    for (var i = 0; i < watchPlayers.length; i++) {
+      if (watchPlayers[i].id === msg.playerId) {
+        found = watchPlayers[i];
+        break;
+      }
+    }
+    if (!found) {
+      found = { id: msg.playerId, name: msg.name || '?' };
+      watchPlayers.push(found);
+    }
+    if (msg.name) found.name = msg.name;
+    if (msg.stage0 != null) found.stage = msg.stage0;
+    if (msg.type === 'playerFinished') found.finished = true;
+    if (msg.timeMs != null) found.timeMs = msg.timeMs;
+    renderWatchPlayers(watchPlayers);
+  }
+
+  function watchSession(roomId) {
+    stopWatch();
+    var ov = document.getElementById('screenModWatch');
+    if (ov) {
+      ov.classList.remove('hidden');
+      ov.classList.add('flex');
+    }
+    var chatUl = document.getElementById('modWatchChat');
+    if (chatUl) chatUl.innerHTML = '';
+    var url = typeof window.SkyHopRaceWsUrl === 'function' ? window.SkyHopRaceWsUrl() : '';
+    if (!url) {
+      var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url = proto + '//' + window.location.host;
+    }
+    watchWs = new WebSocket(url);
+    watchWs.onopen = function () {
+      var tok = getToken();
+      watchWs.send(JSON.stringify({ type: 'staffWatch', roomId: roomId, authToken: tok }));
+    };
+    watchWs.onmessage = function (ev) {
+      var msg;
+      try {
+        msg = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      if (msg.type === 'error') {
+        setErr(String(msg.message || 'Watch failed'));
+        stopWatch();
+        return;
+      }
+      if (msg.type === 'watching') {
+        applyWatchRoom(msg.room);
+        if (msg.chat && msg.chat.length) {
+          for (var i = 0; i < msg.chat.length; i++) pushWatchChat(msg.chat[i]);
+        }
+        return;
+      }
+      if (msg.type === 'sessionEnded') {
+        setErr(msg.message || 'Session ended.');
+        stopWatch();
+        return;
+      }
+      if (msg.type === 'roomChat') {
+        pushWatchChat(msg);
+        return;
+      }
+      if (msg.type === 'playerProgress' || msg.type === 'playerFinished') {
+        upsertWatchPlayer(msg);
+        return;
+      }
+      if (msg.type === 'playerJoined' || msg.type === 'playerLeft') {
+        void refreshLiveSessions();
+        return;
+      }
+    };
+    watchWs.onclose = function () {
+      watchWs = null;
+    };
+  }
+
+  async function refreshLiveSessions() {
+    var ul = document.getElementById('modDashLiveList');
+    var tok = getToken();
+    if (!tok || !ul) return;
+    try {
+      var data = await api('/api/staff/live-sessions', {
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + tok },
+      });
+      var sessions = data.sessions || [];
+      if (!sessions.length) {
+        ul.innerHTML = '<li class="text-slate-500">No live sessions.</li>';
+        return;
+      }
+      ul.innerHTML = '';
+      for (var i = 0; i < sessions.length; i++) {
+        (function (s) {
+          var li = document.createElement('li');
+          li.className = 'rounded-xl border border-white/10 bg-slate-900/70 p-3';
+          var names = (s.players || [])
+            .map(function (p) {
+              return (p.name || '?') + (p.username ? ' (@' + p.username + ')' : '') + ' ' + fmtStage(p);
+            })
+            .join(' · ');
+          var flags = s.flags && s.flags.length ? s.flags[s.flags.length - 1].flag : '';
+          li.innerHTML =
+            '<div class="flex flex-wrap items-start justify-between gap-2">' +
+            '<div><span class="font-semibold text-white">' +
+            escapeHtml(s.mode === 'collab' ? 'Collab' : 'Race') +
+            ' ' +
+            escapeHtml(s.id) +
+            '</span>' +
+            '<p class="mt-0.5 text-[11px] text-slate-400">' +
+            (s.started ? 'In progress' : 'Lobby') +
+            ' · ' +
+            String(s.playerCount || 0) +
+            ' player(s)' +
+            (s.spectatorCount ? ' · ' + s.spectatorCount + ' watching' : '') +
+            '</p>' +
+            '<p class="mt-0.5 text-[11px] text-slate-500">' +
+            escapeHtml(names || 'No names') +
+            (flags ? ' · flag: ' + escapeHtml(flags) : '') +
+            '</p></div></div>';
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className =
+            'mt-2 rounded-lg bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-500';
+          btn.textContent = 'Watch';
+          btn.addEventListener('click', function () {
+            watchSession(s.id);
+          });
+          li.appendChild(btn);
+          ul.appendChild(li);
+        })(sessions[i]);
+      }
+    } catch (e) {
+      ul.innerHTML = '<li class="text-rose-300">' + escapeHtml(String(e.message || e)) + '</li>';
+    }
+  }
+
+  function startLivePoll() {
+    if (livePoll) clearInterval(livePoll);
+    void refreshLiveSessions();
+    livePoll = setInterval(function () {
+      var screen = document.getElementById('screenModDashboard');
+      if (!screen || screen.classList.contains('hidden')) {
+        clearInterval(livePoll);
+        livePoll = 0;
+        return;
+      }
+      void refreshLiveSessions();
+    }, 2500);
+  }
+
   function openDashboard() {
     var me = window.__skyhopLastMe;
     var role = me && me.role ? me.role : 'player';
@@ -257,6 +500,7 @@
     screen.classList.add('flex');
     setErr('');
     void refreshVisits();
+    startLivePoll();
   }
 
   function closeDashboard() {
@@ -264,6 +508,11 @@
     if (!screen) return;
     screen.classList.add('hidden');
     screen.classList.remove('flex');
+    if (livePoll) {
+      clearInterval(livePoll);
+      livePoll = 0;
+    }
+    stopWatch();
   }
 
   function bind() {
@@ -274,8 +523,28 @@
     var period = document.getElementById('modDashVisitPeriod');
     var unInp = document.getElementById('modDashUsername');
 
+    var refreshLive = document.getElementById('modDashRefreshLive');
+    var watchClose = document.getElementById('btnModWatchClose');
+    var watchForm = document.getElementById('modWatchChatForm');
+
     if (fab) fab.addEventListener('click', openDashboard);
     if (close) close.addEventListener('click', closeDashboard);
+    if (refreshLive) {
+      refreshLive.addEventListener('click', function () {
+        void refreshLiveSessions();
+      });
+    }
+    if (watchClose) watchClose.addEventListener('click', stopWatch);
+    if (watchForm) {
+      watchForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var inp = document.getElementById('modWatchChatInput');
+        var text = inp && inp.value ? String(inp.value).trim() : '';
+        if (!text || !watchWs || watchWs.readyState !== 1) return;
+        watchWs.send(JSON.stringify({ type: 'chat', text: text }));
+        if (inp) inp.value = '';
+      });
+    }
     var denyClose = document.getElementById('btnModAccessDeniedClose');
     if (denyClose) denyClose.addEventListener('click', closeAccessDenied);
     if (lookup) lookup.addEventListener('click', function () {

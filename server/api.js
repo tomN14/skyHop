@@ -20,6 +20,7 @@ import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
 import * as SubmittedRuns from './submitted-runs.js';
 import * as UserMods from './user-mods.js';
+import { consumeRaceFinishReceipt, listLiveSessions, minUntokenedRaceMs } from './live-sessions.js';
 import {
   joinTosPagesForEditor,
   resolveBranding,
@@ -799,6 +800,20 @@ export async function handleApi(req, res) {
       const deaths = Math.max(0, Math.min(Math.floor(Number(body.deaths) || 0), 1_000_000));
       const source = body.source === 'race' ? 'race' : 'campaign';
 
+      if (source === 'race') {
+        const token = body.raceFinishToken != null ? String(body.raceFinishToken).trim() : '';
+        if (token) {
+          const rec = consumeRaceFinishReceipt(token, timeMs);
+          if (!rec.ok) {
+            json(res, 400, { error: 'Race finish could not be verified.' });
+            return true;
+          }
+        } else if (timeMs < minUntokenedRaceMs()) {
+          json(res, 400, { error: 'Race time was rejected by anti-cheat.' });
+          return true;
+        }
+      }
+
       const runsBefore = await store.getRunsForUser(uid);
       const campaignBefore = runsBefore.filter((r) => r.source === 'campaign');
       const prevCampaignBest =
@@ -920,7 +935,7 @@ export async function handleApi(req, res) {
     } catch (e) {
       json(res, 200, {
         title: 'Sky Hop',
-        version: '3.18',
+        version: '3.19',
         updateName: 'The Editor Update',
       });
     }
@@ -2744,6 +2759,20 @@ export async function handleApi(req, res) {
       }
       return true;
     }
+  }
+
+  if (pathname === '/api/staff/live-sessions' && req.method === 'GET') {
+    const staff = await requireStaffSession(req);
+    if (!staff) {
+      json(res, 403, { error: 'Moderator or owner access required.' });
+      return true;
+    }
+    try {
+      json(res, 200, { sessions: listLiveSessions() });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
   }
 
   if ((pathname === '/api/staff/visits' || pathname === '/api/staff/signups') && req.method === 'GET') {

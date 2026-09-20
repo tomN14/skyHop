@@ -212,7 +212,7 @@
   function applyMenuBranding(b) {
     if (!b || typeof b !== 'object') return;
     var title = String(b.title || '').trim() || 'Sky Hop';
-    var version = String(b.version || '').trim() || '3.18';
+    var version = String(b.version || '').trim() || '3.19';
     var updateName = String(b.updateName || '').trim();
     var titleEl = document.getElementById('menuGameTitle');
     var versionEl = document.getElementById('menuGameVersion');
@@ -365,6 +365,9 @@
       deaths: deaths != null ? deaths : 0,
       source: source === 'race' ? 'race' : 'campaign',
     };
+    if (extra && typeof extra === 'object' && source === 'race' && extra.raceFinishToken) {
+      payload.raceFinishToken = extra.raceFinishToken;
+    }
     if (extra && typeof extra === 'object' && source !== 'race') {
       const coinMeta = Object.assign({}, extra);
       if (coinMeta.difficulty) {

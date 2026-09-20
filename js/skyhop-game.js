@@ -2655,7 +2655,7 @@
               /* */
             }
           }
-          if (window.SkyHopSubmitRun) {
+          if (!window.__skyhopRaceOnline && window.SkyHopSubmitRun) {
             try {
               void window.SkyHopSubmitRun(totalMs, deaths, 'race');
             } catch {
@@ -2749,7 +2749,7 @@
               /* */
             }
           }
-          if (window.SkyHopSubmitRun) {
+          if (!window.__skyhopRaceOnline && window.SkyHopSubmitRun) {
             try {
               void window.SkyHopSubmitRun(totalMs, deaths, 'race');
             } catch {
@@ -3576,6 +3576,7 @@
       'screenLevelsMine',
       'screenAccount',
       'screenModDashboard',
+      'screenModWatch',
     ];
     const anyVisible = shellIds.some(function (id) {
       const el = document.getElementById(id);

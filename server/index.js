@@ -5,6 +5,25 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 
 import './env.js';
+import { handleApi } from './api.js';
+import { store } from './store.js';
+import { effectiveRole, isAccountDisabled, isStaffRole } from './moderation.js';
+import { recordVisit } from './visit-stats.js';
+import {
+  applyChat,
+  applyFinish,
+  applyProgress,
+  broadcastAll,
+  createRoom,
+  leaveRoom,
+  makePlayerId,
+  makeRoomId,
+  playerList,
+  rooms,
+  send,
+  serializeRoom,
+  socketMeta,
+} from './live-sessions.js';
 
 const PORT = Number(process.env.SKYHOP_RACE_PORT || 3001);
 /** 0.0.0.0 = LAN + 127.0.0.1. Other PCs in the game must use ws://(host's Wi-Fi IP):port, not 127.0.0.1. */
@@ -63,49 +82,24 @@ async function serveStatic(req, res, urlPath) {
   }
 }
 
-const rooms = new Map();
-const socketMeta = new Map();
-
-function makeRoomId() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let s = '';
-  for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)];
-  return s;
-}
-
-function makePlayerId() {
-  return 'p' + Math.random().toString(36).slice(2, 12);
-}
-
-function send(ws, obj) {
-  if (ws.readyState === 1) ws.send(JSON.stringify(obj));
-}
-
-async function wsUserDisabledFromToken(authToken) {
+async function wsUserFromToken(authToken) {
   const tok = authToken != null ? String(authToken).trim() : '';
-  if (!tok || typeof store.sessionUserId !== 'function') return false;
+  if (!tok || typeof store.sessionUserId !== 'function') return null;
   try {
     const uid = await store.sessionUserId(tok);
-    if (!uid) return false;
+    if (!uid) return null;
     const user = await store.findUserById(uid);
-    return isAccountDisabled(user);
+    if (!user) return null;
+    return {
+      uid,
+      username: user.username,
+      role: effectiveRole(user),
+      disabled: isAccountDisabled(user),
+    };
   } catch {
-    return false;
+    return null;
   }
 }
-
-function broadcastRoom(room, obj, exceptWs) {
-  for (const c of room.clients) {
-    if (c !== exceptWs) send(c, obj);
-  }
-  if (exceptWs) send(exceptWs, obj);
-  else for (const c of room.clients) send(c, obj);
-}
-
-import { handleApi } from './api.js';
-import { store } from './store.js';
-import { isAccountDisabled } from './moderation.js';
-import { recordVisit } from './visit-stats.js';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -173,6 +167,42 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
+function kickCheater(ws, room, reason) {
+  send(ws, { type: 'cheatKick', reason: reason || 'Removed from this session.' });
+  const meta = socketMeta.get(ws);
+  if (meta && meta.roomId) leaveRoom(ws, meta.roomId);
+  try {
+    ws.close();
+  } catch {
+    /* */
+  }
+}
+
+function progressPayload(room, playerId, msg, ev) {
+  const out = {
+    type: 'playerProgress',
+    playerId,
+    name: room.names[playerId] || '?',
+    stage0: ev.stage,
+    timeMs: ev.timeMs || 0,
+  };
+  if (ev.x != null && ev.y != null) {
+    out.x = ev.x;
+    out.y = ev.y;
+    if (msg.g != null) out.g = Number(msg.g) < 0 ? -1 : 1;
+  }
+  if (msg.vx != null && msg.vy != null) {
+    const nvx = Math.max(-4000, Math.min(4000, Number(msg.vx)));
+    const nvy = Math.max(-4000, Math.min(4000, Number(msg.vy)));
+    if (Number.isFinite(nvx) && Number.isFinite(nvy)) {
+      out.vx = nvx;
+      out.vy = nvy;
+    }
+  }
+  if (msg.og != null) out.og = !!msg.og;
+  return out;
+}
+
 wss.on('connection', (ws) => {
   const playerId = makePlayerId();
   socketMeta.set(ws, { playerId, roomId: null });
@@ -189,7 +219,8 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'create') {
       void (async () => {
-        if (await wsUserDisabledFromToken(msg.authToken)) {
+        const user = await wsUserFromToken(msg.authToken);
+        if (user && user.disabled) {
           send(ws, { type: 'error', message: 'Account disabled — cannot host races.' });
           return;
         }
@@ -201,27 +232,23 @@ wss.on('connection', (ws) => {
         while (rooms.has(roomId)) roomId = makeRoomId();
         const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
         const isCollab = String(msg.mode || '').toLowerCase() === 'collab';
-        const room = {
-          id: roomId,
-          host: ws,
-          started: false,
-          collab: isCollab,
-          worldScope: 'w1',
-          bossHpByStage: {},
-          clients: new Set([ws]),
-          names: { [playerId]: name },
-          progress: { [playerId]: { stage: 0, finished: false } },
-        };
-        rooms.set(roomId, room);
+        const room = createRoom(roomId, ws, playerId, name, isCollab);
         const meta = socketMeta.get(ws);
         meta.roomId = roomId;
+        meta.displayName = name;
+        if (user && user.username) {
+          meta.username = user.username;
+          meta.role = user.role;
+          room.usernames[playerId] = user.username;
+        }
         send(ws, {
           type: 'roomCreated',
           roomId,
           youAreHost: true,
           name,
           playerId,
-          players: [{ id: playerId, name, host: true }],
+          players: playerList(room),
+          chat: room.chat,
         });
       })();
       return;
@@ -229,51 +256,77 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'join') {
       void (async () => {
-        if (await wsUserDisabledFromToken(msg.authToken)) {
+        const user = await wsUserFromToken(msg.authToken);
+        if (user && user.disabled) {
           send(ws, { type: 'error', message: 'Account disabled — cannot join races.' });
           return;
         }
-      const roomId = (msg.roomId && String(msg.roomId).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) || '';
-      if (roomId.length < 4) {
-        send(ws, { type: 'error', message: 'Invalid session ID' });
-        return;
-      }
-      const room = rooms.get(roomId);
-      if (!room) {
-        send(ws, { type: 'error', message: 'Session not found' });
-        return;
-      }
-      if (room.started) {
-        send(ws, { type: 'error', message: room.collab ? 'Session already started' : 'Race already started' });
-        return;
-      }
-      if (room.clients.size >= 8) {
-        send(ws, { type: 'error', message: 'Session full' });
-        return;
-      }
-      const name = (msg.name && String(msg.name).slice(0, 20)) || 'Racer';
-      room.clients.add(ws);
-      room.names[playerId] = name;
-      room.progress[playerId] = { stage: 0, finished: false };
-      const meta = socketMeta.get(ws);
-      meta.roomId = roomId;
+        const roomId =
+          (msg.roomId && String(msg.roomId).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) || '';
+        if (roomId.length < 4) {
+          send(ws, { type: 'error', message: 'Invalid session ID' });
+          return;
+        }
+        const room = rooms.get(roomId);
+        if (!room) {
+          send(ws, { type: 'error', message: 'Session not found' });
+          return;
+        }
+        if (room.started) {
+          send(ws, { type: 'error', message: room.collab ? 'Session already started' : 'Race already started' });
+          return;
+        }
+        if (room.clients.size >= 8) {
+          send(ws, { type: 'error', message: 'Session full' });
+          return;
+        }
+        const name = (msg.name && String(msg.name).slice(0, 20)) || 'Racer';
+        room.clients.add(ws);
+        room.names[playerId] = name;
+        room.progress[playerId] = { stage: 0, finished: false, timeMs: 0, suspicion: 0, progressHits: 0, flags: [] };
+        const meta = socketMeta.get(ws);
+        meta.roomId = roomId;
+        meta.displayName = name;
+        if (user && user.username) {
+          meta.username = user.username;
+          meta.role = user.role;
+          room.usernames[playerId] = user.username;
+        }
+        const players = playerList(room);
+        send(ws, { type: 'joined', roomId, youAreHost: false, name, playerId, players, chat: room.chat });
+        broadcastAll(room, { type: 'playerJoined', playerId, name, players }, ws);
+      })();
+      return;
+    }
 
-      const players = [];
-      for (const c of room.clients) {
-        const m = socketMeta.get(c);
-        if (!m) continue;
-        players.push({
-          id: m.playerId,
-          name: room.names[m.playerId] || '?',
-          host: c === room.host,
+    if (msg.type === 'staffWatch') {
+      void (async () => {
+        const user = await wsUserFromToken(msg.authToken);
+        if (!user || !isStaffRole(user.role)) {
+          send(ws, { type: 'error', message: 'Moderator, Admin, or Owner access required.' });
+          return;
+        }
+        const roomId =
+          (msg.roomId && String(msg.roomId).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) || '';
+        const room = rooms.get(roomId);
+        if (!room) {
+          send(ws, { type: 'error', message: 'Session not found' });
+          return;
+        }
+        const meta = socketMeta.get(ws);
+        if (meta.roomId && meta.roomId !== roomId) leaveRoom(ws, meta.roomId);
+        meta.roomId = roomId;
+        meta.spectator = true;
+        meta.username = user.username;
+        meta.role = user.role;
+        meta.displayName = user.username;
+        if (!room.spectators) room.spectators = new Set();
+        room.spectators.add(ws);
+        send(ws, {
+          type: 'watching',
+          room: serializeRoom(room),
+          chat: room.chat,
         });
-      }
-
-      send(ws, { type: 'joined', roomId, youAreHost: false, name, playerId, players });
-      for (const c of room.clients) {
-        if (c === ws) continue;
-        send(c, { type: 'playerJoined', playerId, name, players });
-      }
       })();
       return;
     }
@@ -299,6 +352,7 @@ wss.on('connection', (ws) => {
       }
       room.started = true;
       const startAt = Date.now();
+      room.startAt = startAt;
       const diffRaw = msg.difficulty != null ? String(msg.difficulty).toLowerCase() : 'normal';
       const difficulty = ['easy', 'normal', 'hard', 'custom'].includes(diffRaw) ? diffRaw : 'normal';
       let customOpts = null;
@@ -308,6 +362,7 @@ wss.on('connection', (ws) => {
           if (ser.length > 32000) {
             send(ws, { type: 'error', message: 'Custom settings payload too large' });
             room.started = false;
+            room.startAt = 0;
             return;
           }
           customOpts = msg.customOpts;
@@ -324,136 +379,100 @@ wss.on('connection', (ws) => {
         room.maxStage0 = Math.max(0, nStages - 1);
         const pack = { type: 'collabStart', startAt, roomId: room.id, worldScope, difficulty };
         if (customOpts) pack.customOpts = customOpts;
-        for (const c of room.clients) send(c, pack);
+        broadcastAll(room, pack);
         return;
       }
+      room.maxStage0 = 49;
       const pack = { type: 'raceStart', startAt, roomId: room.id, difficulty };
       if (customOpts) pack.customOpts = customOpts;
-      for (const c of room.clients) send(c, pack);
+      broadcastAll(room, pack);
       return;
     }
 
     if (msg.type === 'collabBossInit') {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
-      if (!room || !room.started || !room.collab) return;
+      if (!room || !room.started || !room.collab || meta.spectator) return;
       const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
       const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
       if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
-      for (const c of room.clients) {
-        send(c, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
-      }
+      broadcastAll(room, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
       return;
     }
 
     if (msg.type === 'collabBossHit') {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
-      if (!room || !room.started || !room.collab) return;
+      if (!room || !room.started || !room.collab || meta.spectator) return;
       const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
       const dmg = Math.max(0, Math.min(500, Math.floor(Number(msg.damage) || 0)));
       if (dmg < 1) return;
       const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
       if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
       room.bossHpByStage[key] = Math.max(0, room.bossHpByStage[key] - dmg);
-      for (const c of room.clients) {
-        send(c, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
-      }
+      broadcastAll(room, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
       return;
     }
 
     if (msg.type === 'progress') {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
-      if (!room || !room.started) return;
-      const cap =
-        room.maxStage0 != null && Number.isFinite(room.maxStage0)
-          ? Math.max(0, Math.floor(room.maxStage0))
-          : 49;
-      const st = msg.stage0 != null ? Math.max(0, Math.min(cap, Math.floor(msg.stage0))) : 0;
-      let nx = null;
-      let ny = null;
-      let ng = null;
-      let nvx = null;
-      let nvy = null;
-      let nog = null;
-      if (msg.x != null && msg.y != null) {
-        nx = Math.max(-5e5, Math.min(5e5, Number(msg.x)));
-        ny = Math.max(-5e5, Math.min(5e5, Number(msg.y)));
-        if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
-          nx = null;
-          ny = null;
-        }
+      if (!room || !room.started || (meta && meta.spectator)) return;
+      const now = Date.now();
+      const ev = applyProgress(room, playerId, msg, now);
+      if (ev.drop) return;
+      if (ev.kick) {
+        kickCheater(ws, room, ev.kick);
+        return;
       }
-      if (msg.g != null) {
-        ng = Number(msg.g) < 0 ? -1 : 1;
-      }
-      if (msg.vx != null && msg.vy != null) {
-        nvx = Math.max(-4000, Math.min(4000, Number(msg.vx)));
-        nvy = Math.max(-4000, Math.min(4000, Number(msg.vy)));
-        if (!Number.isFinite(nvx) || !Number.isFinite(nvy)) {
-          nvx = null;
-          nvy = null;
-        }
-      }
-      if (msg.og != null) nog = !!msg.og;
-      if (room.progress[playerId]) {
-        room.progress[playerId].stage = st;
-        room.progress[playerId].timeMs = msg.timeMs != null ? msg.timeMs : 0;
-      }
-      for (const c of room.clients) {
-        if (c === ws) continue;
-        const out = {
-          type: 'playerProgress',
-          playerId,
-          name: room.names[playerId] || '?',
-          stage0: st,
-          timeMs: msg.timeMs || 0,
-        };
-        if (nx != null && ny != null) {
-          out.x = nx;
-          out.y = ny;
-          out.g = ng != null ? ng : 1;
-        }
-        if (nvx != null && nvy != null) {
-          out.vx = nvx;
-          out.vy = nvy;
-        }
-        if (nog != null) out.og = nog;
-        send(c, out);
-      }
+      broadcastAll(room, progressPayload(room, playerId, msg, ev), ws);
       return;
     }
 
     if (msg.type === 'finished') {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
-      if (!room || !room.started) return;
-      if (room.progress[playerId]) {
-        room.progress[playerId].finished = true;
-        room.progress[playerId].finalTimeMs = msg.timeMs != null ? msg.timeMs : 0;
+      if (!room || !room.started || (meta && meta.spectator)) return;
+      const ev = applyFinish(room, playerId, msg, Date.now());
+      if (!ev.ok) {
+        kickCheater(ws, room, ev.kick);
+        return;
       }
       if (room.collab) {
-        const pack = {
+        broadcastAll(room, {
           type: 'collabWin',
           playerId,
           name: room.names[playerId] || '?',
-          timeMs: msg.timeMs != null ? msg.timeMs : 0,
-          deaths: msg.deaths != null ? msg.deaths : 0,
-        };
-        for (const c of room.clients) send(c, pack);
+          timeMs: ev.timeMs,
+          deaths: ev.deaths,
+        });
         return;
       }
-      for (const c of room.clients) {
-        if (c === ws) continue;
-        send(c, {
+      send(ws, { type: 'finishOk', token: ev.token, timeMs: ev.timeMs, deaths: ev.deaths });
+      broadcastAll(
+        room,
+        {
           type: 'playerFinished',
           playerId,
           name: room.names[playerId] || '?',
-          timeMs: msg.timeMs != null ? msg.timeMs : 0,
-          deaths: msg.deaths != null ? msg.deaths : 0,
-        });
+          timeMs: ev.timeMs,
+          deaths: ev.deaths,
+        },
+        ws
+      );
+      return;
+    }
+
+    if (msg.type === 'chat') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room) return;
+      const result = applyChat(room, playerId, msg.text, meta);
+      if (!result.ok) {
+        send(ws, { type: 'error', message: result.error || 'Chat failed' });
+        return;
       }
+      broadcastAll(room, { type: 'roomChat', ...result.row });
       return;
     }
 
@@ -464,32 +483,6 @@ wss.on('connection', (ws) => {
       return;
     }
   });
-
-  function leaveRoom(s, roomId) {
-    const room = rooms.get(roomId);
-    if (!room) return;
-    const m = socketMeta.get(s);
-    const pid = m && m.playerId;
-    room.clients.delete(s);
-    if (m) m.roomId = null;
-    if (room.host === s && room.clients.size) {
-      const n = room.clients.values().next().value;
-      room.host = n;
-    }
-    delete room.names[pid];
-    delete room.progress[pid];
-    for (const c of room.clients) {
-      if (c === s) continue;
-      const players = [];
-      for (const x of room.clients) {
-        const meta2 = socketMeta.get(x);
-        if (!meta2) continue;
-        players.push({ id: meta2.playerId, name: room.names[meta2.playerId] || '?', host: x === room.host });
-      }
-      send(c, { type: 'playerLeft', playerId: pid, players });
-    }
-    if (!room.clients.size) rooms.delete(roomId);
-  }
 
   ws.on('close', () => {
     const meta = socketMeta.get(ws);

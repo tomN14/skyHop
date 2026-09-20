@@ -39,6 +39,8 @@ Open **`http://127.0.0.1:3001/`** to play from the running server (served static
 
 The Racing **server** field: **leave blank** for same-site play, or enter a **hostname** (`myapp.fly.dev`) or full `wss://` URL so every player targets the same host.
 
+Online races and collabs include **session chat** and **server anti-cheat** (impossible movement, instant stage clears, and scripted packets). Moderators, the Admin, and the owner can **watch live sessions** from the moderator dashboard.
+
 ## Accounts & statistics
 
 **Default:** profiles live in **`server/data/accounts.json`** on the machine running Node. **Back up that file** if you need history; `data/` is git-ignored except for `.gitignore`.

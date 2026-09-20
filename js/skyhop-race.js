@@ -265,6 +265,38 @@
     return { stage: 0, done: false };
   }
 
+  function probeFields() {
+    try {
+      if (window.SkyHopAnticheatProbe && typeof window.SkyHopAnticheatProbe.take === 'function') {
+        return window.SkyHopAnticheatProbe.take();
+      }
+    } catch {
+      /* */
+    }
+    return {};
+  }
+
+  function sendChatLine(text) {
+    if (!ws || ws.readyState !== 1) return;
+    try {
+      ws.send(JSON.stringify({ type: 'chat', text: text }));
+    } catch {
+      /* */
+    }
+  }
+
+  function attachChat(history) {
+    if (window.SkyHopSessionChat) {
+      window.SkyHopSessionChat.attach(sendChatLine);
+      if (history && history.length) window.SkyHopSessionChat.load(history);
+    }
+  }
+
+  window.SkyHopRaceWsUrl = function () {
+    var inp = document.getElementById('raceWsUrl');
+    return parseServerInput(inp && inp.value);
+  };
+
   function getSnapshot() {
     const S = window.SKYHOP;
     if (!S || !S.getRacingState) return { stage0: 0, tMs: 0, finished: false, deaths: 0 };
@@ -408,9 +440,11 @@
     try {
       window.__skyhopMpPeers = null;
       window.__skyhopMyPlayerId = null;
+      window.__skyhopRaceOnline = false;
     } catch {
       /* */
     }
+    if (window.SkyHopSessionChat) window.SkyHopSessionChat.detach();
     roomId = null;
     isHost = false;
     mpPlayers = [];
@@ -450,6 +484,12 @@
     if (msg.type === 'roomCreated') {
       roomId = msg.roomId;
       isHost = true;
+      try {
+        window.__skyhopRaceOnline = true;
+      } catch {
+        /* */
+      }
+      attachChat(msg.chat);
       if (el.roomIdText) el.roomIdText.textContent = roomId;
       if (el.hostPanel) el.hostPanel.classList.remove('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
@@ -463,6 +503,12 @@
     if (msg.type === 'joined') {
       roomId = msg.roomId;
       isHost = msg.youAreHost;
+      try {
+        window.__skyhopRaceOnline = true;
+      } catch {
+        /* */
+      }
+      attachChat(msg.chat);
       if (isHost) {
         if (el.roomIdText) el.roomIdText.textContent = roomId;
         if (el.hostPanel) el.hostPanel.classList.remove('hidden');
@@ -500,6 +546,11 @@
         mpPinger = 0;
       }
       raceType = 'mp';
+      try {
+        window.__skyhopRaceOnline = true;
+      } catch {
+        /* */
+      }
       for (const k of Object.keys(mpProgress)) delete mpProgress[k];
       try {
         window.__skyhopMpPeers = mpProgress;
@@ -542,12 +593,44 @@
             if (st.vx != null) payload.vx = st.vx;
             if (st.vy != null) payload.vy = st.vy;
             if (st.og != null) payload.og = st.og;
+            Object.assign(payload, probeFields());
             ws.send(JSON.stringify(payload));
           } catch {
             /* */
           }
         }
       }, 100);
+      return;
+    }
+    if (msg.type === 'roomChat') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.push(msg);
+      return;
+    }
+    if (msg.type === 'cheatKick') {
+      try {
+        window.__skyhopRaceOnline = false;
+      } catch {
+        /* */
+      }
+      disconnectWs();
+      if (window.SKYHOP && typeof window.SKYHOP.goToMenu === 'function') {
+        try {
+          window.SKYHOP.goToMenu();
+        } catch {
+          /* */
+        }
+      }
+      showRaceOver('Removed from race', msg.reason || 'This session blocked automated play.', undefined);
+      return;
+    }
+    if (msg.type === 'finishOk') {
+      if (typeof window.SkyHopSubmitRun === 'function') {
+        try {
+          void window.SkyHopSubmitRun(msg.timeMs, msg.deaths, 'race', { raceFinishToken: msg.token });
+        } catch {
+          /* */
+        }
+      }
       return;
     }
     if (msg.type === 'playerProgress') {
