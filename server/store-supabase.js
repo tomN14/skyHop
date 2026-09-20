@@ -41,6 +41,7 @@ function mapUser(row) {
     promotionFrom: row.promotion_from ?? null,
     promotionTo: row.promotion_to ?? null,
     strikes: row.strikes != null ? Math.max(0, Math.floor(Number(row.strikes) || 0)) : 0,
+    modsWarningSeen: !!row.mods_warning_seen,
   };
 }
 
@@ -57,13 +58,14 @@ function mapRun(row) {
 
 async function updateUserRow(sb, userId, patch) {
   let { error } = await sb.from('skyhop_users').update(patch).eq('id', userId);
-  if (
-    error &&
-    (String(error.message).includes('promotion_from') || String(error.message).includes('promotion_to'))
-  ) {
+  if (error) {
+    const msg = String(error.message);
     const rest = { ...patch };
-    delete rest.promotion_from;
-    delete rest.promotion_to;
+    if (msg.includes('promotion_from') || msg.includes('promotion_to')) {
+      delete rest.promotion_from;
+      delete rest.promotion_to;
+    }
+    if (msg.includes('mods_warning_seen')) delete rest.mods_warning_seen;
     if (!Object.keys(rest).length) return;
     ({ error } = await sb.from('skyhop_users').update(rest).eq('id', userId));
   }
@@ -1173,6 +1175,10 @@ export function createSupabaseStore() {
 
     async clearPromotionNotice(userId) {
       await updateUserRow(sb, userId, { promotion_from: null, promotion_to: null });
+    },
+
+    async markModsWarningSeen(userId) {
+      await updateUserRow(sb, userId, { mods_warning_seen: true });
     },
 
     async countAdminBansSince(adminUserId, sinceMs) {

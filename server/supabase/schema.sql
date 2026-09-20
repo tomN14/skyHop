@@ -84,6 +84,7 @@ alter table public.skyhop_users add column if not exists disabled_at bigint;
 alter table public.skyhop_users add column if not exists promotion_from text;
 alter table public.skyhop_users add column if not exists promotion_to text;
 alter table public.skyhop_users add column if not exists strikes integer not null default 0;
+alter table public.skyhop_users add column if not exists mods_warning_seen boolean not null default false;
 
 create table if not exists public.skyhop_builtin_campaign (
   id smallint primary key default 1 constraint skyhop_builtin_singleton check (id = 1),

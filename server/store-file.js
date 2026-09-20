@@ -56,6 +56,7 @@ function migrateUsersAndReports(s) {
     if (!('promotionFrom' in u)) u.promotionFrom = null;
     if (!('promotionTo' in u)) u.promotionTo = null;
     if (!('strikes' in u) || !Number.isFinite(Number(u.strikes))) u.strikes = 0;
+    if (!('modsWarningSeen' in u)) u.modsWarningSeen = false;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -160,6 +161,7 @@ export function createFileStore() {
         coins: 0,
         skinTexture: null,
         strikes: 0,
+        modsWarningSeen: false,
       };
       s.users.push(user);
       saveStore();
@@ -1055,6 +1057,14 @@ export function createFileStore() {
       if (!u) return;
       u.promotionFrom = null;
       u.promotionTo = null;
+      saveStore();
+    },
+
+    async markModsWarningSeen(userId) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) return;
+      u.modsWarningSeen = true;
       saveStore();
     },
 

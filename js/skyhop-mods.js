@@ -135,7 +135,94 @@
     }
   }
 
-  function show(on) {
+  function modsWarningLsKey() {
+    try {
+      var u =
+        (window.__skyhopLastMe && window.__skyhopLastMe.username) ||
+        localStorage.getItem('SKYHOP_USERNAME') ||
+        '';
+      u = String(u).trim().toLowerCase();
+      return u ? 'SKYHOP_MODS_WARNING_ACK:' + u : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function localModsWarningAcked() {
+    try {
+      var k = modsWarningLsKey();
+      return !!(k && localStorage.getItem(k));
+    } catch {
+      return false;
+    }
+  }
+
+  function setLocalModsWarningAck() {
+    try {
+      var k = modsWarningLsKey();
+      if (k) localStorage.setItem(k, '1');
+    } catch {
+      /* */
+    }
+  }
+
+  async function needsModsWarning() {
+    var me = window.__skyhopLastMe;
+    if (!me) {
+      try {
+        me = await api('/api/me', {});
+        window.__skyhopLastMe = me;
+      } catch {
+        return !localModsWarningAcked();
+      }
+    }
+    if (me && me.modsWarningNeeded === false) return false;
+    if (localModsWarningAcked()) return false;
+    return !!(me && me.modsWarningNeeded);
+  }
+
+  function hideModsWarning() {
+    var el = document.getElementById('screenModsWarning');
+    if (!el) return;
+    el.classList.add('hidden');
+    el.classList.remove('flex');
+  }
+
+  var modsWarningWait = null;
+
+  function waitForModsWarningAck() {
+    if (modsWarningWait) return modsWarningWait;
+    modsWarningWait = new Promise(function (resolve) {
+      var el = document.getElementById('screenModsWarning');
+      var btn = document.getElementById('btnModsWarningOk');
+      if (!el || !btn) {
+        modsWarningWait = null;
+        resolve();
+        return;
+      }
+      async function onOk() {
+        btn.disabled = true;
+        try {
+          await api('/api/me/ack-mods-warning', { method: 'POST', body: '{}' });
+        } catch {
+          /* still mark seen locally so they can continue */
+        }
+        if (window.__skyhopLastMe) window.__skyhopLastMe.modsWarningNeeded = false;
+        setLocalModsWarningAck();
+        btn.disabled = false;
+        btn.removeEventListener('click', onOk);
+        hideModsWarning();
+        modsWarningWait = null;
+        resolve();
+      }
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+      btn.addEventListener('click', onOk);
+    });
+    return modsWarningWait;
+  }
+
+  async function show(on) {
     var el = screen();
     if (!el) return;
     if (on) {
@@ -147,6 +234,11 @@
       } catch {
         window.alert('Sign in to use mods.');
         return;
+      }
+      try {
+        if (await needsModsWarning()) await waitForModsWarningAck();
+      } catch {
+        /* still open My Mods */
       }
     }
     el.classList.toggle('hidden', !on);
@@ -333,7 +425,7 @@
     teardownAllModEffects();
 
     var nav = document.getElementById('btnNavMyMods');
-    if (nav) nav.addEventListener('click', function () { show(true); });
+    if (nav) nav.addEventListener('click', function () { void show(true); });
     var close = document.getElementById('btnMyModsClose');
     if (close) close.addEventListener('click', function () { show(false); });
 

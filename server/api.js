@@ -309,6 +309,7 @@ async function buildMePayload(userId, req = null) {
     world2Unlocked,
     achievements,
     promotionNotice: promotionNoticePayload(user),
+    modsWarningNeeded: !user.modsWarningSeen && !user.mods_warning_seen,
   };
 }
 
@@ -448,6 +449,23 @@ export async function handleApi(req, res) {
     try {
       if (typeof store.clearPromotionNotice === 'function') {
         await store.clearPromotionNotice(uid);
+      }
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/me/ack-mods-warning' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      if (typeof store.markModsWarningSeen === 'function') {
+        await store.markModsWarningSeen(uid);
       }
       json(res, 200, { ok: true });
     } catch (e) {
