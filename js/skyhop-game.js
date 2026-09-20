@@ -1293,6 +1293,16 @@
   applyCustomFormFromStore();
   syncDifficultyMenuUI();
 
+  const btnCustomResetDefault = document.getElementById('btnCustomResetDefault');
+  if (btnCustomResetDefault) {
+    btnCustomResetDefault.addEventListener('click', function () {
+      const d = window.SKYHOP_DEFAULT_CUSTOM;
+      if (!d || typeof window.SKYHOP_saveCustomOptions !== 'function') return;
+      window.SKYHOP_saveCustomOptions({ ...d });
+      applyCustomFormFromStore();
+    });
+  }
+
   function setMenuDifficulty(d) {
     menuDifficulty = d;
     if (typeof window.SkyHopLeaderboardSetDiff === 'function') {

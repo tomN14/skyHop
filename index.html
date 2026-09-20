@@ -282,7 +282,10 @@
           <p id="menuLeaderboardErr" class="mt-1 hidden text-center text-[11px] text-rose-300"></p>
         </div>
         <div id="customPanel" class="mt-4 hidden max-h-[50vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-left text-sm text-slate-300">
-          <p class="mb-3 font-sem text-indigo-300">Custom physics &amp; rules</p>
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <p class="font-sem text-indigo-300">Custom physics &amp; rules</p>
+            <button id="btnCustomResetDefault" type="button" class="shrink-0 rounded-lg border border-white/15 bg-slate-900/80 px-2.5 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10">Reset to Default</button>
+          </div>
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">Run / accel <span id="custRunVal" class="float-right font-mono text-white">1.00×</span><input id="custRunMul" type="range" min="0.35" max="2.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
             <label class="block">Gravity <span id="custGravVal" class="float-right font-mono text-white">1.00×</span><input id="custGravMul" type="range" min="0.35" max="2.5" step="0.05" value="1" class="mt-1 w-full accent-teal-500" /></label>
