@@ -63,6 +63,10 @@
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(13.5rem + env(safe-area-inset-bottom, 0px));
     }
+    #btnAdminBanFab {
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      bottom: calc(16.75rem + env(safe-area-inset-bottom, 0px));
+    }
     #btnCoinShopFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(10.25rem + env(safe-area-inset-bottom, 0px));
@@ -74,6 +78,7 @@
       #btnModInbox { left: 3rem; bottom: calc(9rem + env(safe-area-inset-bottom, 0px)); }
       #btnStaffFeatureList { left: 3rem; bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)); }
       #btnKeybindsFab { left: 3rem; bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
+      #btnAdminBanFab { left: 3rem; bottom: calc(19.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
     }
     /* Hide shop / friends / mail / mod FABs while actively playing (shown again on pause or menu). */
@@ -338,6 +343,7 @@
         </button>
         <button id="btnOpenOwnerPage" type="button" class="mt-2 hidden w-full rounded-2xl border border-rose-500/45 bg-rose-950/40 px-6 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Owner administration
+          <span id="ownerAdminRequestBadge" class="ml-2 hidden rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">0</span>
         </button>
       </div>
       <div id="screenMenuWorld2" class="my-auto hidden w-full max-w-md flex-col items-center rounded-3xl border border-teal-500/35 bg-gradient-to-br from-slate-900 to-teal-950/50 p-8 shadow-2xl">
@@ -490,7 +496,7 @@
           <p class="rounded-2xl border border-amber-500/25 bg-slate-950/60 px-4 py-3 text-center text-[11px] text-slate-500">Use the <strong class="text-amber-200">🛒</strong> button on the <strong class="text-slate-400">left</strong> (above the mail icon if you’re a moderator) to open the coin shop. <strong class="text-teal-200/90">👥</strong> Friends is on the <strong class="text-slate-400">bottom right</strong>.</p>
           <div class="rounded-2xl border border-amber-500/25 bg-slate-950/60 p-4 text-left">
             <p class="text-xs font-sem text-amber-200/90">Report a player</p>
-            <p class="mt-1 text-[11px] text-slate-500">Players and moderators can report cheating, harassment, or other issues. Reports go to moderators first; serious cases can be escalated to the site owner.</p>
+            <p class="mt-1 text-[11px] text-slate-500">Players can report cheating, harassment, or other issues. Reports go to Report Advisors, moderators, and the Admin first; serious cases can be escalated to the site owner.</p>
             <label class="mt-2 block text-[11px] text-slate-500">Their username</label>
             <input id="accReportUser" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
             <label class="mt-2 block text-[11px] text-slate-500">What happened?</label>
@@ -631,6 +637,8 @@
             <li>Visual level editor (platforms, spikes, lava, coins, movers, grapple / double-jump stage rules)</li>
             <li>Profanity filter on level titles (client NN + server censor)</li>
             <li>Staff can edit non-owner user levels from mod dashboard</li>
+            <li>Admin (exactly one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
+            <li>Report Advisor: pending reports only — dismiss or escalate to the owner; no dashboard, owner tools, or bans</li>
             <li>Owner: edit / append built-in World 1 &amp; World 2 stages, push to server</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Racing</p>
@@ -653,9 +661,10 @@
             <li>Friends: requests, accept/decline, outgoing pending list</li>
             <li>Friend chat (profanity censored; report serious abuse)</li>
             <li>Gift coins to friends (peer transfer limits)</li>
-            <li>Player reports → mod inbox; escalate to owner</li>
+            <li>Player reports → Report Advisor / mod / Admin inbox; escalate to owner</li>
             <li>Account disable / permanent delete (owner, email confirm for delete)</li>
             <li>Bans (owner): temp or permanent</li>
+            <li>Permanent strikes (owner add/remove): player 3 → 1-week ban; mod / Report Advisor 2 → demote; Admin 1 → demote to mod</li>
             <li>Terms of service; kinematic / anti-cheat analytics notice</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Economy &amp; cosmetics</p>
@@ -690,7 +699,7 @@
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Moderation &amp; owner tools</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>📧 Reports inbox FAB (mod / owner); badge counts</li>
+            <li>📧 Reports inbox FAB (Report Advisor / mod / Admin / owner); badge counts</li>
             <li>🛡️ Mod dashboard: site visits, user lookup, level list, stats</li>
             <li>Owner inbox: promote/demote moderators, gifts, built-in editor, ban dialog</li>
             <li>Account administration page: disable, re-enable, delete user</li>
@@ -706,6 +715,23 @@
             <li>Pause menu; weapon screen; stage-clear overlays</li>
             <li>Node + Supabase backend option; file store for local dev</li>
           </ul>
+        </div>
+        <div id="ownerStrikeTools" class="mt-4 hidden rounded-2xl border border-amber-500/35 bg-amber-950/20 p-4 text-left">
+          <p class="text-[11px] font-sem text-amber-200/90">Strikes (owner only)</p>
+          <p class="mt-1 text-[11px] text-slate-500">Permanent until you remove them. Player: 3 → 1-week ban. Moderator / Report Advisor: 2 → demoted to player. Admin: 1 → demoted to moderator. Removing a strike does not undo a ban or demotion.</p>
+          <p class="mt-3 text-[11px] font-sem text-slate-200">Look up strikes</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <input id="ownerStrikeLookupUser" type="text" maxlength="24" autocomplete="off" class="min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" placeholder="username (any role)" />
+            <button id="ownerBtnStrikeLookup" type="button" class="rounded-lg border border-amber-500/45 bg-amber-950/50 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Search</button>
+          </div>
+          <p id="ownerStrikeLookupResult" class="mt-2 text-xs text-slate-300">—</p>
+          <p class="mt-3 text-[11px] font-sem text-slate-200">Hand out / remove</p>
+          <input id="ownerStrikeEditUser" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" placeholder="username" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnStrikeAdd" type="button" class="flex-1 rounded-lg border border-rose-500/45 bg-rose-950/50 px-3 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-900/40">Give strike</button>
+            <button id="ownerBtnStrikeRemove" type="button" class="flex-1 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove strike</button>
+          </div>
+          <p id="ownerStrikeEditMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
       </div>
     </div>
@@ -793,6 +819,36 @@
           <button id="ownerBtnDelete" type="button" class="rounded-xl border border-rose-600/60 bg-rose-950/60 px-4 py-2.5 text-sm font-semibold text-rose-100 hover:bg-rose-900/50">Delete account permanently…</button>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admin (exactly one)</p>
+          <p class="mt-1 text-[11px] text-slate-500">Same as a moderator, plus promote mods and 1-day bans (max 2 / week). They cannot demote mods, use Owner Inbox, Owner Administration, or Reviewed Runs. Assign after deploy — nobody is Admin until you set it.</p>
+          <p class="mt-2 text-sm text-slate-200">Current Admin: <span id="ownerAdminCurrentLabel" class="font-semibold text-emerald-300">none</span></p>
+          <input id="ownerAdminRoleUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username to make / remove Admin" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnAdminOn" type="button" class="flex-1 rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Make Admin</button>
+            <button id="ownerBtnAdminOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Admin</button>
+          </div>
+          <p id="ownerAdminRoleMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-sky-200/90">📋 Report Advisor</p>
+          <p class="mt-1 text-[11px] text-slate-500">Between player and moderator. They see the same pending reports as mods and can dismiss or escalate to you. No dashboard, owner tools, bans, or appeal votes. Assign after deploy — nobody is a Report Advisor until you set it.</p>
+          <p class="mt-2 text-[11px] font-sem text-sky-300/90">Current Report Advisors</p>
+          <ul id="ownerAdvisorList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-sky-200"></ul>
+          <input id="ownerAdvisorUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username to make / remove Report Advisor" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnAdvisorOn" type="button" class="flex-1 rounded-xl border border-sky-500/45 bg-sky-950/50 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-900/40">Make Report Advisor</button>
+            <button id="ownerBtnAdvisorOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Report Advisor</button>
+          </div>
+          <p id="ownerAdvisorMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-emerald-200/90">Admin requests</p>
+          <p class="mt-1 text-[11px] text-slate-500">Demote-moderator and longer-ban requests. Accept or decline; you make the final call.</p>
+          <button id="ownerBtnRefreshStaffRequests" type="button" class="mt-2 w-full rounded-xl border border-emerald-500/45 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40">Refresh requests</button>
+          <ul id="ownerStaffRequestList" class="mt-2 max-h-56 list-none space-y-2 overflow-y-auto p-0 text-xs"></ul>
+          <p id="ownerStaffRequestMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-indigo-200/90">Built-in campaign</p>
           <p class="mt-1 text-[11px] text-slate-500">Play always uses the bundled World 1 / World 2 files. Use this if a server upload left levels blank.</p>
           <button id="ownerBtnResetBuiltinStages" type="button" class="mt-2 w-full rounded-xl border border-indigo-500/45 px-3 py-2 text-xs font-semibold text-indigo-100 hover:bg-indigo-950/40">Reset server campaign override (both worlds)</button>
@@ -854,11 +910,74 @@
       </div>
     </div>
 
+    <div id="screenAdminTools" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
+      <div class="my-auto w-full max-w-lg rounded-3xl border border-emerald-500/40 bg-gradient-to-br from-slate-900 to-emerald-950/40 p-6 shadow-2xl max-h-[min(96vh,56rem)] overflow-y-auto">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-sem uppercase tracking-widest text-emerald-400">Admin</p>
+            <h3 class="mt-1 text-xl font-bold text-white">Bans &amp; moderators</h3>
+            <p class="mt-1 text-[11px] text-slate-500">1-day bans only (max 2 per 7 days). Promote mods here. Demote and longer bans go to the owner.</p>
+          </div>
+          <button id="btnAdminToolsClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <p id="adminQuotaLabel" class="mt-3 text-xs text-emerald-200/90">One-day bans this week: —</p>
+        <div class="mt-4 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-amber-200/90">Look up strikes</p>
+          <p class="mt-1 text-[11px] text-slate-500">Players, Report Advisors, and moderators only. You cannot view the owner or another Admin.</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <input id="adminStrikeLookupUser" type="text" maxlength="24" autocomplete="off" class="min-w-[8rem] flex-1 rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+            <button id="adminBtnStrikeLookup" type="button" class="rounded-xl border border-amber-500/45 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Search</button>
+          </div>
+          <p id="adminStrikeLookupResult" class="mt-2 text-xs text-slate-300">—</p>
+        </div>
+        <div class="mt-4 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-rose-200/90">1-day ban</p>
+          <input id="adminBanUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <textarea id="adminBanReason" rows="2" maxlength="500" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="reason (shown to the player)"></textarea>
+          <button id="adminBtnOneDayBan" type="button" class="mt-2 w-full rounded-xl border border-rose-500/50 bg-rose-950/50 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-900/40">Issue 1-day ban</button>
+        </div>
+        <div class="mt-4 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-amber-200/90">Request a longer ban</p>
+          <p class="mt-1 text-[11px] text-slate-500">The owner accepts or declines. You cannot apply this yourself.</p>
+          <input id="adminLongBanUser" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <select id="adminLongBanDur" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
+            <option value="1w">1 week</option>
+            <option value="2w">2 weeks</option>
+            <option value="1m">1 month</option>
+            <option value="perm">Permanent</option>
+          </select>
+          <textarea id="adminLongBanReason" rows="2" maxlength="500" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="why (owner sees this)"></textarea>
+          <button id="adminBtnRequestLongBan" type="button" class="mt-2 w-full rounded-xl border border-amber-500/45 bg-amber-950/40 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Send longer-ban request</button>
+        </div>
+        <div class="mt-4 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-emerald-200/90">Promote moderator</p>
+          <input id="adminModUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <button id="adminBtnPromoteMod" type="button" class="mt-2 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Make moderator</button>
+        </div>
+        <div class="mt-4 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-slate-200">Request moderator demotion</p>
+          <p class="mt-1 text-[11px] text-slate-500">You cannot demote them yourself. The owner decides.</p>
+          <input id="adminDemoteUser" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="moderator username" />
+          <textarea id="adminDemoteReason" rows="2" maxlength="500" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="why"></textarea>
+          <button id="adminBtnRequestDemote" type="button" class="mt-2 w-full rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Send demotion request</button>
+        </div>
+        <p id="adminToolsMsg" class="mt-3 hidden text-xs text-slate-300"></p>
+      </div>
+    </div>
+
     <div id="screenModAccessDenied" class="pointer-events-auto fixed inset-0 z-[47] hidden flex items-center justify-center bg-slate-950/98 p-4 backdrop-blur-md">
       <div class="w-full max-w-md rounded-3xl border border-rose-500/40 bg-gradient-to-br from-slate-900 to-rose-950/50 p-6 shadow-2xl text-center">
         <p class="text-lg font-bold text-white">Access denied.</p>
-        <p class="mt-3 text-sm text-slate-300">Reason for denial: Moderator or Owner Access required.</p>
+        <p class="mt-3 text-sm text-slate-300">Reason for denial: Moderator, Admin, or Owner access required.</p>
         <button id="btnModAccessDeniedClose" type="button" class="mt-6 rounded-xl border border-white/15 bg-slate-800 px-5 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700">OK</button>
+      </div>
+    </div>
+
+    <div id="screenPromotionNotice" class="pointer-events-auto fixed inset-0 z-[48] hidden flex items-center justify-center bg-slate-950/98 p-4 backdrop-blur-md">
+      <div class="w-full max-w-md rounded-3xl border border-amber-500/40 bg-gradient-to-br from-slate-900 to-amber-950/40 p-6 shadow-2xl text-center">
+        <p class="text-xs font-sem uppercase tracking-widest text-amber-300">Promotion</p>
+        <p id="promotionNoticeText" class="mt-3 text-sm text-slate-100">Congratulations! You have been promoted.</p>
+        <button id="btnPromotionNoticeOk" type="button" class="mt-6 rounded-xl border border-amber-500/45 bg-amber-950/50 px-5 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/40">OK</button>
       </div>
     </div>
 
@@ -1390,6 +1509,9 @@
   </div>
 
   <!-- Edge FABs live on body so position:fixed is always viewport-relative (avoid relative+fixed Tailwind clash). -->
+  <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
+    <span aria-hidden="true">🚫</span>
+  </button>
   <button id="btnKeybindsFab" type="button" title="Keybinds" class="skyhop-edge-fab border border-cyan-500/45 bg-slate-900/95 hover:bg-cyan-950/80">
     <span aria-hidden="true">⌨️</span>
   </button>

@@ -18,6 +18,9 @@ export function banStatusForUser(u) {
 export function durationKeyToBanUntil(key) {
   const now = Date.now();
   switch (String(key || '').toLowerCase()) {
+    case '1d':
+    case '1day':
+      return now + 24 * 60 * 60 * 1000;
     case '1w':
       return now + 7 * 24 * 60 * 60 * 1000;
     case '2w':
@@ -65,9 +68,106 @@ export function effectiveRole(user) {
   const ownerEnv = (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase();
   if (ownerEnv && low === ownerEnv) return 'owner';
   if ((user.role || '') === 'owner') return 'owner';
+  if ((user.role || '') === 'admin') return 'admin';
   if ((user.role || '') === 'moderator') return 'moderator';
+  if ((user.role || '') === 'report_advisor') return 'report_advisor';
   return 'player';
 }
+
+export function isStaffRole(role) {
+  return role === 'moderator' || role === 'admin' || role === 'owner';
+}
+
+/** Pending player-report queue (not owner-escalated inbox, not ban appeals). */
+export function seesModReportQueue(role) {
+  return role === 'report_advisor' || role === 'moderator' || role === 'admin';
+}
+
+export function canAccessReportInbox(role) {
+  return isStaffRole(role) || role === 'report_advisor';
+}
+
+export function roleRank(role) {
+  switch (String(role || '')) {
+    case 'owner':
+      return 4;
+    case 'admin':
+      return 3;
+    case 'moderator':
+      return 2;
+    case 'report_advisor':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+export function roleDisplayName(role) {
+  switch (String(role || '')) {
+    case 'report_advisor':
+      return 'Report Advisor';
+    case 'moderator':
+      return 'moderator';
+    case 'admin':
+      return 'Admin';
+    case 'owner':
+      return 'owner';
+    default:
+      return 'player';
+  }
+}
+
+/**
+ * Apply a stored role change. Promotions set a one-time notice; demotions are silent
+ * and clear any pending congratulations.
+ * @returns {{ role: string, promotionFrom?: string|null, promotionTo?: string|null }}
+ */
+export function roleChangeFields(fromRole, toRole) {
+  const from = String(fromRole || 'player') || 'player';
+  const to = String(toRole || 'player') || 'player';
+  if (from === to) return { role: to };
+  if (roleRank(to) > roleRank(from)) {
+    return { role: to, promotionFrom: from, promotionTo: to };
+  }
+  return { role: to, promotionFrom: null, promotionTo: null };
+}
+
+export function roleChangeDbPatch(fromRole, toRole) {
+  const f = roleChangeFields(fromRole, toRole);
+  const patch = { role: f.role };
+  if (Object.prototype.hasOwnProperty.call(f, 'promotionFrom')) {
+    patch.promotion_from = f.promotionFrom;
+    patch.promotion_to = f.promotionTo;
+  }
+  return patch;
+}
+
+export function applyRoleChangeToUser(user, toRole) {
+  if (!user) return;
+  const f = roleChangeFields(user.role, toRole);
+  user.role = f.role;
+  if (Object.prototype.hasOwnProperty.call(f, 'promotionFrom')) {
+    user.promotionFrom = f.promotionFrom;
+    user.promotionTo = f.promotionTo;
+  }
+}
+
+export function promotionNoticePayload(user) {
+  const fromKey = user?.promotionFrom ?? user?.promotion_from ?? null;
+  const toKey = user?.promotionTo ?? user?.promotion_to ?? null;
+  if (!fromKey || !toKey) return null;
+  const from = roleDisplayName(fromKey);
+  const to = roleDisplayName(toKey);
+  return {
+    from,
+    to,
+    message: `Congratulations! You have been promoted from ${from} to ${to}`,
+  };
+}
+
+export const ADMIN_ONE_DAY_MS = 24 * 60 * 60 * 1000;
+export const ADMIN_BAN_MAX_PER_WEEK = 2;
+export const ADMIN_BAN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function ownerUsernameLower() {
   return (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase() || null;

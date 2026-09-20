@@ -4,7 +4,7 @@ import {
   finalizeCampaignRunSession,
   startCampaignRunSession,
 } from './campaign-run-sessions.js';
-import { banStatusForUser, assertAccountActive, effectiveRole, isAccountDisabled, ownerUsernameLower, parseBanDuration } from './moderation.js';
+import { banStatusForUser, assertAccountActive, canAccessReportInbox, effectiveRole, isAccountDisabled, isStaffRole, ownerUsernameLower, parseBanDuration, promotionNoticePayload, seesModReportQueue } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
 import {
   createDeleteToken,
@@ -39,6 +39,15 @@ import {
   banStatusForUser as appealBanStatus,
 } from './ban-appeals.js';
 import { extFromContentType, publicAvatarUrl, sniffImageExt, MAX_AVATAR_BYTES } from './profile-storage.js';
+import {
+  adminBanQuota,
+  adminBanUntilMs,
+  assertAdminCanPunish,
+  clipReason,
+  enrichStaffRequests,
+  validateStaffRequestInput,
+} from './staff-admin.js';
+import { applyOwnerStrikeDelta, lookupStrikes } from './strikes.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -120,7 +129,7 @@ async function requireStaffSession(req) {
   const sess = await getActiveSessionUser(req);
   if (!sess) return null;
   const role = effectiveRole(sess.user);
-  if (role !== 'moderator' && role !== 'owner') return null;
+  if (!isStaffRole(role)) return null;
   return Object.assign({}, sess, { role });
 }
 
@@ -224,7 +233,7 @@ async function buildMePayload(userId, req = null) {
   let ownerInboxCount = 0;
   if (typeof store.countReportsByStatus === 'function') {
     try {
-      if (role === 'moderator') modInboxCount = await store.countReportsByStatus('pending');
+      if (seesModReportQueue(role)) modInboxCount = await store.countReportsByStatus('pending');
       if (role === 'owner') ownerInboxCount = await store.countReportsByStatus('escalated');
     } catch {
       /* */
@@ -233,10 +242,26 @@ async function buildMePayload(userId, req = null) {
   if (typeof store.countOpenBanAppeals === 'function') {
     try {
       const ac = await store.countOpenBanAppeals();
-      if (role === 'moderator') modInboxCount += ac;
+      if (role === 'moderator' || role === 'admin') modInboxCount += ac;
       if (role === 'owner') ownerInboxCount += ac;
     } catch {
       /* */
+    }
+  }
+  let staffRequestCount = 0;
+  if (role === 'owner' && typeof store.countOpenStaffRequests === 'function') {
+    try {
+      staffRequestCount = await store.countOpenStaffRequests();
+    } catch {
+      staffRequestCount = 0;
+    }
+  }
+  let adminBanQuotaInfo = null;
+  if (role === 'admin') {
+    try {
+      adminBanQuotaInfo = await adminBanQuota(store, userId);
+    } catch {
+      adminBanQuotaInfo = { used: 0, max: 2, remaining: 2 };
     }
   }
   const coinsInfinite = role === 'owner';
@@ -269,6 +294,8 @@ async function buildMePayload(userId, req = null) {
     friendIncomingCount,
     modInboxCount,
     ownerInboxCount,
+    staffRequestCount,
+    adminBanQuota: adminBanQuotaInfo,
     stats: {
       runCount: agg.runCount,
       totalDeaths: agg.totalDeaths,
@@ -280,6 +307,7 @@ async function buildMePayload(userId, req = null) {
     },
     world2Unlocked,
     achievements,
+    promotionNotice: promotionNoticePayload(user),
   };
 }
 
@@ -407,6 +435,23 @@ export async function handleApi(req, res) {
       return true;
     }
     json(res, 200, me);
+    return true;
+  }
+
+  if (pathname === '/api/me/ack-promotion' && req.method === 'POST') {
+    const uid = await bearerUserId(req);
+    if (!uid) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      if (typeof store.clearPromotionNotice === 'function') {
+        await store.clearPromotionNotice(uid);
+      }
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
     return true;
   }
 
@@ -1664,7 +1709,7 @@ export async function handleApi(req, res) {
         return true;
       }
       const role = effectiveRole(sess.user);
-      if (role !== 'moderator' && role !== 'owner') {
+      if (!isStaffRole(role)) {
         json(res, 403, { error: 'Not allowed' });
         return true;
       }
@@ -1708,7 +1753,7 @@ export async function handleApi(req, res) {
       return true;
     }
     const role = effectiveRole(sess.user);
-    if (role !== 'moderator' && role !== 'owner') {
+    if (!canAccessReportInbox(role)) {
       json(res, 403, { error: 'Not allowed' });
       return true;
     }
@@ -1719,7 +1764,7 @@ export async function handleApi(req, res) {
     try {
       let reports = [];
       let scope = 'pending';
-      if (role === 'moderator') {
+      if (seesModReportQueue(role)) {
         scope = 'pending';
         reports = await enrichReports(await store.listReportsByStatus('pending'));
       } else {
@@ -1727,7 +1772,7 @@ export async function handleApi(req, res) {
         reports = await enrichReports(await store.listReportsByStatus('escalated'));
       }
       let appeals = [];
-      if (typeof store.listOpenBanAppeals === 'function') {
+      if (isStaffRole(role) && typeof store.listOpenBanAppeals === 'function') {
         appeals = await enrichAppeals(store, await store.listOpenBanAppeals());
       }
       json(res, 200, { scope, reports, appeals });
@@ -1746,8 +1791,8 @@ export async function handleApi(req, res) {
         json(res, 401, { error: 'Not logged in' });
         return true;
       }
-      if (effectiveRole(sess.user) !== 'moderator') {
-        json(res, 403, { error: 'Only moderators can reject from the main queue.' });
+      if (!seesModReportQueue(effectiveRole(sess.user))) {
+        json(res, 403, { error: 'Only Report Advisors, moderators, and the Admin can dismiss from the main queue.' });
         return true;
       }
       let body = {};
@@ -1785,8 +1830,8 @@ export async function handleApi(req, res) {
         json(res, 401, { error: 'Not logged in' });
         return true;
       }
-      if (effectiveRole(sess.user) !== 'moderator') {
-        json(res, 403, { error: 'Only moderators can escalate.' });
+      if (!seesModReportQueue(effectiveRole(sess.user))) {
+        json(res, 403, { error: 'Only Report Advisors, moderators, and the Admin can escalate.' });
         return true;
       }
       let body = {};
@@ -2055,7 +2100,73 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'owner') {
+    const actorRole = effectiveRole(sess.user);
+    if (actorRole !== 'owner' && actorRole !== 'admin') {
+      json(res, 403, { error: 'Owner or Admin only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const promote = !!body.promote;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    if (actorRole === 'admin' && !promote) {
+      json(res, 403, { error: 'Admins cannot demote moderators. Send a demotion request to the owner.' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(un);
+      if (!u) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      const targetRole = effectiveRole(u);
+      if (targetRole === 'owner') {
+        json(res, 400, { error: 'Cannot change the owner account.' });
+        return true;
+      }
+      if (targetRole === 'admin') {
+        json(res, 400, { error: 'Cannot change the Admin here. The owner assigns Admin separately.' });
+        return true;
+      }
+      if (targetRole === 'report_advisor' && !promote) {
+        json(res, 400, { error: 'That account is a Report Advisor. Remove that role separately.' });
+        return true;
+      }
+      await store.setModeratorRole(u.id, promote);
+      json(res, 200, { ok: true, username: u.username, moderator: promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/admin' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const admins = typeof store.listAdmins === 'function' ? await store.listAdmins() : [];
+      json(res, 200, { admin: admins[0] || null, admins });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-admin' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
       json(res, 403, { error: 'Owner only' });
       return true;
     }
@@ -2078,8 +2189,277 @@ export async function handleApi(req, res) {
         json(res, 400, { error: 'User not found' });
         return true;
       }
-      await store.setModeratorRole(u.id, promote);
-      json(res, 200, { ok: true, username: u.username, moderator: promote });
+      if (effectiveRole(u) === 'owner') {
+        json(res, 400, { error: 'Cannot change the owner account.' });
+        return true;
+      }
+      let previous = null;
+      if (promote && typeof store.listAdmins === 'function') {
+        const cur = await store.listAdmins();
+        previous = cur.find((a) => a.id !== u.id) || null;
+      }
+      await store.setAdminRole(u.id, promote);
+      json(res, 200, {
+        ok: true,
+        username: u.username,
+        admin: promote,
+        previousAdmin: previous ? previous.username : null,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/report-advisors' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const advisors =
+        typeof store.listReportAdvisors === 'function' ? await store.listReportAdvisors() : [];
+      json(res, 200, { advisors });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-report-advisor' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const promote = !!body.promote;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(un);
+      if (!u) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      const targetRole = effectiveRole(u);
+      if (targetRole === 'owner') {
+        json(res, 400, { error: 'Cannot change the owner account.' });
+        return true;
+      }
+      if (typeof store.setReportAdvisorRole !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      await store.setReportAdvisorRole(u.id, promote);
+      json(res, 200, { ok: true, username: u.username, reportAdvisor: promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/strikes' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    const actorRole = effectiveRole(sess.user);
+    if (actorRole !== 'owner' && actorRole !== 'admin') {
+      json(res, 403, { error: 'Not allowed' });
+      return true;
+    }
+    try {
+      const data = await lookupStrikes(store, actorRole, u.searchParams.get('username'));
+      json(res, 200, data);
+    } catch (e) {
+      const msg = String(e.message || e);
+      const status = msg === 'Not allowed' || msg.startsWith('Admins can only') ? 403 : 400;
+      json(res, status, { error: msg });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/strikes' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const action = String(body.action || '').toLowerCase();
+    const delta = action === 'add' ? 1 : action === 'remove' ? -1 : 0;
+    if (!delta) {
+      json(res, 400, { error: 'action must be add or remove' });
+      return true;
+    }
+    try {
+      const data = await applyOwnerStrikeDelta(store, body.username, delta);
+      json(res, 200, { ok: true, ...data });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/staff-requests' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const rows = typeof store.listOpenStaffRequests === 'function' ? await store.listOpenStaffRequests() : [];
+      json(res, 200, { requests: await enrichStaffRequests(store, rows) });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/owner\/staff-requests\/([^/]+)\/resolve$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess || effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Owner only' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const decision = String(body.decision || '').toLowerCase();
+      if (decision !== 'accept' && decision !== 'decline') {
+        json(res, 400, { error: 'decision must be accept or decline' });
+        return true;
+      }
+      try {
+        const reqRow = await store.getStaffRequestById(m[1]);
+        if (!reqRow || reqRow.status !== 'open') {
+          json(res, 400, { error: 'Request is not open.' });
+          return true;
+        }
+        const note = body.note != null ? String(body.note).slice(0, 500) : null;
+        if (decision === 'accept') {
+          const target = await store.findUserById(reqRow.targetUserId);
+          if (!target) throw new Error('Target user not found.');
+          if (reqRow.type === 'demote_moderator') {
+            if (effectiveRole(target) !== 'moderator') {
+              throw new Error('That user is not a moderator anymore.');
+            }
+            await store.setModeratorRole(target.id, false);
+          } else if (reqRow.type === 'longer_ban') {
+            assertAdminCanPunish(target);
+            const until = parseBanDuration(reqRow.payload || {}) ?? reqRow.payload?.banUntilMsResolved;
+            if (until == null) throw new Error('This request has an invalid ban duration.');
+            const reason = String((reqRow.payload && reqRow.payload.reason) || 'Owner accepted Admin ban request').slice(0, 500);
+            await store.applyBan(target.id, until, reason);
+          } else {
+            throw new Error('Unknown request type.');
+          }
+          await store.resolveStaffRequest(reqRow.id, 'accepted', note);
+        } else {
+          await store.resolveStaffRequest(reqRow.id, 'declined', note);
+        }
+        json(res, 200, { ok: true, decision });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/admin/ban' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'admin') {
+      json(res, 403, { error: 'Admin only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const quota = await adminBanQuota(store, sess.userId);
+      if (quota.remaining < 1) {
+        json(res, 400, { error: 'You already used 2 one-day bans in the last 7 days.' });
+        return true;
+      }
+      const un = String(body.username || '').trim();
+      if (!un) throw new Error('username required');
+      const target = await store.findUserByUsername(un);
+      if (!target) throw new Error('User not found');
+      if (target.id === sess.userId) throw new Error('You cannot ban yourself.');
+      assertAdminCanPunish(target);
+      const already = banStatusForUser(target);
+      if (already.banned) throw new Error('That user is already banned.');
+      const reason = clipReason(body.reason);
+      await store.applyBan(target.id, adminBanUntilMs(), reason);
+      await store.insertAdminBanLog(sess.userId, target.id);
+      json(res, 200, { ok: true, duration: '1d', quota: await adminBanQuota(store, sess.userId) });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/admin/requests' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'admin') {
+      json(res, 403, { error: 'Admin only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const parsed = validateStaffRequestInput(body);
+      const target = await store.findUserByUsername(parsed.username);
+      if (!target) throw new Error('User not found');
+      if (target.id === sess.userId) throw new Error('You cannot file a request about yourself.');
+      if (parsed.type === 'demote_moderator') {
+        if (effectiveRole(target) !== 'moderator') throw new Error('That user is not a moderator.');
+      } else {
+        assertAdminCanPunish(target);
+      }
+      const row = await store.createStaffRequest(parsed.type, sess.userId, target.id, parsed.payload);
+      json(res, 201, { ok: true, id: row.id });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

@@ -26,6 +26,9 @@
         screen.classList.remove('hidden');
         screen.classList.add('flex');
         void applyFeatureListFromServer();
+        if (typeof window.SkyHopSyncOwnerStrikeTools === 'function') {
+          window.SkyHopSyncOwnerStrikeTools();
+        }
       });
     }
     if (close && screen) {

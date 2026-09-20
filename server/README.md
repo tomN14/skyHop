@@ -67,9 +67,17 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Ban appeals + votes:** Run **`server/supabase/extend_v14_ban_appeals.sql`** after v13 — `skyhop_ban_appeals`, `skyhop_ban_appeal_votes`. Banned users submit via login ban screen; mods/owner vote in the 📧 inbox (majority of cast votes resolves). Owner can **Accept / Decline** open appeals directly in **Account administration** (`GET /api/owner/appeals`, `POST /api/owner/appeals/:id/resolve` with `{ "decision": "accept" \| "decline" }`).
 
+**Admin role (exactly one):** Run **`server/supabase/extend_v15_admin_role.sql`** after v14 — `skyhop_staff_requests`, `skyhop_admin_ban_log`. Owner assigns/removes the Admin in **Account administration** (nobody is Admin until you do). Admin has moderator powers plus promote-moderator and 1-day bans (max 2 per rolling 7 days). They cannot demote mods, open Owner Inbox / Owner Administration / Reviewed Runs, or apply long bans; those go to the owner as requests (`POST /api/admin/ban`, `POST /api/admin/requests`, `POST /api/owner/set-admin`).
+
+**Report Advisor:** No extra SQL (uses `skyhop_users.role`). Owner assigns/removes in **Account administration**. They share the pending report queue with mods and the Admin (`GET /api/mod/reports`, dismiss, escalate) and cannot use the mod dashboard, owner tools, bans, appeal votes, or other staff APIs (`POST /api/owner/set-report-advisor`).
+
+**Promotion notice:** Run **`server/supabase/extend_v16_promotion_notice.sql`** after v15 — `promotion_from` / `promotion_to` on `skyhop_users`. Promoted players see a one-time “Congratulations! You have been promoted from old_role to new_role” on next login (`POST /api/me/ack-promotion` dismisses it). Demotions are silent.
+
+**Strikes:** Run **`server/supabase/extend_v17_strikes.sql`** after v16 — `strikes` on `skyhop_users`. Owner adds/removes from the 📋 feature list panel. Player 3 → automatic 1-week ban; moderator / Report Advisor 2 → demoted to player; Admin 1 → demoted to moderator. Strikes never decay. Admin can look up counts for players / advisors / mods (`GET /api/strikes`, `POST /api/owner/strikes`).
+
 **Empty campaign / blank levels on Play:** Play now always uses bundled **`stages.js`** / **`stages-world2.js`**. Server campaign JSON is only for the owner editor. Owner can also **Account administration → Reset server campaign override**. Optional SQL: **`server/supabase/reset_builtin_campaign_to_bundled.sql`**.
 
-**“relation skyhop_users does not exist”:** The extend scripts only add tables on top of an existing Sky Hop database. In Supabase **SQL Editor**, run **`server/supabase/schema.sql`** first, then **`extend_v2_coins_builtin.sql`** through **`extend_v13_site_content.sql`** in order, then v14. Confirm with `select to_regclass('public.skyhop_users');` (should return `skyhop_users`, not null). Use the **same** Supabase project as `SUPABASE_URL` in `server/.env.local` / Render env.
+**“relation skyhop_users does not exist”:** The extend scripts only add tables on top of an existing Sky Hop database. In Supabase **SQL Editor**, run **`server/supabase/schema.sql`** first, then **`extend_v2_coins_builtin.sql`** through **`extend_v13_site_content.sql`** in order, then v14 through v17. Confirm with `select to_regclass('public.skyhop_users');` (should return `skyhop_users`, not null). Use the **same** Supabase project as `SUPABASE_URL` in `server/.env.local` / Render env.
 
 **Custom profiles (avatars):** Run **`server/supabase/extend_v6_profiles_storage.sql`** — adds `profile_bio` / `profile_avatar_path`, creates the **`skyhop-profiles`** Storage bucket, and RLS so authenticated users may only write under **`{skyhop_user_id}/`** (see `user_metadata.skyhop_user_id` when using Supabase Auth). The game uploads via the Node server (service role) or signed upload URLs scoped to your folder.
 
@@ -91,12 +99,15 @@ HTTP REST on the **same port** as racing (use `http://HOST:PORT/...`; CORS allow
 | `GET` | `/api/me` | Bearer → `{ username, stats, achievements }` |
 | `POST` | `/api/runs` | Bearer, body `{ timeMs, deaths, source?: "campaign" \| "race" }` |
 | `POST` | `/api/reports` | Bearer, body `{ reportedUsername, reason }` |
-| `GET` | `/api/mod/reports` | Bearer; moderators get `pending`, owner gets `escalated` |
-| `POST` | `/api/mod/reports/:id/reject` | Moderator only |
-| `POST` | `/api/mod/reports/:id/escalate` | Moderator only |
+| `GET` | `/api/mod/reports` | Bearer; Report Advisors / mods / Admin get `pending`; owner gets `escalated`. Ban appeals are not sent to Report Advisors. |
+| `POST` | `/api/mod/reports/:id/reject` | Report Advisor, moderator, or Admin |
+| `POST` | `/api/mod/reports/:id/escalate` | Report Advisor, moderator, or Admin |
 | `POST` | `/api/owner/ban` | Owner only; body `{ userId, duration: "1w"\|"2w"\|"1m"\|"perm", reportId?, reason? }` |
 | `POST` | `/api/owner/dismiss-report` | Owner only; body `{ reportId, note? }` |
-| `POST` | `/api/owner/set-moderator` | Owner only; body `{ username, promote: boolean }` |
+| `POST` | `/api/owner/set-moderator` | Owner or Admin; body `{ username, promote: boolean }` (Admin cannot demote) |
+| `POST` | `/api/owner/set-report-advisor` | Owner only; body `{ username, promote: boolean }` |
+| `GET` | `/api/strikes` | Owner or Admin; query `username`. Admin cannot look up owner/Admin. |
+| `POST` | `/api/owner/strikes` | Owner only; body `{ username, action: "add" \| "remove" }` |
 
 The game’s **Account & cloud stats** panel uses that API. A run is uploaded when you **clear all 50 stages** while logged in (campaign or race). The HTTP base URL is derived from the **Racing** WebSocket URL (`ws:` → `http:`, `wss:` → `https:`).
 

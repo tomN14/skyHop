@@ -69,7 +69,12 @@ function fileSave(db) {
 }
 
 function userIsModerator(u) {
-  return !!(u && u.role === 'moderator');
+  const role = u ? effectiveRole(u) : 'player';
+  return role === 'moderator';
+}
+
+function authorRoleOf(u) {
+  return u ? effectiveRole(u) : 'player';
 }
 
 /** Adds author_username and author_is_moderator for rows with author_id. */
@@ -79,11 +84,13 @@ async function enrichAuthorMeta(items) {
   const ids = [...new Set(items.map((i) => i.author_id).filter((x) => x != null))];
   const nameMap = new Map();
   const modMap = new Map();
+  const roleMap = new Map();
   for (const id of ids) {
     const u = await store.findUserById(id);
     if (u) {
       if (u.username) nameMap.set(id, u.username);
       modMap.set(id, userIsModerator(u));
+      roleMap.set(id, authorRoleOf(u));
     }
   }
   return items.map((i) => {
@@ -91,6 +98,7 @@ async function enrichAuthorMeta(items) {
     const out = { ...i };
     if (out.author_username == null && nameMap.has(i.author_id)) out.author_username = nameMap.get(i.author_id);
     out.author_is_moderator = !!modMap.get(i.author_id);
+    out.author_role = roleMap.get(i.author_id) || 'player';
     return out;
   });
 }
@@ -292,6 +300,7 @@ export async function levelsPublishedMetaById(id) {
       author_id: row.author_id,
       author_username: userRow?.username || null,
       author_is_moderator: userIsModerator(userRow),
+      author_role: authorRoleOf(userRow),
     };
   }
 
@@ -307,6 +316,7 @@ export async function levelsPublishedMetaById(id) {
     author_id: row.author_id,
     author_username: u?.username || null,
     author_is_moderator: userIsModerator(u),
+    author_role: authorRoleOf(u),
   };
 }
 
@@ -366,8 +376,9 @@ export async function levelsListByUsername(usernameLower, page) {
   if (useSupabase()) {
     const sb = sbClient();
     const { data: user } = await sb.from('skyhop_users').select('id, role').eq('username_lower', usernameLower).maybeSingle();
-    if (!user) return { items: [], total: 0, page: p, author_is_moderator: false };
+    if (!user) return { items: [], total: 0, page: p, author_is_moderator: false, author_role: 'player' };
     const author_is_moderator = userIsModerator(user);
+    const author_role = authorRoleOf(user);
     const q = sb
       .from('skyhop_user_levels')
       .select('id, title, play_count', { count: 'exact' })
@@ -377,21 +388,22 @@ export async function levelsListByUsername(usernameLower, page) {
       .range(off, off + PAGE_SIZE - 1);
     const { data, count, error } = await q;
     if (error) throw new Error(error.message);
-    return { items: data || [], total: count || 0, page: p, author_is_moderator };
+    return { items: data || [], total: count || 0, page: p, author_is_moderator, author_role };
   }
 
   const db = fileLoad();
   const { store } = await import('./store.js');
   const u = await store.findUserByUsername(usernameLower);
-  if (!u) return { items: [], total: 0, page: p, author_is_moderator: false };
+  if (!u) return { items: [], total: 0, page: p, author_is_moderator: false, author_role: 'player' };
   const author_is_moderator = userIsModerator(u);
+  const author_role = authorRoleOf(u);
   const all = db.levels.filter((L) => L.author_id === u.id && L.published);
   const total = all.length;
   const items = all
     .sort((a, b) => b.created_at - a.created_at)
     .slice(off, off + PAGE_SIZE)
     .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count }));
-  return { items, total, page: p, author_is_moderator };
+  return { items, total, page: p, author_is_moderator, author_role };
 }
 
 export async function levelsSearchName(q, page) {

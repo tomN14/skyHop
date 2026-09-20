@@ -237,6 +237,21 @@
   window.SkyHopApplyBranding = applyMenuBranding;
   window.SkyHopRefreshBranding = refreshMenuBranding;
 
+  function staffNameClass(role) {
+    if (role === 'owner') return 'font-semibold text-amber-300';
+    if (role === 'admin') return 'font-semibold text-emerald-300';
+    if (role === 'moderator') return 'font-semibold text-rose-400';
+    if (role === 'report_advisor') return 'font-semibold text-sky-300';
+    return 'font-semibold text-violet-200';
+  }
+  window.SkyHopAuthorNameClass = function (role) {
+    if (role === 'owner') return 'text-amber-300 font-semibold';
+    if (role === 'admin') return 'text-emerald-300 font-semibold';
+    if (role === 'moderator') return 'text-rose-400 font-semibold';
+    if (role === 'report_advisor') return 'text-sky-300 font-semibold';
+    return 'text-slate-400';
+  };
+
   function getToken() {
     try {
       return localStorage.getItem(LS_TOKEN);
@@ -513,10 +528,10 @@
       const n =
         role === 'owner'
           ? me.ownerInboxCount || 0
-          : role === 'moderator'
+          : role === 'moderator' || role === 'admin' || role === 'report_advisor'
             ? me.modInboxCount || 0
             : 0;
-      const show = role === 'moderator' || role === 'owner';
+      const show = role === 'moderator' || role === 'admin' || role === 'owner' || role === 'report_advisor';
       fab.classList.toggle('hidden', !show);
       if (n > 0) {
         badge.textContent = n > 99 ? '99+' : String(n);
@@ -524,6 +539,67 @@
       } else {
         badge.classList.add('hidden');
       }
+    }
+
+    function updateAdminBanFab(me) {
+      var fab = document.getElementById('btnAdminBanFab');
+      if (!fab) return;
+      fab.classList.toggle('hidden', !(me && me.role === 'admin'));
+    }
+
+    function hidePromotionNotice() {
+      var screen = document.getElementById('screenPromotionNotice');
+      if (!screen) return;
+      screen.classList.add('hidden');
+      screen.classList.remove('flex');
+    }
+
+    function showPromotionNoticeIfNeeded(me) {
+      var notice = me && me.promotionNotice;
+      var msg = notice && notice.message ? String(notice.message) : '';
+      if (!msg) {
+        hidePromotionNotice();
+        return;
+      }
+      var screen = document.getElementById('screenPromotionNotice');
+      var text = document.getElementById('promotionNoticeText');
+      if (text) text.textContent = msg;
+      if (!screen) return;
+      screen.classList.remove('hidden');
+      screen.classList.add('flex');
+    }
+
+    function updateOwnerRequestBadge(me) {
+      var badge = document.getElementById('ownerAdminRequestBadge');
+      if (!badge) return;
+      var n = me && me.role === 'owner' && me.staffRequestCount != null ? Number(me.staffRequestCount) : 0;
+      if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function syncOwnerStrikeTools(me) {
+      var el = document.getElementById('ownerStrikeTools');
+      if (!el) return;
+      el.classList.toggle('hidden', !(me && me.role === 'owner'));
+    }
+    window.SkyHopSyncOwnerStrikeTools = function () {
+      syncOwnerStrikeTools(window.__skyhopLastMe || null);
+    };
+
+    function formatStrikeLookup(data) {
+      var n = data && data.strikes != null ? Number(data.strikes) : 0;
+      return (
+        String((data && data.username) || '') +
+        ' · ' +
+        String((data && (data.roleLabel || data.role)) || 'player') +
+        ' · ' +
+        String(n) +
+        (n === 1 ? ' strike' : ' strikes')
+      );
     }
 
     function updateFriendsFab(me) {
@@ -684,21 +760,30 @@
         if (kicker) kicker.textContent = 'Reports';
         if (hint) {
           hint.textContent =
-            'Submit a report from Account → Report a player. Moderators and the site owner use this inbox to review the queue.';
+            'Submit a report from Account → Report a player. Report Advisors, moderators, the Admin, and the site owner use this inbox to review the queue.';
         }
         var ownerToolsPlayer = document.getElementById('ownerTools');
         if (ownerToolsPlayer) ownerToolsPlayer.classList.add('hidden');
         listEl.innerHTML =
-          '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-400">The moderation queue is only visible to <strong class="text-slate-300">moderators</strong> and the <strong class="text-slate-300">site owner</strong>. Open <strong class="text-slate-300">Account</strong> in the menu to file a report.</li>';
+          '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-400">The moderation queue is only visible to <strong class="text-slate-300">Report Advisors</strong>, <strong class="text-slate-300">moderators</strong>, the <strong class="text-slate-300">Admin</strong>, and the <strong class="text-slate-300">site owner</strong>. Open <strong class="text-slate-300">Account</strong> in the menu to file a report.</li>';
         return;
       }
       if (role === 'owner') void refreshOwnerModList();
-      if (kicker) kicker.textContent = role === 'owner' ? 'Owner queue' : 'Moderator queue';
+      else {
+        var ownerToolsAdvisor = document.getElementById('ownerTools');
+        if (ownerToolsAdvisor) ownerToolsAdvisor.classList.add('hidden');
+      }
+      if (kicker) {
+        kicker.textContent =
+          role === 'owner' ? 'Owner queue' : role === 'report_advisor' ? 'Report Advisor queue' : 'Moderator queue';
+      }
       if (hint) {
         hint.textContent =
           role === 'owner'
             ? 'Escalated reports. Ban the reported user or dismiss without action.'
-            : 'New reports. Reject if invalid, or escalate to the site owner.';
+            : role === 'report_advisor'
+              ? 'New reports. Dismiss if invalid, or escalate to the site owner. You cannot ban, vote on appeals, or open the moderator dashboard.'
+              : 'New reports. Reject if invalid, or escalate to the site owner.';
       }
       try {
         const data = await api('/api/mod/reports', {
@@ -706,7 +791,7 @@
           headers: { Authorization: 'Bearer ' + tok },
         });
         const reports = data.reports || [];
-        const appeals = data.appeals || [];
+        const appeals = role === 'report_advisor' ? [] : data.appeals || [];
         if (!reports.length && !appeals.length) {
           listEl.innerHTML =
             '<li class="rounded-xl border border-white/10 bg-slate-950/50 py-8 text-center text-sm text-slate-500">No items.</li>';
@@ -760,11 +845,14 @@
             };
             var actions = '';
             if (data.scope === 'pending') {
+              var dismissLabel = role === 'report_advisor' ? 'Dismiss' : 'Reject';
               actions =
                 '<div class="mt-2 flex flex-wrap gap-2">' +
                 '<button type="button" data-act="rej" data-id="' +
                 safe(r.id) +
-                '" class="rounded-lg border border-rose-500/50 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40">Reject</button>' +
+                '" class="rounded-lg border border-rose-500/50 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40">' +
+                dismissLabel +
+                '</button>' +
                 '<button type="button" data-act="esc" data-id="' +
                 safe(r.id) +
                 '" class="rounded-lg bg-indigo-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-indigo-500">Escalate to owner</button>' +
@@ -1089,6 +1177,10 @@
         if (fab) fab.classList.add('hidden');
         updateFriendsFab(null);
         updateModDashboardFab(null);
+        updateAdminBanFab(null);
+        updateOwnerRequestBadge(null);
+        hidePromotionNotice();
+        syncOwnerStrikeTools(null);
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
@@ -1111,13 +1203,7 @@
         if (accLogged) accLogged.classList.remove('hidden');
         if (accUserLabel) {
           accUserLabel.textContent = me.username || '';
-          if (me.role === 'owner') {
-            accUserLabel.className = 'font-semibold text-amber-300';
-          } else if (me.role === 'moderator') {
-            accUserLabel.className = 'font-semibold text-rose-400';
-          } else {
-            accUserLabel.className = 'font-semibold text-violet-200';
-          }
+          accUserLabel.className = staffNameClass(me.role);
         }
         try {
           if (me.username) localStorage.setItem(LS_USER, me.username);
@@ -1132,6 +1218,9 @@
         updateModFab(me);
         updateModDashboardFab(me);
         updateFriendsFab(me);
+        updateAdminBanFab(me);
+        updateOwnerRequestBadge(me);
+        syncOwnerStrikeTools(me);
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
         var btnOpenOwnerPage = document.getElementById('btnOpenOwnerPage');
@@ -1149,6 +1238,7 @@
           if (String(tosErr && tosErr.message) === 'logged_out') return;
         }
         if (!getToken()) return;
+        showPromotionNoticeIfNeeded(me);
       } catch (e) {
         if (refreshSeq !== authRefreshSeq) return;
         if (getToken() !== tok) return;
@@ -1159,6 +1249,10 @@
         if (fab) fab.classList.add('hidden');
         updateFriendsFab(null);
         updateModDashboardFab(null);
+        updateAdminBanFab(null);
+        updateOwnerRequestBadge(null);
+        hidePromotionNotice();
+        syncOwnerStrikeTools(null);
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -1460,6 +1554,24 @@
 
     var btnBanOk = document.getElementById('btnBanOk');
     if (btnBanOk) btnBanOk.addEventListener('click', hideBanScreen);
+
+    var btnPromotionNoticeOk = document.getElementById('btnPromotionNoticeOk');
+    if (btnPromotionNoticeOk) {
+      btnPromotionNoticeOk.addEventListener('click', async function () {
+        hidePromotionNotice();
+        if (window.__skyhopLastMe) window.__skyhopLastMe.promotionNotice = null;
+        var tok = getToken();
+        if (!tok) return;
+        try {
+          await api('/api/me/ack-promotion', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok },
+          });
+        } catch {
+          /* next login will show it again if it did not save */
+        }
+      });
+    }
 
     var accBtnSaveProfileBio = document.getElementById('accBtnSaveProfileBio');
     var accProfileBio = document.getElementById('accProfileBio');
@@ -1862,6 +1974,493 @@
         void refreshOwnerLbList();
         void loadOwnerSiteContentEditors();
         void refreshOwnerAppealsList();
+        void refreshOwnerAdminRole();
+        void refreshOwnerStaffRequests();
+        void refreshOwnerAdvisors();
+      });
+    }
+
+    var ownerAdminCurrentLabel = document.getElementById('ownerAdminCurrentLabel');
+    var ownerAdminRoleUsername = document.getElementById('ownerAdminRoleUsername');
+    var ownerAdminRoleMsg = document.getElementById('ownerAdminRoleMsg');
+    function setOwnerAdminRoleMsg(t, isErr) {
+      if (!ownerAdminRoleMsg) return;
+      ownerAdminRoleMsg.textContent = t || '';
+      ownerAdminRoleMsg.classList.toggle('hidden', !t);
+      ownerAdminRoleMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerAdminRoleMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function refreshOwnerAdminRole() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      try {
+        var data = await api('/api/owner/admin', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var name = data.admin && data.admin.username ? data.admin.username : 'none';
+        if (ownerAdminCurrentLabel) ownerAdminCurrentLabel.textContent = name;
+      } catch (e) {
+        if (ownerAdminCurrentLabel) ownerAdminCurrentLabel.textContent = '—';
+        setOwnerAdminRoleMsg(String(e.message || e), true);
+      }
+    }
+    async function ownerSetAdmin(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerAdminRoleUsername ? String(ownerAdminRoleUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerAdminRoleMsg('Username required.', true);
+        return;
+      }
+      setOwnerAdminRoleMsg('', false);
+      try {
+        var data = await api('/api/owner/set-admin', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, promote: !!promote }),
+        });
+        var msg = promote
+          ? 'Admin set to ' + (data.username || un) + '.'
+          : 'Admin removed from ' + (data.username || un) + '.';
+        if (data.previousAdmin) msg += ' Previous Admin ' + data.previousAdmin + ' is now a player.';
+        setOwnerAdminRoleMsg(msg, false);
+        await refreshOwnerAdminRole();
+      } catch (e) {
+        setOwnerAdminRoleMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnAdminOn = document.getElementById('ownerBtnAdminOn');
+    var ownerBtnAdminOff = document.getElementById('ownerBtnAdminOff');
+    if (ownerBtnAdminOn) {
+      ownerBtnAdminOn.addEventListener('click', function () {
+        void ownerSetAdmin(true);
+      });
+    }
+    if (ownerBtnAdminOff) {
+      ownerBtnAdminOff.addEventListener('click', function () {
+        void ownerSetAdmin(false);
+      });
+    }
+
+    var ownerAdvisorList = document.getElementById('ownerAdvisorList');
+    var ownerAdvisorUsername = document.getElementById('ownerAdvisorUsername');
+    var ownerAdvisorMsg = document.getElementById('ownerAdvisorMsg');
+    function setOwnerAdvisorMsg(t, isErr) {
+      if (!ownerAdvisorMsg) return;
+      ownerAdvisorMsg.textContent = t || '';
+      ownerAdvisorMsg.classList.toggle('hidden', !t);
+      ownerAdvisorMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerAdvisorMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function refreshOwnerAdvisors() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerAdvisorList) return;
+      try {
+        var data = await api('/api/owner/report-advisors', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var rows = data.advisors || [];
+        if (!rows.length) {
+          ownerAdvisorList.innerHTML = '<li class="list-none text-slate-500">none</li>';
+        } else {
+          ownerAdvisorList.innerHTML = rows
+            .map(function (a) {
+              return '<li>' + String(a.username || '').replace(/</g, '&lt;') + '</li>';
+            })
+            .join('');
+        }
+      } catch (e) {
+        ownerAdvisorList.innerHTML = '<li class="list-none text-slate-500">Could not load</li>';
+        setOwnerAdvisorMsg(String(e.message || e), true);
+      }
+    }
+    async function ownerSetAdvisor(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerAdvisorUsername ? String(ownerAdvisorUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerAdvisorMsg('Username required.', true);
+        return;
+      }
+      setOwnerAdvisorMsg('', false);
+      try {
+        var data = await api('/api/owner/set-report-advisor', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, promote: !!promote }),
+        });
+        setOwnerAdvisorMsg(
+          promote
+            ? (data.username || un) + ' is now a Report Advisor.'
+            : 'Report Advisor removed from ' + (data.username || un) + '.',
+          false
+        );
+        await refreshOwnerAdvisors();
+      } catch (e) {
+        setOwnerAdvisorMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnAdvisorOn = document.getElementById('ownerBtnAdvisorOn');
+    var ownerBtnAdvisorOff = document.getElementById('ownerBtnAdvisorOff');
+    if (ownerBtnAdvisorOn) {
+      ownerBtnAdvisorOn.addEventListener('click', function () {
+        void ownerSetAdvisor(true);
+      });
+    }
+    if (ownerBtnAdvisorOff) {
+      ownerBtnAdvisorOff.addEventListener('click', function () {
+        void ownerSetAdvisor(false);
+      });
+    }
+
+    var ownerStaffRequestList = document.getElementById('ownerStaffRequestList');
+    var ownerStaffRequestMsg = document.getElementById('ownerStaffRequestMsg');
+    function setOwnerStaffRequestMsg(t, isErr) {
+      if (!ownerStaffRequestMsg) return;
+      ownerStaffRequestMsg.textContent = t || '';
+      ownerStaffRequestMsg.classList.toggle('hidden', !t);
+      ownerStaffRequestMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerStaffRequestMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function escapeStaff(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/"/g, '&quot;');
+    }
+    async function refreshOwnerStaffRequests() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerStaffRequestList) return;
+      setOwnerStaffRequestMsg('', false);
+      try {
+        var data = await api('/api/owner/staff-requests', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var rows = data.requests || [];
+        if (!rows.length) {
+          ownerStaffRequestList.innerHTML =
+            '<li class="list-none rounded-xl border border-white/10 bg-slate-950/50 py-3 text-center text-slate-500">No open requests.</li>';
+          return;
+        }
+        ownerStaffRequestList.innerHTML = rows
+          .map(function (r) {
+            var kind = r.type === 'demote_moderator' ? 'Demote moderator' : 'Longer ban';
+            var extra = '';
+            if (r.type === 'longer_ban' && r.payload && r.payload.duration) {
+              extra = ' · duration ' + escapeStaff(r.payload.duration);
+            }
+            var reason = r.payload && r.payload.reason ? r.payload.reason : '';
+            return (
+              '<li class="rounded-xl border border-emerald-500/25 bg-emerald-950/20 p-3 text-left">' +
+              '<p class="font-sem text-emerald-200">' +
+              escapeStaff(kind) +
+              '</p>' +
+              '<p class="mt-1 text-slate-300">From <strong>' +
+              escapeStaff(r.fromUsername) +
+              '</strong> → <strong>' +
+              escapeStaff(r.targetUsername) +
+              '</strong>' +
+              extra +
+              '</p>' +
+              '<p class="mt-1 whitespace-pre-wrap text-slate-400">' +
+              escapeStaff(reason) +
+              '</p>' +
+              '<div class="mt-2 flex flex-wrap gap-2">' +
+              '<button type="button" data-staff-act="accept" data-id="' +
+              escapeStaff(r.id) +
+              '" class="rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600">Accept</button>' +
+              '<button type="button" data-staff-act="decline" data-id="' +
+              escapeStaff(r.id) +
+              '" class="rounded-lg border border-white/20 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10">Decline</button>' +
+              '</div></li>'
+            );
+          })
+          .join('');
+        ownerStaffRequestList.querySelectorAll('button[data-staff-act]').forEach(function (btn) {
+          btn.addEventListener('click', async function () {
+            var tok2 = getToken();
+            if (!tok2) return;
+            try {
+              await api('/api/owner/staff-requests/' + encodeURIComponent(btn.getAttribute('data-id')) + '/resolve', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + tok2, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decision: btn.getAttribute('data-staff-act') }),
+              });
+              setOwnerStaffRequestMsg('Updated.', false);
+              await refreshOwnerStaffRequests();
+              await refreshPanel();
+            } catch (err) {
+              setOwnerStaffRequestMsg(String(err.message || err), true);
+            }
+          });
+        });
+      } catch (e) {
+        ownerStaffRequestList.innerHTML =
+          '<li class="rounded-xl border border-rose-500/30 bg-rose-950/30 py-3 text-center text-rose-200">Could not load requests.</li>';
+        setOwnerStaffRequestMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnRefreshStaffRequests = document.getElementById('ownerBtnRefreshStaffRequests');
+    if (ownerBtnRefreshStaffRequests) {
+      ownerBtnRefreshStaffRequests.addEventListener('click', function () {
+        void refreshOwnerStaffRequests();
+      });
+    }
+
+    var screenAdminTools = document.getElementById('screenAdminTools');
+    var btnAdminBanFab = document.getElementById('btnAdminBanFab');
+    var btnAdminToolsClose = document.getElementById('btnAdminToolsClose');
+    var adminToolsMsg = document.getElementById('adminToolsMsg');
+    var adminQuotaLabel = document.getElementById('adminQuotaLabel');
+    function setAdminToolsMsg(t, isErr) {
+      if (!adminToolsMsg) return;
+      adminToolsMsg.textContent = t || '';
+      adminToolsMsg.classList.toggle('hidden', !t);
+      adminToolsMsg.classList.toggle('text-rose-300', !!isErr);
+      adminToolsMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function syncAdminQuotaLabel(me) {
+      if (!adminQuotaLabel) return;
+      var q = me && me.adminBanQuota;
+      if (!q) {
+        adminQuotaLabel.textContent = 'One-day bans this week: —';
+        return;
+      }
+      adminQuotaLabel.textContent =
+        'One-day bans this week: ' + String(q.used) + ' / ' + String(q.max) + ' used (' + String(q.remaining) + ' left).';
+    }
+    function openAdminTools() {
+      var me = window.__skyhopLastMe;
+      if (!me || me.role !== 'admin') return;
+      setAdminToolsMsg('', false);
+      syncAdminQuotaLabel(me);
+      if (screenAdminTools) {
+        screenAdminTools.classList.remove('hidden');
+        screenAdminTools.classList.add('flex');
+      }
+    }
+    if (btnAdminBanFab) {
+      btnAdminBanFab.addEventListener('click', openAdminTools);
+    }
+    if (btnAdminToolsClose && screenAdminTools) {
+      btnAdminToolsClose.addEventListener('click', function () {
+        screenAdminTools.classList.add('hidden');
+        screenAdminTools.classList.remove('flex');
+      });
+    }
+    var adminBtnStrikeLookup = document.getElementById('adminBtnStrikeLookup');
+    if (adminBtnStrikeLookup) {
+      adminBtnStrikeLookup.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        var out = document.getElementById('adminStrikeLookupResult');
+        var inp = document.getElementById('adminStrikeLookupUser');
+        if (!tok || !me || me.role !== 'admin') return;
+        if (out) out.textContent = 'Looking up…';
+        try {
+          var data = await api('/api/strikes?username=' + encodeURIComponent(inp ? inp.value : ''), {
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + tok },
+          });
+          if (out) out.textContent = formatStrikeLookup(data);
+        } catch (e) {
+          if (out) out.textContent = String(e.message || e);
+        }
+      });
+    }
+    var adminBtnOneDayBan = document.getElementById('adminBtnOneDayBan');
+    if (adminBtnOneDayBan) {
+      adminBtnOneDayBan.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'admin') return;
+        var unEl = document.getElementById('adminBanUsername');
+        var reasonEl = document.getElementById('adminBanReason');
+        setAdminToolsMsg('', false);
+        try {
+          var data = await api('/api/admin/ban', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: unEl ? unEl.value : '',
+              reason: reasonEl ? reasonEl.value : '',
+            }),
+          });
+          setAdminToolsMsg('1-day ban applied.', false);
+          if (data && data.quota && window.__skyhopLastMe) window.__skyhopLastMe.adminBanQuota = data.quota;
+          syncAdminQuotaLabel(window.__skyhopLastMe);
+        } catch (e) {
+          setAdminToolsMsg(String(e.message || e), true);
+        }
+      });
+    }
+    var adminBtnRequestLongBan = document.getElementById('adminBtnRequestLongBan');
+    if (adminBtnRequestLongBan) {
+      adminBtnRequestLongBan.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'admin') return;
+        var unEl = document.getElementById('adminLongBanUser');
+        var durEl = document.getElementById('adminLongBanDur');
+        var reasonEl = document.getElementById('adminLongBanReason');
+        setAdminToolsMsg('', false);
+        try {
+          await api('/api/admin/requests', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'longer_ban',
+              username: unEl ? unEl.value : '',
+              duration: durEl ? durEl.value : '1w',
+              reason: reasonEl ? reasonEl.value : '',
+            }),
+          });
+          setAdminToolsMsg('Longer-ban request sent to the owner.', false);
+        } catch (e) {
+          setAdminToolsMsg(String(e.message || e), true);
+        }
+      });
+    }
+    var adminBtnPromoteMod = document.getElementById('adminBtnPromoteMod');
+    if (adminBtnPromoteMod) {
+      adminBtnPromoteMod.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'admin') return;
+        var unEl = document.getElementById('adminModUsername');
+        setAdminToolsMsg('', false);
+        try {
+          await api('/api/owner/set-moderator', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: unEl ? unEl.value : '', promote: true }),
+          });
+          setAdminToolsMsg('Moderator promoted.', false);
+        } catch (e) {
+          setAdminToolsMsg(String(e.message || e), true);
+        }
+      });
+    }
+    var adminBtnRequestDemote = document.getElementById('adminBtnRequestDemote');
+    if (adminBtnRequestDemote) {
+      adminBtnRequestDemote.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'admin') return;
+        var unEl = document.getElementById('adminDemoteUser');
+        var reasonEl = document.getElementById('adminDemoteReason');
+        setAdminToolsMsg('', false);
+        try {
+          await api('/api/admin/requests', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: 'demote_moderator',
+              username: unEl ? unEl.value : '',
+              reason: reasonEl ? reasonEl.value : '',
+            }),
+          });
+          setAdminToolsMsg('Demotion request sent to the owner.', false);
+        } catch (e) {
+          setAdminToolsMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    function setOwnerStrikeEditMsg(t, isErr) {
+      var el = document.getElementById('ownerStrikeEditMsg');
+      if (!el) return;
+      el.textContent = t || '';
+      el.classList.toggle('hidden', !t);
+      el.classList.toggle('text-rose-300', !!isErr);
+      el.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function describeStrikePenalty(penalty) {
+      if (!penalty) return '';
+      if (penalty.type === 'demote') {
+        return ' Demoted from ' + penalty.from + ' to ' + penalty.to + '.';
+      }
+      if (penalty.type === 'ban') {
+        return ' Automatic 1-week ban applied.';
+      }
+      return '';
+    }
+    var ownerBtnStrikeLookup = document.getElementById('ownerBtnStrikeLookup');
+    if (ownerBtnStrikeLookup) {
+      ownerBtnStrikeLookup.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        var out = document.getElementById('ownerStrikeLookupResult');
+        var inp = document.getElementById('ownerStrikeLookupUser');
+        if (!tok || !me || me.role !== 'owner') return;
+        if (out) out.textContent = 'Looking up…';
+        try {
+          var data = await api('/api/strikes?username=' + encodeURIComponent(inp ? inp.value : ''), {
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + tok },
+          });
+          if (out) out.textContent = formatStrikeLookup(data);
+        } catch (e) {
+          if (out) out.textContent = String(e.message || e);
+        }
+      });
+    }
+    async function ownerStrikeAction(action) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var inp = document.getElementById('ownerStrikeEditUser');
+      var un = inp ? String(inp.value || '').trim() : '';
+      if (!un) {
+        setOwnerStrikeEditMsg('Username required.', true);
+        return;
+      }
+      setOwnerStrikeEditMsg('', false);
+      try {
+        var data = await api('/api/owner/strikes', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, action: action }),
+        });
+        var msg =
+          (data.username || un) +
+          ' now has ' +
+          String(data.strikes) +
+          (Number(data.strikes) === 1 ? ' strike.' : ' strikes.') +
+          describeStrikePenalty(data.penalty);
+        setOwnerStrikeEditMsg(msg, false);
+        var lookInp = document.getElementById('ownerStrikeLookupUser');
+        var lookOut = document.getElementById('ownerStrikeLookupResult');
+        if (lookInp) lookInp.value = data.username || un;
+        if (lookOut) {
+          lookOut.textContent = formatStrikeLookup({
+            username: data.username || un,
+            roleLabel: data.role,
+            strikes: data.strikes,
+          });
+        }
+      } catch (e) {
+        setOwnerStrikeEditMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnStrikeAdd = document.getElementById('ownerBtnStrikeAdd');
+    var ownerBtnStrikeRemove = document.getElementById('ownerBtnStrikeRemove');
+    if (ownerBtnStrikeAdd) {
+      ownerBtnStrikeAdd.addEventListener('click', function () {
+        void ownerStrikeAction('add');
+      });
+    }
+    if (ownerBtnStrikeRemove) {
+      ownerBtnStrikeRemove.addEventListener('click', function () {
+        void ownerStrikeAction('remove');
       });
     }
 
@@ -2560,6 +3159,9 @@
 
     updateFriendsFab(null);
     updateModDashboardFab(null);
+    updateAdminBanFab(null);
+    updateOwnerRequestBadge(null);
+    syncOwnerStrikeTools(null);
     void refreshMenuBranding();
     if (getToken()) void refreshPanel();
   }

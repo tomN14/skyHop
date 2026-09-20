@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { BAN_PERMANENT_MS, banStatusForUser, ownerUsernameLower } from './moderation.js';
+import { BAN_PERMANENT_MS, applyRoleChangeToUser, effectiveRole, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
 
@@ -26,6 +26,8 @@ function defaultStore() {
     siteContent: {},
     banAppeals: [],
     banAppealVotes: [],
+    staffRequests: [],
+    adminBanLog: [],
     nextUserId: 1,
     nextRunId: 1,
   };
@@ -39,6 +41,8 @@ function migrateUsersAndReports(s) {
   if (!s.siteContent || typeof s.siteContent !== 'object') s.siteContent = {};
   if (!Array.isArray(s.banAppeals)) s.banAppeals = [];
   if (!Array.isArray(s.banAppealVotes)) s.banAppealVotes = [];
+  if (!Array.isArray(s.staffRequests)) s.staffRequests = [];
+  if (!Array.isArray(s.adminBanLog)) s.adminBanLog = [];
   for (const u of s.users) {
     if (u.role == null) u.role = 'player';
     if (!('banUntilMs' in u)) u.banUntilMs = null;
@@ -49,6 +53,9 @@ function migrateUsersAndReports(s) {
     if (!('profileBio' in u)) u.profileBio = null;
     if (!('profileAvatarPath' in u)) u.profileAvatarPath = null;
     if (!('campaignWorld1ClearedAt' in u)) u.campaignWorld1ClearedAt = null;
+    if (!('promotionFrom' in u)) u.promotionFrom = null;
+    if (!('promotionTo' in u)) u.promotionTo = null;
+    if (!('strikes' in u) || !Number.isFinite(Number(u.strikes))) u.strikes = 0;
     const st = u.skinTexture;
     if (st && typeof st === 'string') {
       const fn = path.basename(st);
@@ -152,6 +159,7 @@ export function createFileStore() {
         banReason: null,
         coins: 0,
         skinTexture: null,
+        strikes: 0,
       };
       s.users.push(user);
       saveStore();
@@ -198,13 +206,56 @@ export function createFileStore() {
       saveStore();
     },
 
+    async setStrikes(userId, count) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.strikes = Math.max(0, Math.floor(Number(count) || 0));
+      saveStore();
+    },
+
+    async setStoredRole(userId, toRole) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      applyRoleChangeToUser(u, toRole);
+      saveStore();
+    },
+
+    async applyStrikeMutation(userId, { strikes, toRole, banUntilMs, banReason }) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.strikes = Math.max(0, Math.floor(Number(strikes) || 0));
+      if (toRole) {
+        const own = ownerUsernameLower();
+        if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+        applyRoleChangeToUser(u, toRole);
+      }
+      if (banUntilMs != null) {
+        u.banUntilMs = banUntilMs;
+        u.banReason = banReason != null ? String(banReason).slice(0, 500) : null;
+        s.sessions = s.sessions.filter((sess) => sess.userId !== userId);
+      }
+      saveStore();
+    },
+
     async setModeratorRole(userId, isModerator) {
       const s = loadStore();
       const u = s.users.find((x) => x.id === userId);
       if (!u) throw new Error('User not found');
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
-      u.role = isModerator ? 'moderator' : 'player';
+      if (effectiveRole(u) === 'admin') {
+        throw new Error('That account is the Admin. Change their Admin status first.');
+      }
+      if (effectiveRole(u) === 'report_advisor' && !isModerator) {
+        throw new Error('That account is a Report Advisor. Remove that role separately.');
+      }
+      applyRoleChangeToUser(u, isModerator ? 'moderator' : 'player');
       saveStore();
     },
 
@@ -476,6 +527,25 @@ export function createFileStore() {
     async listModerators() {
       const s = loadStore();
       return s.users.filter((u) => u.role === 'moderator').map((u) => ({ id: u.id, username: u.username }));
+    },
+
+    async listReportAdvisors() {
+      const s = loadStore();
+      return s.users.filter((u) => u.role === 'report_advisor').map((u) => ({ id: u.id, username: u.username }));
+    },
+
+    async setReportAdvisorRole(userId, isAdvisor) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      const role = effectiveRole(u);
+      if (role === 'owner') throw new Error('Cannot change owner role.');
+      if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
+      if (role === 'moderator') throw new Error('Demote them from moderator first.');
+      applyRoleChangeToUser(u, isAdvisor ? 'report_advisor' : 'player');
+      saveStore();
     },
 
     async incrementUserCoins(userId, delta) {
@@ -953,6 +1023,97 @@ export function createFileStore() {
       a.status = status;
       a.outcome = outcome;
       a.resolvedAt = Date.now();
+      saveStore();
+    },
+
+    async listAdmins() {
+      const s = loadStore();
+      return s.users.filter((u) => u.role === 'admin').map((u) => ({ id: u.id, username: u.username }));
+    },
+
+    async setAdminRole(userId, isAdmin) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      if (isAdmin) {
+        for (const other of s.users) {
+          if (other.id !== userId && other.role === 'admin') applyRoleChangeToUser(other, 'player');
+        }
+        applyRoleChangeToUser(u, 'admin');
+      } else if (u.role === 'admin') {
+        applyRoleChangeToUser(u, 'player');
+      }
+      saveStore();
+    },
+
+    async clearPromotionNotice(userId) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) return;
+      u.promotionFrom = null;
+      u.promotionTo = null;
+      saveStore();
+    },
+
+    async countAdminBansSince(adminUserId, sinceMs) {
+      const s = loadStore();
+      return s.adminBanLog.filter((r) => r.adminUserId === adminUserId && r.createdAt > sinceMs).length;
+    },
+
+    async insertAdminBanLog(adminUserId, targetUserId) {
+      const s = loadStore();
+      s.adminBanLog.push({ adminUserId, targetUserId, createdAt: Date.now() });
+      saveStore();
+    },
+
+    async createStaffRequest(type, fromUserId, targetUserId, payload) {
+      const s = loadStore();
+      const t = String(type || '');
+      const dup = s.staffRequests.find(
+        (r) => r.type === t && r.fromUserId === fromUserId && r.targetUserId === targetUserId && r.status === 'open'
+      );
+      if (dup) throw new Error('You already have an open request for that user.');
+      const row = {
+        id: crypto.randomUUID(),
+        type: t,
+        fromUserId,
+        targetUserId,
+        payload: payload || {},
+        status: 'open',
+        ownerNote: null,
+        createdAt: Date.now(),
+        resolvedAt: null,
+      };
+      s.staffRequests.push(row);
+      saveStore();
+      return row;
+    },
+
+    async listOpenStaffRequests() {
+      const s = loadStore();
+      return s.staffRequests.filter((r) => r.status === 'open').sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async countOpenStaffRequests() {
+      const s = loadStore();
+      return s.staffRequests.filter((r) => r.status === 'open').length;
+    },
+
+    async getStaffRequestById(id) {
+      const s = loadStore();
+      return s.staffRequests.find((r) => r.id === id) || null;
+    },
+
+    async resolveStaffRequest(id, status, ownerNote) {
+      const s = loadStore();
+      const r = s.staffRequests.find((x) => x.id === id);
+      if (!r) throw new Error('Request not found');
+      r.status = status;
+      r.ownerNote = ownerNote != null ? String(ownerNote).slice(0, 500) : null;
+      r.resolvedAt = Date.now();
       saveStore();
     },
   };

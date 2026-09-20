@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { BAN_PERMANENT_MS, ownerUsernameLower } from './moderation.js';
+import { BAN_PERMANENT_MS, effectiveRole, ownerUsernameLower, roleChangeDbPatch } from './moderation.js';
 import {
   createSignedAvatarUpload,
   removeUserProfileStorage,
@@ -38,6 +38,9 @@ function mapUser(row) {
     createdAt: row.created_at != null ? Number(row.created_at) : null,
     campaignWorld1ClearedAt:
       row.campaign_world1_cleared_at != null ? Number(row.campaign_world1_cleared_at) : null,
+    promotionFrom: row.promotion_from ?? null,
+    promotionTo: row.promotion_to ?? null,
+    strikes: row.strikes != null ? Math.max(0, Math.floor(Number(row.strikes) || 0)) : 0,
   };
 }
 
@@ -50,6 +53,21 @@ function mapRun(row) {
     difficulty: row.difficulty ?? null,
     createdAt: row.created_at,
   };
+}
+
+async function updateUserRow(sb, userId, patch) {
+  let { error } = await sb.from('skyhop_users').update(patch).eq('id', userId);
+  if (
+    error &&
+    (String(error.message).includes('promotion_from') || String(error.message).includes('promotion_to'))
+  ) {
+    const rest = { ...patch };
+    delete rest.promotion_from;
+    delete rest.promotion_to;
+    if (!Object.keys(rest).length) return;
+    ({ error } = await sb.from('skyhop_users').update(rest).eq('id', userId));
+  }
+  if (error) throw new Error(error.message);
 }
 
 export function createSupabaseStore() {
@@ -166,14 +184,52 @@ export function createSupabaseStore() {
       await sb.from('skyhop_sessions').delete().eq('user_id', userId);
     },
 
+    async setStrikes(userId, count) {
+      const n = Math.max(0, Math.floor(Number(count) || 0));
+      const { error } = await sb.from('skyhop_users').update({ strikes: n }).eq('id', userId);
+      if (error) throw new Error(error.message);
+    },
+
+    async setStoredRole(userId, toRole) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      await updateUserRow(sb, userId, roleChangeDbPatch(u.role, toRole));
+    },
+
+    async applyStrikeMutation(userId, { strikes, toRole, banUntilMs, banReason }) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const patch = { strikes: Math.max(0, Math.floor(Number(strikes) || 0)) };
+      if (toRole) {
+        const own = ownerUsernameLower();
+        if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+        Object.assign(patch, roleChangeDbPatch(u.role, toRole));
+      }
+      if (banUntilMs != null) {
+        patch.ban_until_ms = banUntilMs;
+        patch.ban_reason = banReason != null ? String(banReason).slice(0, 500) : null;
+      }
+      await updateUserRow(sb, userId, patch);
+      if (banUntilMs != null) {
+        await sb.from('skyhop_sessions').delete().eq('user_id', userId);
+      }
+    },
+
     async setModeratorRole(userId, isModerator) {
       const u = await this.findUserById(userId);
       if (!u) throw new Error('User not found');
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
-      const role = isModerator ? 'moderator' : 'player';
-      const { error } = await sb.from('skyhop_users').update({ role }).eq('id', userId);
-      if (error) throw new Error(error.message);
+      if (effectiveRole(u) === 'admin') {
+        throw new Error('That account is the Admin. Change their Admin status first.');
+      }
+      if (effectiveRole(u) === 'report_advisor' && !isModerator) {
+        throw new Error('That account is a Report Advisor. Remove that role separately.');
+      }
+      await updateUserRow(sb, userId, roleChangeDbPatch(u.role, isModerator ? 'moderator' : 'player'));
     },
 
     async revokeAllSessionsForUser(userId) {
@@ -523,6 +579,33 @@ export function createSupabaseStore() {
         .order('username');
       if (error) throw new Error(error.message);
       return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async listReportAdvisors() {
+      const { data, error } = await sb
+        .from('skyhop_users')
+        .select('id, username')
+        .eq('role', 'report_advisor')
+        .order('username');
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async setReportAdvisorRole(userId, isAdvisor) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      const role = effectiveRole(u);
+      if (role === 'owner') throw new Error('Cannot change owner role.');
+      if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
+      if (role === 'moderator') throw new Error('Demote them from moderator first.');
+      if (isAdvisor) {
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'report_advisor'));
+      } else {
+        if (effectiveRole(u) !== 'report_advisor') return;
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'player'));
+      }
     },
 
     async incrementUserCoins(userId, delta) {
@@ -1050,6 +1133,155 @@ export function createSupabaseStore() {
         .from('skyhop_ban_appeals')
         .update({ status, outcome, resolved_at: now })
         .eq('id', appealId);
+      if (error) throw new Error(error.message);
+    },
+
+    async listAdmins() {
+      const { data, error } = await sb.from('skyhop_users').select('id, username').eq('role', 'admin').order('username');
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async setAdminRole(userId, isAdmin) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      if (isAdmin) {
+        const { data: existing, error: e0 } = await sb.from('skyhop_users').select('id').eq('role', 'admin');
+        if (e0) throw new Error(e0.message);
+        const others = (existing || []).filter((r) => Number(r.id) !== Number(userId));
+        if (others.length) {
+          const ids = others.map((r) => r.id);
+          const demote = roleChangeDbPatch('admin', 'player');
+          let { error: e1 } = await sb.from('skyhop_users').update(demote).in('id', ids);
+          if (
+            e1 &&
+            (String(e1.message).includes('promotion_from') || String(e1.message).includes('promotion_to'))
+          ) {
+            ({ error: e1 } = await sb.from('skyhop_users').update({ role: 'player' }).in('id', ids));
+          }
+          if (e1) throw new Error(e1.message);
+        }
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'admin'));
+      } else {
+        if (effectiveRole(u) !== 'admin') return;
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'player'));
+      }
+    },
+
+    async clearPromotionNotice(userId) {
+      await updateUserRow(sb, userId, { promotion_from: null, promotion_to: null });
+    },
+
+    async countAdminBansSince(adminUserId, sinceMs) {
+      const { count, error } = await sb
+        .from('skyhop_admin_ban_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('admin_user_id', adminUserId)
+        .gt('created_at', sinceMs);
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+
+    async insertAdminBanLog(adminUserId, targetUserId) {
+      const { error } = await sb.from('skyhop_admin_ban_log').insert({
+        admin_user_id: adminUserId,
+        target_user_id: targetUserId,
+        created_at: Date.now(),
+      });
+      if (error) throw new Error(error.message);
+    },
+
+    async createStaffRequest(type, fromUserId, targetUserId, payload) {
+      const t = String(type || '');
+      const { data: openDup } = await sb
+        .from('skyhop_staff_requests')
+        .select('id')
+        .eq('type', t)
+        .eq('from_user_id', fromUserId)
+        .eq('target_user_id', targetUserId)
+        .eq('status', 'open')
+        .maybeSingle();
+      if (openDup) throw new Error('You already have an open request for that user.');
+      const now = Date.now();
+      const { data, error } = await sb
+        .from('skyhop_staff_requests')
+        .insert({
+          type: t,
+          from_user_id: fromUserId,
+          target_user_id: targetUserId,
+          payload: payload || {},
+          status: 'open',
+          created_at: now,
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error(error.message);
+      return { id: data.id, type: t, fromUserId, targetUserId, payload: payload || {}, status: 'open', createdAt: now };
+    },
+
+    async listOpenStaffRequests() {
+      const { data, error } = await sb
+        .from('skyhop_staff_requests')
+        .select('id, type, from_user_id, target_user_id, payload, status, owner_note, created_at, resolved_at')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({
+        id: r.id,
+        type: r.type,
+        fromUserId: r.from_user_id,
+        targetUserId: r.target_user_id,
+        payload: r.payload || {},
+        status: r.status,
+        ownerNote: r.owner_note,
+        createdAt: Number(r.created_at),
+        resolvedAt: r.resolved_at != null ? Number(r.resolved_at) : null,
+      }));
+    },
+
+    async countOpenStaffRequests() {
+      const { count, error } = await sb
+        .from('skyhop_staff_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'open');
+      if (error) throw new Error(error.message);
+      return count || 0;
+    },
+
+    async getStaffRequestById(id) {
+      const { data, error } = await sb
+        .from('skyhop_staff_requests')
+        .select('id, type, from_user_id, target_user_id, payload, status, owner_note, created_at, resolved_at')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return null;
+      return {
+        id: data.id,
+        type: data.type,
+        fromUserId: data.from_user_id,
+        targetUserId: data.target_user_id,
+        payload: data.payload || {},
+        status: data.status,
+        ownerNote: data.owner_note,
+        createdAt: Number(data.created_at),
+        resolvedAt: data.resolved_at != null ? Number(data.resolved_at) : null,
+      };
+    },
+
+    async resolveStaffRequest(id, status, ownerNote) {
+      const now = Date.now();
+      const { error } = await sb
+        .from('skyhop_staff_requests')
+        .update({
+          status,
+          owner_note: ownerNote != null ? String(ownerNote).slice(0, 500) : null,
+          resolved_at: now,
+        })
+        .eq('id', id);
       if (error) throw new Error(error.message);
     },
   };

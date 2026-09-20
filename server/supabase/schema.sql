@@ -7,7 +7,7 @@ create table if not exists public.skyhop_users (
   username_lower text not null unique,
   salt text not null,
   hash text not null,
-  role text not null default 'player',
+  role text not null default 'player', -- player | report_advisor | moderator | admin | owner
   ban_until_ms bigint,
   ban_reason text,
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
@@ -81,6 +81,9 @@ alter table public.skyhop_users add column if not exists skin_texture text;
 alter table public.skyhop_users add column if not exists profile_bio text;
 alter table public.skyhop_users add column if not exists profile_avatar_path text;
 alter table public.skyhop_users add column if not exists disabled_at bigint;
+alter table public.skyhop_users add column if not exists promotion_from text;
+alter table public.skyhop_users add column if not exists promotion_to text;
+alter table public.skyhop_users add column if not exists strikes integer not null default 0;
 
 create table if not exists public.skyhop_builtin_campaign (
   id smallint primary key default 1 constraint skyhop_builtin_singleton check (id = 1),
@@ -179,3 +182,29 @@ create table if not exists public.skyhop_ban_appeal_votes (
   created_at bigint not null,
   primary key (appeal_id, voter_user_id)
 );
+
+-- Admin (exactly one, assigned in-game): demote/longer-ban requests + 1-day ban quota
+create table if not exists public.skyhop_staff_requests (
+  id uuid primary key default gen_random_uuid(),
+  type text not null,
+  from_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  target_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'open',
+  owner_note text,
+  created_at bigint not null,
+  resolved_at bigint
+);
+
+create index if not exists skyhop_staff_requests_status_idx
+  on public.skyhop_staff_requests (status, created_at desc);
+
+create table if not exists public.skyhop_admin_ban_log (
+  id bigserial primary key,
+  admin_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  target_user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  created_at bigint not null
+);
+
+create index if not exists skyhop_admin_ban_log_admin_created_idx
+  on public.skyhop_admin_ban_log (admin_user_id, created_at desc);

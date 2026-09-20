@@ -2172,9 +2172,12 @@
         const lbl = document.getElementById('lvlOnlineUserLabel');
         if (lbl) {
           lbl.textContent = onlineCtx.username;
-          lbl.className = out.author_is_moderator
-            ? 'font-sem text-rose-400'
-            : 'font-sem text-cyan-200';
+          lbl.className =
+            typeof window.SkyHopAuthorNameClass === 'function'
+              ? 'font-sem ' + window.SkyHopAuthorNameClass(out.author_role || (out.author_is_moderator ? 'moderator' : 'player'))
+              : out.author_is_moderator
+                ? 'font-sem text-rose-400'
+                : 'font-sem text-cyan-200';
         }
         renderOnlinePager(out.total || 0, out.page || 1);
         for (const it of out.items || []) {
@@ -2182,6 +2185,7 @@
             rowOnlineItem(it.title, it.id, it.play_count, {
               author: onlineCtx.username,
               authorIsModerator: !!out.author_is_moderator,
+              authorRole: out.author_role || (out.author_is_moderator ? 'moderator' : 'player'),
             })
           );
         }
@@ -2200,6 +2204,7 @@
             rowOnlineItem(it.title, it.id, it.play_count, {
               author: it.author_username || '—',
               authorIsModerator: !!it.author_is_moderator,
+              authorRole: it.author_role || (it.author_is_moderator ? 'moderator' : 'player'),
             })
           );
         }
@@ -2213,6 +2218,7 @@
             rowOnlineItem(out.item.title, out.item.id, out.item.play_count, {
               author: out.item.author_username || '—',
               authorIsModerator: !!out.item.author_is_moderator,
+              authorRole: out.item.author_role || (out.item.author_is_moderator ? 'moderator' : 'player'),
             })
           );
         }
@@ -2230,10 +2236,15 @@
   function rowOnlineItem(titleLine, id, plays, extra) {
     extra = extra || {};
     const author = extra.author;
-    const authorMod = !!extra.authorIsModerator;
+    var authorRole = extra.authorRole || (extra.authorIsModerator ? 'moderator' : 'player');
     var titleHtml;
     if (author != null && author !== '') {
-      var ac = authorMod ? 'text-rose-400 font-semibold' : 'text-slate-400';
+      var ac =
+        typeof window.SkyHopAuthorNameClass === 'function'
+          ? window.SkyHopAuthorNameClass(authorRole)
+          : extra.authorIsModerator
+            ? 'text-rose-400 font-semibold'
+            : 'text-slate-400';
       titleHtml =
         '<div class="text-sm"><span class="font-sem text-white">' +
         escapeHtml(titleLine) +

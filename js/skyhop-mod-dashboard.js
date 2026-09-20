@@ -211,7 +211,15 @@
         rEl.textContent = prof.role ? '(' + prof.role + ')' : '';
         rEl.className =
           'text-xs font-normal ' +
-          (prof.role === 'owner' ? 'text-amber-300' : prof.role === 'moderator' ? 'text-rose-400' : 'text-slate-400');
+          (prof.role === 'owner'
+            ? 'text-amber-300'
+            : prof.role === 'admin'
+              ? 'text-emerald-300'
+              : prof.role === 'moderator'
+                ? 'text-rose-400'
+                : prof.role === 'report_advisor'
+                  ? 'text-sky-300'
+                  : 'text-slate-400');
       }
       var note = document.getElementById('modDashProfOwnerNote');
       if (note) note.classList.toggle('hidden', !prof.isSiteOwner);
@@ -239,7 +247,7 @@
   function openDashboard() {
     var me = window.__skyhopLastMe;
     var role = me && me.role ? me.role : 'player';
-    if (role !== 'moderator' && role !== 'owner') {
+    if (role !== 'moderator' && role !== 'admin' && role !== 'owner') {
       showAccessDenied();
       return;
     }

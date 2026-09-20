@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { effectiveRole } from './moderation.js';
+import { effectiveRole, isStaffRole } from './moderation.js';
 import { store } from './store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -317,7 +317,7 @@ export async function submittedRunsOwnerModApprovedList() {
     for (const r of data || []) {
       const reviewer = r.reviewed_by != null ? await store.findUserById(r.reviewed_by) : null;
       const revRole = reviewer ? effectiveRole(reviewer) : 'player';
-      if (revRole !== 'moderator' && revRole !== 'owner') continue;
+      if (!isStaffRole(revRole)) continue;
       out.push(
         mapRow(r, await usernameFor(r.user_id), {
           reviewedByUsername: reviewer ? reviewer.username : 'unknown',
@@ -336,7 +336,7 @@ export async function submittedRunsOwnerModApprovedList() {
   for (const r of rows) {
     const reviewer = await store.findUserById(r.reviewed_by);
     const revRole = reviewer ? effectiveRole(reviewer) : 'player';
-    if (revRole !== 'moderator' && revRole !== 'owner') continue;
+    if (!isStaffRole(revRole)) continue;
     out.push(
       mapRow(r, await usernameFor(r.user_id), {
         reviewedByUsername: reviewer ? reviewer.username : 'unknown',
