@@ -332,16 +332,11 @@ export function createFileStore() {
       }
       const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 50)));
       const s = loadStore();
-      const best = new Map();
-      for (const r of s.runs) {
-        if (r.source !== 'campaign' || r.difficulty !== diff) continue;
-        const uid = r.userId;
-        const prev = best.get(uid);
-        if (!prev || r.timeMs < prev.timeMs) {
-          best.set(uid, r);
-        }
-      }
-      const rows = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const rows = s.runs
+        .filter((r) => r.source === 'campaign' && r.difficulty === diff)
+        .slice()
+        .sort((a, b) => a.timeMs - b.timeMs || Number(a.id) - Number(b.id))
+        .slice(0, cap);
       const out = [];
       for (const row of rows) {
         const u = s.users.find((x) => x.id === row.userId);
@@ -374,16 +369,15 @@ export function createFileStore() {
       }
       const cap = Math.max(1, Math.min(50, Math.floor(Number(limit) || 10)));
       const s = loadStore();
-      const best = new Map();
-      for (const r of s.runs) {
-        if (r.source !== 'campaign' || r.difficulty !== diff) continue;
-        if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) continue;
-        const prev = best.get(r.userId);
-        if (!prev || r.timeMs < prev.timeMs) {
-          best.set(r.userId, { userId: r.userId, timeMs: r.timeMs, deaths: r.deaths });
-        }
-      }
-      const rows = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const rows = s.runs
+        .filter((r) => {
+          if (r.source !== 'campaign' || r.difficulty !== diff) return false;
+          if (friendUserIds && friendUserIds.size && !friendUserIds.has(r.userId)) return false;
+          return true;
+        })
+        .slice()
+        .sort((a, b) => a.timeMs - b.timeMs || Number(a.id) - Number(b.id))
+        .slice(0, cap);
       const out = [];
       for (const row of rows) {
         const u = s.users.find((x) => x.id === row.userId);

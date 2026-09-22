@@ -286,7 +286,7 @@
         <button id="diffCustom" type="button" class="diff-btn mt-2 w-full rounded-xl border border-white/15 bg-slate-800/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700">Custom…</button>
         <div class="mt-5 rounded-2xl border border-amber-500/25 bg-slate-950/55 p-3 text-left">
           <p class="text-center text-[11px] font-sem uppercase tracking-wider text-amber-200/90">Top 10 full runs</p>
-          <p class="mt-0.5 text-center text-[10px] text-slate-500">Best time per player · Easy / Normal / Hard only</p>
+          <p class="mt-0.5 text-center text-[10px] text-slate-500">Fastest full runs · same player can appear more than once · Easy / Normal / Hard only</p>
           <div class="mt-2 flex justify-center gap-2">
             <button id="lbTabEasy" type="button" class="rounded-lg border border-white/15 bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-700">Easy</button>
             <button id="lbTabNormal" type="button" class="rounded-lg border-2 border-indigo-400 bg-indigo-600/50 px-2.5 py-1 text-xs font-semibold text-white">Normal</button>
@@ -917,7 +917,7 @@
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-amber-200/90">Campaign leaderboard (owner only)</p>
-          <p class="mt-1 text-[11px] text-slate-500">Remove a player’s best run entry from the public leaderboard for a difficulty.</p>
+          <p class="mt-1 text-[11px] text-slate-500">Remove one run row from the public leaderboard for a difficulty. A player can have more than one row.</p>
           <select id="ownerLbDifficulty" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
             <option value="easy">Easy</option>
             <option value="normal" selected>Normal</option>
@@ -1199,7 +1199,7 @@
           <button id="lbPanelDiffNormal" type="button" class="rounded-lg border-2 border-indigo-400 bg-indigo-600/50 px-2.5 py-1 text-xs font-semibold text-white">Normal</button>
           <button id="lbPanelDiffHard" type="button" class="rounded-lg border border-white/15 bg-slate-800/80 px-2.5 py-1 text-xs font-semibold text-slate-300">Hard</button>
         </div>
-        <p id="lbPanelHint" class="mt-2 text-center text-[10px] text-slate-500">Best full campaign time per player</p>
+        <p id="lbPanelHint" class="mt-2 text-center text-[10px] text-slate-500">Fastest full campaign runs (same player can have multiple rows)</p>
         <ol id="lbPanelList" class="mt-2 max-h-52 list-none space-y-0 overflow-y-auto p-0"></ol>
         <p id="lbPanelErr" class="mt-2 hidden text-center text-[11px] text-rose-300"></p>
         <div id="lbPanelOwnerTools" class="mt-4 hidden rounded-xl border border-rose-500/35 bg-slate-950/70 p-3 text-left">

@@ -313,16 +313,14 @@ export function createSupabaseStore() {
       }
       const { data, error } = await q;
       if (error) throw new Error(error.message);
-      const best = new Map();
-      for (const r of data || []) {
-        const uid = Number(r.user_id);
-        const tm = Number(r.time_ms);
-        const prev = best.get(uid);
-        if (!prev || tm < prev.timeMs) {
-          best.set(uid, { userId: uid, timeMs: tm, deaths: Number(r.deaths) });
-        }
-      }
-      const sorted = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const sorted = (data || [])
+        .map((r) => ({
+          userId: Number(r.user_id),
+          timeMs: Number(r.time_ms),
+          deaths: Number(r.deaths),
+        }))
+        .sort((a, b) => a.timeMs - b.timeMs || a.userId - b.userId)
+        .slice(0, cap);
       const out = [];
       for (const row of sorted) {
         const u = await this.findUserById(row.userId);
@@ -439,16 +437,15 @@ export function createSupabaseStore() {
         .order('time_ms', { ascending: true })
         .limit(8000);
       if (error) throw new Error(error.message);
-      const best = new Map();
-      for (const r of data || []) {
-        const uid = Number(r.user_id);
-        const tm = Number(r.time_ms);
-        const prev = best.get(uid);
-        if (!prev || tm < prev.timeMs) {
-          best.set(uid, { runId: Number(r.id), userId: uid, timeMs: tm, deaths: Number(r.deaths) });
-        }
-      }
-      const sorted = [...best.values()].sort((a, b) => a.timeMs - b.timeMs).slice(0, cap);
+      const sorted = (data || [])
+        .map((r) => ({
+          runId: Number(r.id),
+          userId: Number(r.user_id),
+          timeMs: Number(r.time_ms),
+          deaths: Number(r.deaths),
+        }))
+        .sort((a, b) => a.timeMs - b.timeMs || a.runId - b.runId)
+        .slice(0, cap);
       const out = [];
       for (const row of sorted) {
         const u = await this.findUserById(row.userId);

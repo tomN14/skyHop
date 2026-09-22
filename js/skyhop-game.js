@@ -3151,6 +3151,7 @@
           hud.classList.add('hidden');
           setTouchHudVisible(false);
           syncLevelsTopNav();
+          syncRecordingUi();
           return;
         }
         if (inCollab) {
@@ -3179,6 +3180,7 @@
         }
         setTouchHudVisible(false);
         syncLevelsTopNav();
+        syncRecordingUi();
       } else {
         gameState = 'stage_clear';
         stageClearTitle.textContent = `Boss down!`;
@@ -3258,6 +3260,7 @@
           hud.classList.add('hidden');
           setTouchHudVisible(false);
           syncLevelsTopNav();
+          syncRecordingUi();
           return;
         }
         if (inCollab) {
@@ -3286,6 +3289,7 @@
         }
         setTouchHudVisible(false);
         syncLevelsTopNav();
+        syncRecordingUi();
       } else {
         gameState = 'stage_clear';
         stageClearTitle.textContent = `Stage ${stageIndex + 1} complete`;
@@ -4216,6 +4220,7 @@
       }
       setTouchHudVisible(false);
       syncLevelsTopNav();
+      syncRecordingUi();
       return;
     }
     stageIndex++;
@@ -4393,6 +4398,7 @@
     if (winTime) winTime.textContent = formatTotalRunTime(timeMs != null ? timeMs : getRunElapsedMs());
     setTouchHudVisible(false);
     syncLevelsTopNav();
+    syncRecordingUi();
     if (window.SkyHopCollabReset) window.SkyHopCollabReset();
   };
 
@@ -4457,6 +4463,7 @@
       gameState = 'menu';
       hud.classList.add('hidden');
       setTouchHudVisible(false);
+      syncRecordingUi();
       try {
         cb();
       } catch {

@@ -74,7 +74,7 @@
     if (diffWrap) diffWrap.classList.toggle('hidden', metric !== 'time' && metric !== 'deaths' && metric !== 'runs');
     var hint = document.getElementById('lbPanelHint');
     if (hint) {
-      if (metric === 'time') hint.textContent = 'Best full campaign time per player (' + lbDiff + ')';
+      if (metric === 'time') hint.textContent = 'Fastest full campaign runs (' + lbDiff + ') — same player can have multiple rows';
       else if (metric === 'coins') hint.textContent = 'Coin balance (earned in-game, shop, gifts)';
       else if (metric === 'runs') hint.textContent = 'Logged full campaign completions (' + lbDiff + ' difficulty runs count too)';
       else hint.textContent = 'Fewest deaths on a full run (' + lbDiff + ')';
