@@ -80,11 +80,16 @@
     return '';
   }
 
+  function notifyRecordState() {
+    window.dispatchEvent(new CustomEvent('skyhop-record-state-changed'));
+  }
+
   function syncRecordButton() {
     var el = btn();
     if (!el) return;
     var show = gameplayActive && typeof MediaRecorder !== 'undefined' && !!authToken();
     el.classList.toggle('hidden', !show);
+    notifyRecordState();
     if (!show) return;
     if (recording) {
       el.textContent = 'End';
@@ -181,19 +186,24 @@
     return document.getElementById('gameCanvas');
   }
 
-  async function startRecording() {
+  async function startRecording(opts) {
+    opts = opts || {};
     if (recording || !gameplayActive) return false;
     if (!authToken()) {
       window.alert('Sign in to record runs — clips save to your account.');
       return false;
     }
-    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn()) {
+    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn() && !opts.skipAcAlert) {
       window.alert(RECORD_AC_OFF_MSG);
     }
-    var defName = namedTitle || sessionMeta.title || 'Run';
-    var typed = window.prompt('Name this recording', defName);
-    if (typed == null) return false;
-    namedTitle = String(typed).trim().slice(0, 120) || defName;
+    var defName = namedTitle || opts.title || sessionMeta.title || 'Run';
+    if (opts.skipPrompt) {
+      namedTitle = String(opts.title || defName).trim().slice(0, 120) || defName;
+    } else {
+      var typed = window.prompt('Name this recording', defName);
+      if (typed == null) return false;
+      namedTitle = String(typed).trim().slice(0, 120) || defName;
+    }
     sessionMeta.title = namedTitle;
     var canvas = getCanvas();
     if (!canvas || typeof canvas.captureStream !== 'function') {
@@ -324,6 +334,12 @@
     fetchVideoBlob: fetchVideoBlob,
     isRecording: function () {
       return recording;
+    },
+    isGameplayActive: function () {
+      return gameplayActive;
+    },
+    getSessionTitle: function () {
+      return namedTitle || sessionMeta.title || 'Run';
     },
   };
 })();

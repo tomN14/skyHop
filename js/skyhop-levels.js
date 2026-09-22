@@ -2290,7 +2290,7 @@
       if (!clips.length) {
         const li = document.createElement('li');
         li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
-        li.textContent = 'No recordings yet. Play a level and tap Record in the HUD.';
+        li.textContent = 'No recordings yet. Play a level and tap Record or Record Run and Input Log in the HUD.';
         levelsRecordingsList.appendChild(li);
         return;
       }
@@ -2390,7 +2390,7 @@
       if (!logs.length) {
         const li = document.createElement('li');
         li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
-        li.textContent = 'No input logs yet. Play and tap Record Input Log in the HUD.';
+        li.textContent = 'No input logs yet. Play and tap Record Input Log or Record Run and Input Log in the HUD.';
         levelsInputLogsList.appendChild(li);
         return;
       }

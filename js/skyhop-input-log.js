@@ -25,11 +25,16 @@
     return window.location.origin;
   }
 
+  function notifyRecordState() {
+    window.dispatchEvent(new CustomEvent('skyhop-record-state-changed'));
+  }
+
   function syncButton() {
     var el = btn();
     if (!el) return;
     var show = gameplayActive && !!authToken();
     el.classList.toggle('hidden', !show);
+    notifyRecordState();
     if (!show) return;
     if (logging) {
       el.textContent = 'End log';
@@ -112,14 +117,18 @@
     return res.json();
   }
 
-  function startLogging() {
+  function startLogging(opts) {
+    opts = opts || {};
     if (logging || !gameplayActive) return false;
     if (!authToken()) {
       window.alert('Sign in to record input logs — they save to your account.');
       return false;
     }
-    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn()) {
+    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn() && !opts.skipAcAlert) {
       window.alert(LOG_AC_OFF_MSG);
+    }
+    if (opts.title) {
+      sessionMeta.title = String(opts.title).trim().slice(0, 120) || sessionMeta.title;
     }
     events = [];
     startedAt = performance.now();
@@ -201,5 +210,101 @@
     isLogging: function () {
       return logging;
     },
+    isGameplayActive: function () {
+      return gameplayActive;
+    },
+    getSessionTitle: function () {
+      return sessionMeta.title || 'Run';
+    },
   };
+
+  function combinedBtn() {
+    return document.getElementById('btnRecordRunAndInputLog');
+  }
+
+  function bothActive() {
+    var rec = window.SkyHopRecording;
+    return !!(rec && rec.isRecording() && logging);
+  }
+
+  function syncCombinedButton() {
+    var el = combinedBtn();
+    if (!el) return;
+    var rec = window.SkyHopRecording;
+    var recReady = rec && typeof rec.isGameplayActive === 'function' ? rec.isGameplayActive() : gameplayActive;
+    var show = recReady && gameplayActive && !!authToken() && typeof MediaRecorder !== 'undefined';
+    el.classList.toggle('hidden', !show);
+    if (!show) return;
+    if (bothActive()) {
+      el.textContent = 'End both';
+      el.setAttribute('aria-label', 'End recording and input log');
+      el.classList.remove('bg-violet-700', 'hover:bg-violet-600');
+      el.classList.add('bg-violet-900', 'hover:bg-violet-800', 'ring-2', 'ring-violet-400/80');
+    } else {
+      el.textContent = 'Record Run and Input Log';
+      el.setAttribute('aria-label', 'Start recording and input log');
+      el.classList.add('bg-violet-700', 'hover:bg-violet-600');
+      el.classList.remove('bg-violet-900', 'hover:bg-violet-800', 'ring-2', 'ring-violet-400/80');
+    }
+  }
+
+  async function toggleCombinedRecord() {
+    var rec = window.SkyHopRecording;
+    if (!rec || typeof rec.startRecording !== 'function') {
+      window.alert('Recording is not available. Reload the page.');
+      return;
+    }
+    if (bothActive()) {
+      var stops = [];
+      if (rec.isRecording()) stops.push(rec.stopRecording());
+      if (logging) stops.push(stopLogging());
+      await Promise.all(stops);
+      syncCombinedButton();
+      return;
+    }
+    if (!authToken()) {
+      window.alert('Sign in to record runs and input logs — they save to your account.');
+      return;
+    }
+    if (window.SkyHopRunAnticheat && !window.SkyHopRunAnticheat.isRunOn()) {
+      window.alert(LOG_AC_OFF_MSG);
+    }
+    var defName = rec.getSessionTitle ? rec.getSessionTitle() : sessionMeta.title || 'Run';
+    var title = defName;
+    if (!rec.isRecording()) {
+      var typed = window.prompt('Name this run', defName);
+      if (typed == null) return;
+      title = String(typed).trim().slice(0, 120) || defName;
+    }
+    var startedRec = rec.isRecording()
+      ? true
+      : await rec.startRecording({ skipPrompt: true, skipAcAlert: true, title: title });
+    var startedLog = logging ? true : startLogging({ skipAcAlert: true, title: title });
+    if (!startedRec && !startedLog) {
+      window.alert('Could not start recording and input log.');
+    }
+    syncCombinedButton();
+  }
+
+  function bindCombinedButton() {
+    var el = combinedBtn();
+    if (!el || el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.addEventListener('click', function () {
+      void toggleCombinedRecord();
+    });
+  }
+
+  window.addEventListener('skyhop-record-state-changed', syncCombinedButton);
+  window.addEventListener('skyhop-auth-changed', syncCombinedButton);
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      bindCombinedButton();
+      syncCombinedButton();
+    });
+  } else {
+    bindCombinedButton();
+    syncCombinedButton();
+  }
 })();

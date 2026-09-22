@@ -475,6 +475,12 @@
   const optProjFastHint = document.getElementById('optProjFastHint');
   const optProjDespawnEnvHint = document.getElementById('optProjDespawnEnvHint');
   const hudHint = document.getElementById('hudHint');
+  const hudHintWrap = document.getElementById('hudHintWrap');
+  const btnHudHintHide = document.getElementById('btnHudHintHide');
+  const btnHudHintShow = document.getElementById('btnHudHintShow');
+  const pauseHideHudHintWrap = document.getElementById('pauseHideHudHintWrap');
+  const pauseHideHudHint = document.getElementById('pauseHideHudHint');
+  const LS_W2_HIDE_HUD_HINT = 'SKYHOP_W2_HIDE_HUD_HINT';
   const diffEasy = document.getElementById('diffEasy');
   const diffNormal = document.getElementById('diffNormal');
   const diffHard = document.getElementById('diffHard');
@@ -519,7 +525,6 @@
 
   const K =
     'class="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs text-indigo-200"';
-  const HUD_MOVEMENT = `<span class="text-slate-300"><kbd ${K}>←→</kbd> or <kbd ${K}>A</kbd> <kbd ${K}>D</kbd> move · <kbd ${K}>Space</kbd> / <kbd ${K}>W</kbd> / <kbd ${K}>↑</kbd> jump · <kbd ${K}>Esc</kbd> pause · <kbd ${K}>R</kbd> restart</span>`;
   const HUD_MECHANIC_HINTS = {
     4: 'Fireballs sweep in from the edges of the screen — stay clear of the orange streaks.',
     5: 'Lava is an instant reset. The pink bands at the top are only decoration.',
@@ -543,57 +548,158 @@
       '>D</kbd>); <strong>release</strong> to zip toward the hook.',
   };
 
-  function syncHudHint(stageIdx) {
-    if (!hudHint) return;
+  function isWorld2Play() {
+    if (window.SKYHOP_EXTERNAL_LEVEL) return false;
+    return activePlayWorldId() === 2;
+  }
+
+  function world2HudHintHidden() {
+    try {
+      return localStorage.getItem(LS_W2_HIDE_HUD_HINT) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function setWorld2HudHintHidden(on) {
+    try {
+      if (on) localStorage.setItem(LS_W2_HIDE_HUD_HINT, '1');
+      else localStorage.removeItem(LS_W2_HIDE_HUD_HINT);
+    } catch {
+      /* */
+    }
+    syncHudHint(stageIndex);
+    syncPauseHideHudHintUi();
+  }
+
+  function syncPauseHideHudHintUi() {
+    if (!pauseHideHudHintWrap) return;
+    const w2 = isWorld2Play();
+    pauseHideHudHintWrap.classList.toggle('hidden', !w2);
+    pauseHideHudHintWrap.classList.toggle('flex', w2);
+    if (pauseHideHudHint && w2) pauseHideHudHint.checked = world2HudHintHidden();
+  }
+
+  function escapeHudText(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function hudKbd(label) {
+    return '<kbd ' + K + '>' + escapeHudText(label) + '</kbd>';
+  }
+
+  function extraBindLabel(action, alreadyShown) {
+    if (!window.SkyHopKeybinds || typeof window.SkyHopKeybinds.getBinds !== 'function') return '';
+    const binds = window.SkyHopKeybinds.getBinds();
+    const code = binds[action];
+    if (!code || typeof window.SkyHopKeybinds.codeLabel !== 'function') return '';
+    const lab = window.SkyHopKeybinds.codeLabel(code);
+    if (!lab) return '';
+    const shown = alreadyShown.map(function (x) {
+      return String(x).toLowerCase();
+    });
+    if (shown.indexOf(String(lab).toLowerCase()) >= 0) return '';
+    return lab;
+  }
+
+  function stageHasPickup(stage, kind) {
+    const items = stage && stage.itemPickups;
+    if (!items || !items.length) return false;
+    return items.some(function (p) {
+      return p && p.kind === kind;
+    });
+  }
+
+  function buildHudControlsHtml(stage) {
+    const extraLeft = extraBindLabel('left', ['Left', 'A']);
+    const extraRight = extraBindLabel('right', ['Right', 'D']);
+    const extraJump = extraBindLabel('jump', ['Space', 'W', 'Up']);
+    let html = '<span class="text-slate-300">';
+    html += hudKbd('←→') + ' or ' + hudKbd('A') + ' ' + hudKbd('D');
+    if (extraLeft || extraRight) {
+      html += ' / ';
+      if (extraLeft) html += hudKbd(extraLeft);
+      if (extraLeft && extraRight) html += ' ';
+      if (extraRight) html += hudKbd(extraRight);
+    }
+    html += ' move · ';
+    html += hudKbd('Space') + ' / ' + hudKbd('W') + ' / ' + hudKbd('↑');
+    if (extraJump) html += ' / ' + hudKbd(extraJump);
+    html += ' jump';
+    if (stage && stage.doubleJump) html += ' (again in air)';
+    if (stage && grappleUnlocked()) {
+      html += ' · ' + hudKbd('Shift') + ' / ' + hudKbd('Q');
+      const extraG = extraBindLabel('grapple', ['Shift', 'Q']);
+      if (extraG) html += ' / ' + hudKbd(extraG);
+      html += ' grapple';
+    }
+    if (hasWoodenSword || stageHasPickup(stage, 'sword')) {
+      const extraS = extraBindLabel('sword', ['S']);
+      html += ' · ' + hudKbd('S');
+      if (extraS) html += ' / ' + hudKbd(extraS);
+      html += ' sword';
+    }
+    if (hasShield || stageHasPickup(stage, 'shield')) {
+      const extraB = extraBindLabel('shield', ['B']);
+      html += ' · ' + hudKbd('B');
+      if (extraB) html += ' / ' + hudKbd(extraB);
+      html += ' shield';
+    }
+    html += ' · ' + hudKbd('Esc') + ' pause · ' + hudKbd('R') + ' restart';
+    if (runtimeOpts && runtimeOpts.allowSkip) html += ' · ' + hudKbd('N') + ' skip';
+    html += '</span>';
+    return html;
+  }
+
+  function world1MechanicHtml(stageIdx) {
     const n = stageIdx + 1;
-    let html = null;
-    if (n <= 3) html = HUD_MOVEMENT;
-    else if (n === 35) {
+    if (n === 35) {
       const hits = Math.max(1, runtimeOpts.bossPlayerMaxHp);
-      html =
-        '<span class="text-slate-300">Boss: you can take <strong class="text-rose-200">' +
+      return (
+        'Boss: you can take <strong class="text-rose-200">' +
         hits +
         '</strong> hit' +
         (hits === 1 ? '' : 's') +
-        ' (HP bar) before the run ends. Stomp from above to damage the boss. · <kbd ' +
-        K +
-        '>Esc</kbd> pause · <kbd ' +
-        K +
-        '>R</kbd> restart</span>';
-    } else if (n === 49) {
-      html =
-        '<span class="text-slate-300">Pick up the <strong>wooden sword</strong> and <strong>shield</strong> — a popup will explain their controls. Then reach the goal. · <kbd ' +
-        K +
-        '>Esc</kbd> pause · <kbd ' +
-        K +
-        '>R</kbd> restart</span>';
-    } else if (n === 50) {
-      html =
-        '<span class="text-slate-300">Final boss: <strong>double jump</strong> on. The boss <strong>floats</strong> and moves <strong>at random</strong> (ignores platforms). Gaps, high route, laser. <kbd ' +
-        K +
-        '>S</kbd>/<kbd ' +
-        K +
-        '>B</kbd> weapons, stomp, dodge. · <kbd ' +
-        K +
-        '>Esc</kbd> pause · <kbd ' +
-        K +
-        '>R</kbd> restart</span>';
-    } else if (HUD_MECHANIC_HINTS[n]) {
-      html =
-        '<span class="text-slate-300">' +
-        HUD_MECHANIC_HINTS[n] +
-        ' · <kbd ' +
-        K +
-        '>Esc</kbd> pause · <kbd ' +
-        K +
-        '>R</kbd> restart</span>';
+        ' (HP bar) before the run ends. Stomp from above to damage the boss.'
+      );
     }
-    if (!html) {
-      hudHint.classList.add('hidden');
-      hudHint.innerHTML = '';
+    if (n === 49) {
+      return 'Pick up the <strong>wooden sword</strong> and <strong>shield</strong> — a popup will explain their controls. Then reach the goal.';
+    }
+    if (n === 50) {
+      return 'Final boss: <strong>double jump</strong> on. The boss <strong>floats</strong> and moves <strong>at random</strong> (ignores platforms). Gaps, high route, laser. Stomp or use weapons.';
+    }
+    return HUD_MECHANIC_HINTS[n] || '';
+  }
+
+  function syncHudHint(stageIdx) {
+    if (!hudHint) return;
+    const list = stagesNow();
+    const stage = list[stageIdx];
+    const w2 = isWorld2Play();
+    const hidden = w2 && world2HudHintHidden();
+    let html = buildHudControlsHtml(stage);
+    if (!w2) {
+      const mechanic = world1MechanicHtml(stageIdx);
+      if (mechanic) {
+        html += '<span class="mt-1 block text-slate-400">' + mechanic + '</span>';
+      }
+    }
+    hudHint.innerHTML = html;
+    if (hudHintWrap) {
+      hudHintWrap.classList.toggle('hidden', hidden);
     } else {
-      hudHint.classList.remove('hidden');
-      hudHint.innerHTML = html;
+      hudHint.classList.toggle('hidden', hidden);
+    }
+    if (btnHudHintHide) {
+      btnHudHintHide.classList.toggle('hidden', !w2 || hidden);
+    }
+    if (btnHudHintShow) {
+      btnHudHintShow.classList.toggle('hidden', !w2 || !hidden);
     }
   }
 
@@ -884,6 +990,7 @@
   else document.addEventListener('DOMContentLoaded', initTouchControls, { once: true });
 
   let lastJumpPress = -9999;
+  let jumpHeldPrev = false;
   let activeFireballs = [];
   let fireballNextWaveAt = 0;
   let projectileStageGateUntil = 0;
@@ -1212,6 +1319,7 @@
     airJumpsUsed: 0,
     hazardIFrameUntil: 0,
     grappleZipUntil: 0,
+    noMoverSnapUntil: 0,
   };
 
   let skinImg = /** @type {HTMLImageElement|null} */ (null);
@@ -1992,6 +2100,9 @@
     player.airJumpsUsed = 0;
     player.hazardIFrameUntil = 0;
     player.grappleZipUntil = 0;
+    player.noMoverSnapUntil = 0;
+    lastJumpPress = -9999;
+    jumpHeldPrev = true;
     gravityDir = 1;
     gravityArrowWasInside = (s.gravityArrows || []).map(() => false);
     resetStageGadgets(s);
@@ -2696,9 +2807,11 @@
 
     projectileBurstFx = projectileBurstFx.filter((f) => now - f.t0 < 420);
 
-    const carry = PHY.movingPlatformCarry(stage, tSec, dt, player.x, player.y, player.w, player.h);
-    player.x += carry.dx;
-    player.y += carry.dy;
+    if (player.onGround) {
+      const carry = PHY.movingPlatformCarry(stage, tSec, dt, player.x, player.y, player.w, player.h);
+      player.x += carry.dx;
+      player.y += carry.dy;
+    }
 
     if (player.onGround) player.springGravityScale = null;
 
@@ -2739,13 +2852,17 @@
       now < player.grappleZipUntil ? Math.max(maxRun, C.GRAPPLE_ZIP_MAX) : maxRun;
     player.vx = Math.max(-vxCap, Math.min(vxCap, player.vx));
 
-    if (wantJump) lastJumpPress = now;
+    if (wantJump && !jumpHeldPrev) lastJumpPress = now;
+    jumpHeldPrev = !!wantJump;
     const canJump = player.onGround || now < player.coyoteUntil;
+    let usedGroundJump = false;
     if (canJump && now - lastJumpPress < C.JUMP_BUFFER_MS) {
       player.vy = C.JUMP_V * gravityDir * O.jumpMul;
       player.onGround = false;
       player.coyoteUntil = 0;
       lastJumpPress = -9999;
+      usedGroundJump = true;
+      player.noMoverSnapUntil = now + 100;
     }
 
     const doubleJumpStage = !!stage.doubleJump;
@@ -2822,7 +2939,7 @@
       hitY = PHY.solidCollide(solidRects, player.x, player.y, player.w, player.h);
     }
 
-    if (gravityDir > 0) {
+    if (gravityDir > 0 && now >= (player.noMoverSnapUntil || 0)) {
       PHY.snapRiderToYMoverTopIfClose(stage, tSec, player, gravityDir);
     }
 
@@ -2859,6 +2976,7 @@
     let handledMidairJump = false;
     if (
       doubleJumpStage &&
+      !usedGroundJump &&
       !player.onGround &&
       now >= player.coyoteUntil &&
       player.airJumpsUsed < 1 &&
@@ -2869,6 +2987,7 @@
       player.airJumpsUsed++;
       lastJumpPress = -9999;
       handledMidairJump = true;
+      player.noMoverSnapUntil = now + 100;
     }
 
     if (
@@ -2888,7 +3007,7 @@
       }
     }
 
-    if (player.onGround) player.airJumpsUsed = 0;
+    if (player.onGround && !usedGroundJump && !handledMidairJump) player.airJumpsUsed = 0;
 
     if (grappleUnlocked()) {
       const gk = kbDown('grapple') || keys['Shift'] || keys['q'] || keys['Q'];
@@ -3979,6 +4098,7 @@
       }
       gameState = 'paused';
       syncPauseDiscardUi();
+      syncPauseHideHudHintUi();
       screenPause.classList.remove('hidden');
       screenPause.classList.add('flex');
     } else {
@@ -4013,6 +4133,7 @@
   function clearInputKeys() {
     for (const k of Object.keys(keys)) keys[k] = false;
     for (const k of Object.keys(keysByCode)) keysByCode[k] = false;
+    jumpHeldPrev = false;
   }
 
   function goToMenu() {
@@ -4377,6 +4498,25 @@
   if (btnSkipStage) {
     btnSkipStage.addEventListener('click', () => skipStageAdvance());
   }
+
+  if (btnHudHintHide) {
+    btnHudHintHide.addEventListener('click', function () {
+      setWorld2HudHintHidden(true);
+    });
+  }
+  if (btnHudHintShow) {
+    btnHudHintShow.addEventListener('click', function () {
+      setWorld2HudHintHidden(false);
+    });
+  }
+  if (pauseHideHudHint) {
+    pauseHideHudHint.addEventListener('change', function () {
+      setWorld2HudHintHidden(!!pauseHideHudHint.checked);
+    });
+  }
+  window.addEventListener('skyhop-keybinds-changed', function () {
+    if (gameState === 'playing' || gameState === 'paused') syncHudHint(stageIndex);
+  });
 
   if (btnResume) {
     btnResume.addEventListener('click', () => setPaused(false));
