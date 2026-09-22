@@ -3927,10 +3927,11 @@
     if (skinImg && skinImg.complete && skinImg.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.lineTo(px + pw, py);
-      ctx.lineTo(px + pw, py + ph);
-      ctx.lineTo(px, py + ph);
+      ctx.moveTo(px + r, py);
+      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+      ctx.arcTo(px, py + ph, px, py, r);
+      ctx.arcTo(px, py, px + pw, py, r);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(skinImg, px, py, pw, ph);
