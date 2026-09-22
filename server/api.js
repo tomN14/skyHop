@@ -1263,6 +1263,10 @@ export async function handleApi(req, res) {
         json(res, 400, { error: 'That item is not available on this server.' });
         return true;
       }
+      if (item.hidden) {
+        json(res, 400, { error: 'That item is not in the shop.' });
+        return true;
+      }
       if (typeof store.userHasTextureGrant !== 'function' || typeof store.addTextureGrant !== 'function') {
         json(res, 501, { error: 'Shop not configured.' });
         return true;
@@ -1352,6 +1356,85 @@ export async function handleApi(req, res) {
         coinsInfinite: !!me.coinsInfinite,
         sellPrice,
       });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/shop/items' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const disk = await listTextureFilenames();
+      json(res, 200, await ShopItems.listShopItemsForOwner(disk));
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/shop/items/update' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const label = censorProfanity(String(body.label || '')).text.slice(0, 80);
+      const item = await ShopItems.updateShopListing(body.id, {
+        label,
+        price: body.price,
+        sellPrice: body.sellPrice,
+      });
+      json(res, 200, { ok: true, item });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (
+    (pathname === '/api/owner/shop/items/hide' || pathname === '/api/owner/shop/items/restore') &&
+    req.method === 'POST'
+  ) {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const item = await ShopItems.setShopItemListed(body.id, pathname.endsWith('/restore'));
+      json(res, 200, { ok: true, item });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

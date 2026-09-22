@@ -137,31 +137,132 @@ async function listOwnerItems() {
   return fileLoad().items.map(mapOwnerRow);
 }
 
-export async function listShopItems(diskTextureSet) {
+function applyOverride(item, ov) {
+  if (!ov || typeof ov !== 'object') return { ...item, hidden: false };
+  const price = ov.price != null ? Math.floor(Number(ov.price)) : item.price;
+  const sellPrice = ov.sellPrice != null ? Math.floor(Number(ov.sellPrice)) : item.sellPrice;
+  const label = ov.label != null && String(ov.label).trim() ? String(ov.label).trim().slice(0, 80) : item.label;
+  const tier = shopTierFromPrice(price);
+  const page = ov.page != null ? Number(ov.page) : item.page;
+  const slot = ov.slot != null ? Number(ov.slot) : item.slot;
+  return {
+    ...item,
+    label,
+    price,
+    sellPrice,
+    page,
+    slot,
+    tier: tier.id,
+    tierLabel: tier.label,
+    hidden: !!ov.hidden,
+  };
+}
+
+async function loadOverrides() {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data, error } = await sb.from('skyhop_site_content').select('payload').eq('key', 'shop_overrides').maybeSingle();
+    if (error) {
+      if (/skyhop_site_content|relation|column/i.test(String(error.message || ''))) return {};
+      throw new Error(error.message);
+    }
+    const items = data && data.payload && data.payload.items;
+    return items && typeof items === 'object' ? items : {};
+  }
+  const ov = fileLoad().overrides;
+  return ov && typeof ov === 'object' ? ov : {};
+}
+
+async function saveOverrides(map) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { error } = await sb.from('skyhop_site_content').upsert(
+      { key: 'shop_overrides', payload: { items: map }, updated_at: Date.now() },
+      { onConflict: 'key' }
+    );
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const db = fileLoad();
+  db.overrides = map;
+  fileSave(db);
+}
+
+async function allShopItems(diskTextureSet) {
   const bundled = SHOP_ITEMS.filter((x) => !diskTextureSet || diskTextureSet.has(x.texture)).map(mapBundled);
   const owner = await listOwnerItems();
   const byId = new Map();
   for (const it of bundled) byId.set(it.id, it);
   for (const it of owner) byId.set(it.id, it);
-  const items = [...byId.values()].sort((a, b) => a.page - b.page || a.slot - b.slot || String(a.id).localeCompare(String(b.id)));
+  const overrides = await loadOverrides();
+  return [...byId.values()]
+    .map((it) => applyOverride(it, overrides[it.id]))
+    .sort((a, b) => a.page - b.page || a.slot - b.slot || String(a.id).localeCompare(String(b.id)));
+}
+
+function catalogPayload(items) {
   let maxPage = SHOP_PAGES;
   for (const it of items) {
     if (it.page > maxPage) maxPage = it.page;
   }
+  return { items: items.map((it) => publicShopItem(it)), pages: maxPage, slotsPerPage: SHOP_SLOTS_PER_PAGE };
+}
+
+export async function listShopItems(diskTextureSet) {
+  const items = (await allShopItems(diskTextureSet)).filter((it) => !it.hidden);
+  return catalogPayload(items);
+}
+
+export async function listShopItemsForOwner(diskTextureSet) {
+  const items = await allShopItems(diskTextureSet);
   return {
-    items: items.map(publicShopItem),
-    pages: maxPage,
-    slotsPerPage: SHOP_SLOTS_PER_PAGE,
+    ...catalogPayload(items.filter((it) => !it.hidden)),
+    hiddenItems: items.filter((it) => it.hidden).map((it) => publicShopItem(it)),
   };
 }
 
 export async function getShopItemById(id) {
   const want = String(id || '').trim();
   if (!want) return null;
-  const bundled = SHOP_ITEMS.find((x) => x.id === want);
-  if (bundled) return mapBundled(bundled);
-  const owner = await listOwnerItems();
-  return owner.find((x) => x.id === want) || null;
+  const items = await allShopItems(null);
+  return items.find((x) => x.id === want) || null;
+}
+
+export async function updateShopListing(id, { label, price, sellPrice }) {
+  const item = await getShopItemById(id);
+  if (!item) throw new Error('Unknown shop item.');
+  const prices = validatePrices(price, sellPrice);
+  const name = String(label || '').trim().slice(0, 80) || item.label || 'Shop item';
+  const overrides = await loadOverrides();
+  const prev = overrides[item.id] && typeof overrides[item.id] === 'object' ? overrides[item.id] : {};
+  overrides[item.id] = {
+    ...prev,
+    label: name,
+    price: prices.price,
+    sellPrice: prices.sellPrice,
+  };
+  await saveOverrides(overrides);
+  return publicShopItem(applyOverride(item, overrides[item.id]));
+}
+
+export async function setShopItemListed(id, listed) {
+  const item = await getShopItemById(id);
+  if (!item) throw new Error('Unknown shop item.');
+  const overrides = await loadOverrides();
+  const prev = overrides[item.id] && typeof overrides[item.id] === 'object' ? overrides[item.id] : {};
+  const next = { ...prev, hidden: !listed };
+  if (listed) {
+    const visible = (await allShopItems(null)).filter((it) => !it.hidden && it.id !== item.id);
+    const taken = visible.some((it) => it.page === item.page && it.slot === item.slot);
+    if (taken) {
+      const pos = nextFreeSlot(visible);
+      next.page = pos.page;
+      next.slot = pos.slot;
+    }
+  }
+  overrides[item.id] = next;
+  await saveOverrides(overrides);
+  return publicShopItem(applyOverride(item, next));
 }
 
 export async function findShopItemByTexture(filename) {

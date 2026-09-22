@@ -256,6 +256,36 @@
         }
       }
       cell.appendChild(btn);
+      if (isOwner()) {
+        var tools = document.createElement('div');
+        tools.className = 'mt-2 flex w-full max-w-[8rem] gap-1';
+        var editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'flex-1 rounded-lg border border-white/15 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/5';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', function () {
+          openOwnerAddShop();
+        });
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'flex-1 rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40';
+        removeBtn.textContent = 'Remove';
+        (function (item) {
+          removeBtn.addEventListener('click', function () {
+            showConfirm('Take ' + (item.label || item.texture) + ' off the shop?', function () {
+              return api('/api/owner/shop/items/hide', {
+                method: 'POST',
+                body: JSON.stringify({ id: item.id }),
+              }).then(function () {
+                return loadShopCatalog();
+              });
+            });
+          });
+        })(it);
+        tools.appendChild(editBtn);
+        tools.appendChild(removeBtn);
+        cell.appendChild(tools);
+      }
       grid.appendChild(cell);
     }
   }
@@ -310,6 +340,183 @@
     screen.classList.remove('hidden');
     screen.classList.add('flex');
     updateOwnerTierPreview();
+    void loadOwnerShopManage();
+  }
+
+  function setOwnerManageErr(t) {
+    var err = document.getElementById('ownerShopManageErr');
+    if (!err) return;
+    err.textContent = t || '';
+    err.classList.toggle('hidden', !t);
+  }
+
+  function ownerField(labelText, value) {
+    var wrap = document.createElement('label');
+    wrap.className = 'block text-[11px] text-slate-500';
+    wrap.textContent = labelText;
+    var input = document.createElement('input');
+    input.className = 'mt-0.5 block w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+    if (labelText === 'Name') {
+      input.type = 'text';
+      input.maxLength = 80;
+      input.value = value || '';
+    } else {
+      input.type = 'number';
+      input.min = labelText === 'Sell' ? '0' : '50';
+      input.max = '1000000';
+      input.value = value != null ? String(value) : '';
+    }
+    wrap.appendChild(input);
+    return { wrap: wrap, input: input };
+  }
+
+  function renderOwnerManage(data) {
+    var listed = document.getElementById('ownerShopManageList');
+    var hidden = document.getElementById('ownerShopHiddenList');
+    if (!listed || !hidden) return;
+    listed.innerHTML = '';
+    hidden.innerHTML = '';
+    var items = (data && data.items) || [];
+    var hiddenItems = (data && data.hiddenItems) || [];
+    if (!items.length) {
+      var empty = document.createElement('li');
+      empty.className = 'text-xs text-slate-500';
+      empty.textContent = 'Nothing in the shop yet.';
+      listed.appendChild(empty);
+    }
+    items.forEach(function (it) {
+      listed.appendChild(ownerManageRow(it, false));
+    });
+    if (!hiddenItems.length) {
+      var none = document.createElement('li');
+      none.className = 'text-xs text-slate-500';
+      none.textContent = 'None.';
+      hidden.appendChild(none);
+    }
+    hiddenItems.forEach(function (it) {
+      hidden.appendChild(ownerManageRow(it, true));
+    });
+  }
+
+  function ownerManageRow(it, isHidden) {
+    var li = document.createElement('li');
+    li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-3';
+    var top = document.createElement('div');
+    top.className = 'flex items-center gap-3';
+    var img = document.createElement('img');
+    img.src = itemImageUrl(it);
+    img.alt = '';
+    img.className = 'h-12 w-12 shrink-0 rounded-lg object-contain';
+    var meta = document.createElement('div');
+    meta.className = 'min-w-0';
+    var tier = document.createElement('p');
+    tier.className = 'text-[11px] font-semibold uppercase tracking-wide text-amber-200';
+    tier.textContent = it.tierLabel || shopTierFromPrice(it.price).label;
+    var idLine = document.createElement('p');
+    idLine.className = 'truncate text-[11px] text-slate-500';
+    idLine.textContent = it.texture || it.id;
+    meta.appendChild(tier);
+    meta.appendChild(idLine);
+    top.appendChild(img);
+    top.appendChild(meta);
+    li.appendChild(top);
+    if (!isHidden) {
+      var name = ownerField('Name', it.label || '');
+      var buy = ownerField('Buy', it.price);
+      var sell = ownerField('Sell', it.sellPrice);
+      name.wrap.className += ' mt-2';
+      var prices = document.createElement('div');
+      prices.className = 'mt-2 grid grid-cols-2 gap-2';
+      prices.appendChild(buy.wrap);
+      prices.appendChild(sell.wrap);
+      buy.input.addEventListener('input', function () {
+        var t = shopTierFromPrice(buy.input.value);
+        tier.textContent = buy.input.value === '' ? '—' : t.label;
+      });
+      var save = document.createElement('button');
+      save.type = 'button';
+      save.className = 'mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500';
+      save.textContent = 'Save';
+      save.addEventListener('click', function () {
+        setOwnerManageErr('');
+        save.disabled = true;
+        api('/api/owner/shop/items/update', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: it.id,
+            label: name.input.value,
+            price: Number(buy.input.value),
+            sellPrice: Number(sell.input.value),
+          }),
+        })
+          .then(function () {
+            return loadOwnerShopManage();
+          })
+          .catch(function (e) {
+            setOwnerManageErr(String(e.message || e));
+          })
+          .then(function () {
+            save.disabled = false;
+          });
+      });
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'mt-2 ml-2 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-950/40';
+      remove.textContent = 'Remove from shop';
+      remove.addEventListener('click', function () {
+        setOwnerManageErr('');
+        remove.disabled = true;
+        api('/api/owner/shop/items/hide', {
+          method: 'POST',
+          body: JSON.stringify({ id: it.id }),
+        })
+          .then(function () {
+            return loadOwnerShopManage();
+          })
+          .catch(function (e) {
+            setOwnerManageErr(String(e.message || e));
+            remove.disabled = false;
+          });
+      });
+      var actions = document.createElement('div');
+      actions.appendChild(save);
+      actions.appendChild(remove);
+      li.appendChild(name.wrap);
+      li.appendChild(prices);
+      li.appendChild(actions);
+    } else {
+      var back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'mt-2 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5';
+      back.textContent = 'Put back on shop';
+      back.addEventListener('click', function () {
+        setOwnerManageErr('');
+        back.disabled = true;
+        api('/api/owner/shop/items/restore', {
+          method: 'POST',
+          body: JSON.stringify({ id: it.id }),
+        })
+          .then(function () {
+            return loadOwnerShopManage();
+          })
+          .catch(function (e) {
+            setOwnerManageErr(String(e.message || e));
+            back.disabled = false;
+          });
+      });
+      var kept = document.createElement('p');
+      kept.className = 'mt-2 text-xs text-slate-400';
+      kept.textContent = (it.label || it.texture) + ' · buy ' + String(it.price) + ' · sell ' + String(it.sellPrice);
+      li.appendChild(kept);
+      li.appendChild(back);
+    }
+    return li;
+  }
+
+  async function loadOwnerShopManage() {
+    setOwnerManageErr('');
+    var data = await api('/api/owner/shop/items', { method: 'GET' });
+    renderOwnerManage(data);
   }
 
   function updateOwnerTierPreview() {

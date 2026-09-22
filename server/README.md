@@ -59,7 +59,7 @@ Restart **`npm start`**. If both variables are set, the app uses Supabase; other
 
 **Input logs + submitted runs:** Run **`server/supabase/extend_v8_input_logs_submitted_runs.sql`** after v7 — `skyhop_input_logs`, `skyhop_submitted_runs`, and private **`skyhop-input-logs`** bucket (max 5 MB per log). For multiple recordings/logs on one submission, also run **`server/supabase/extend_v22_submitted_run_media_lists.sql`**. For automatic submit/accept/top-10 coins, run **`server/supabase/extend_v23_submitted_run_coins.sql`**.
 
-**Owner shop catalog (in-game, no redeploy):** Run **`server/supabase/extend_v24_shop_items.sql`** after v23 — `skyhop_shop_items` and private **`skyhop-shop`** bucket (1.5 MB per image). Owner adds items from the ➕ FAB next to the shop. Rarity is calculated from buy price: Common 50–999, Uncommon 1000–1999, Insane 2000–4499, Rare 4500–9999, Epic 10000–99999, Legendary 100000–499999, Mythic 500000–1000000.
+**Owner shop catalog (in-game, no redeploy):** Run **`server/supabase/extend_v24_shop_items.sql`** after v23 — `skyhop_shop_items` and private **`skyhop-shop`** bucket (1.5 MB per image). Owner adds items from the ➕ FAB next to the shop, and can change the name, buy price, and sell coins or take an item off the shop (and put it back). Rarity is calculated from buy price: Common 50–999, Uncommon 1000–1999, Insane 2000–4499, Rare 4500–9999, Epic 10000–99999, Legendary 100000–499999, Mythic 500000–1000000. Listing edits are stored in site content (`shop_overrides`), so they do not need another SQL file.
 
 **Submitted run locks + decline reasons:** Run **`server/supabase/extend_v9_submitted_run_lock_decline_reason.sql`** after v8 — `decline_reason`, `status_locked` on `skyhop_submitted_runs`.
 
