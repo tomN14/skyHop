@@ -3927,25 +3927,14 @@
     if (skinImg && skinImg.complete && skinImg.naturalWidth > 0) {
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(px + r, py);
-      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
-      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
-      ctx.arcTo(px, py + ph, px, py, r);
-      ctx.arcTo(px, py, px + pw, py, r);
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + pw, py);
+      ctx.lineTo(px + pw, py + ph);
+      ctx.lineTo(px, py + ph);
       ctx.closePath();
       ctx.clip();
       ctx.drawImage(skinImg, px, py, pw, ph);
       ctx.restore();
-      ctx.strokeStyle = '#f59e0b';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(px + r, py);
-      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
-      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
-      ctx.arcTo(px, py + ph, px, py, r);
-      ctx.arcTo(px, py, px + pw, py, r);
-      ctx.closePath();
-      ctx.stroke();
     } else {
       ctx.fillStyle = '#fbbf24';
       ctx.strokeStyle = '#f59e0b';
@@ -3959,10 +3948,10 @@
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = '#1e1b4b';
+      ctx.fillRect(player.x + 8, player.y + 12, 5, 5);
+      ctx.fillRect(player.x + 17, player.y + 12, 5, 5);
     }
-    ctx.fillStyle = '#1e1b4b';
-    ctx.fillRect(player.x + 8, player.y + 12, 5, 5);
-    ctx.fillRect(player.x + 17, player.y + 12, 5, 5);
 
     if (swordSwingAnim) {
       const sAge = nowDraw - swordSwingAnim.t0;
