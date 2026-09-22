@@ -9,6 +9,12 @@
     'You can record the input log for this, but you would not be able to submit this run. Runs without anti-cheat are not eligible for leaderboards.';
   let startedAt = 0;
   let events = [];
+  var SPLIT_AFTER_MS = 25 * 60 * 1000;
+  var CHUNK_MS = 15 * 60 * 1000;
+  var logTimer = null;
+  var segmentStartedAt = 0;
+  var splitCommitted = false;
+  var heldSegments = [];
 
   const btn = () => document.getElementById('btnRecordInputLog');
 
@@ -57,7 +63,14 @@
     if (!logging) return;
     if (!e || !e.code) return;
     events.push({ t: relTime(), phase: phase === 'up' ? 'up' : 'down', code: e.code, key: e.key || '' });
-    if (events.length > 120000) logging = false;
+    if (events.length > 120000) {
+      if (splitCommitted) {
+        heldSegments.push(events.slice());
+        events = [];
+      } else {
+        logging = false;
+      }
+    }
   }
 
   async function uploadLog(payload) {
@@ -131,31 +144,86 @@
       sessionMeta.title = String(opts.title).trim().slice(0, 120) || sessionMeta.title;
     }
     events = [];
+    heldSegments = [];
+    splitCommitted = false;
     startedAt = performance.now();
+    segmentStartedAt = startedAt;
+    if (logTimer) clearInterval(logTimer);
+    logTimer = setInterval(tickLogSplit, 1000);
     logging = true;
     syncButton();
     return true;
+  }
+
+  function flushLogSegment() {
+    if (events.length) heldSegments.push(events.slice());
+    events = [];
+    segmentStartedAt = performance.now();
+  }
+
+  function tickLogSplit() {
+    if (!logging || !startedAt) return;
+    var now = performance.now();
+    var sessionMs = now - startedAt;
+    if (!splitCommitted && sessionMs > SPLIT_AFTER_MS) {
+      splitCommitted = true;
+      flushLogSegment();
+      return;
+    }
+    if (splitCommitted && now - segmentStartedAt >= CHUNK_MS) flushLogSegment();
+  }
+
+  function resetLogSplitState() {
+    events = [];
+    heldSegments = [];
+    splitCommitted = false;
+    startedAt = 0;
+    segmentStartedAt = 0;
+    if (logTimer) {
+      clearInterval(logTimer);
+      logTimer = null;
+    }
   }
 
   async function stopLogging() {
     if (!logging) return null;
     logging = false;
     syncButton();
-    const meta = Object.assign({}, sessionMeta);
-    const payload = {
-      v: 1,
-      title: meta.title,
-      source: meta.source,
-      anticheatOn: meta.anticheatOn !== false,
-      recordedAt: Date.now(),
-      events: events.slice(),
-    };
-    events = [];
-    startedAt = 0;
-    if (!payload.events.length) return null;
+    if (logTimer) {
+      clearInterval(logTimer);
+      logTimer = null;
+    }
+    if (events.length) heldSegments.push(events.slice());
+    var segments = heldSegments.slice();
+    var meta = Object.assign({}, sessionMeta);
+    var multi = splitCommitted || segments.length > 1;
+    resetLogSplitState();
+    if (!segments.length) return null;
     try {
-      const saved = await uploadLog(payload);
-      window.dispatchEvent(new CustomEvent('skyhop-input-log-saved', { detail: { id: saved && saved.id } }));
+      var saved = null;
+      var ids = [];
+      for (var i = 0; i < segments.length; i++) {
+        if (!segments[i] || !segments[i].length) continue;
+        var title = meta.title || 'Run';
+        if (multi) title = title + ' (' + (ids.length + 1) + ')';
+        saved = await uploadLog({
+          v: 1,
+          title: title,
+          source: meta.source,
+          anticheatOn: meta.anticheatOn !== false,
+          recordedAt: Date.now(),
+          events: segments[i],
+        });
+        if (saved && saved.id) ids.push(saved.id);
+      }
+      if (multi && ids.length > 1) {
+        window.alert(
+          'This input log was over 25 minutes, so it was saved as ' +
+            ids.length +
+            ' logs. Submit them together in that order with the matching recording clips.'
+        );
+      }
+      window.dispatchEvent(new CustomEvent('skyhop-input-log-saved', { detail: { id: ids[0] || (saved && saved.id), ids: ids } }));
       return saved;
     } catch (e) {
       window.alert(String(e.message || e));

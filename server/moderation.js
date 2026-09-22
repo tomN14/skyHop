@@ -92,6 +92,27 @@ export function canAccessReportInbox(role) {
   return isStaffRole(role) || role === 'report_advisor';
 }
 
+export const ROLE_PROMOTION_COINS = {
+  report_advisor: 1000,
+  moderator: 2000,
+  admin: 3000,
+};
+
+/** Coins granted when a player is promoted into a staff role. Demotions and no-ops are 0. */
+export function promotionCoinBonus(fromRole, toRole) {
+  const from = String(fromRole || 'player') || 'player';
+  const to = String(toRole || 'player') || 'player';
+  if (from === to || roleRank(to) <= roleRank(from)) return 0;
+  const n = ROLE_PROMOTION_COINS[to];
+  return n != null ? n : 0;
+}
+
+export async function creditPromotionCoins(incrementFn, userId, fromRole, toRole) {
+  const amt = promotionCoinBonus(fromRole, toRole);
+  if (amt > 0 && typeof incrementFn === 'function') await incrementFn(userId, amt);
+  return amt;
+}
+
 export function roleRank(role) {
   switch (String(role || '')) {
     case 'owner':
@@ -166,7 +187,11 @@ export function promotionNoticePayload(user) {
   return {
     from,
     to,
-    message: `Congratulations! You have been promoted from ${from} to ${to}`,
+    message: (() => {
+      const bonus = promotionCoinBonus(fromKey, toKey);
+      const base = `Congratulations! You have been promoted from ${from} to ${to}`;
+      return bonus > 0 ? `${base}. You received ${bonus} coins.` : base;
+    })(),
   };
 }
 

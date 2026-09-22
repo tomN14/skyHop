@@ -1324,6 +1324,15 @@
 
   let skinImg = /** @type {HTMLImageElement|null} */ (null);
   let skinImgSrc = '';
+  function skinTextureUrl(tex) {
+    if (!tex) return '';
+    if (typeof window.SkyHopSkinImageUrl === 'function') return window.SkyHopSkinImageUrl(tex);
+    if (String(tex).indexOf('shop-') === 0) {
+      const origin = typeof window.SkyHopApiOrigin === 'function' ? window.SkyHopApiOrigin() : '';
+      return origin + '/api/shop/skins/' + encodeURIComponent(tex);
+    }
+    return 'textures/' + encodeURIComponent(tex);
+  }
   function syncSkinImg() {
     let tex = '';
     try {
@@ -1331,12 +1340,13 @@
     } catch {
       tex = '';
     }
-    const url = tex ? 'textures/' + encodeURIComponent(tex) : '';
+    const url = skinTextureUrl(tex);
     if (url === skinImgSrc) return;
     skinImgSrc = url;
     skinImg = null;
     if (!tex) return;
     const im = new Image();
+    if (url.indexOf('/api/shop/skins/') >= 0) im.crossOrigin = 'anonymous';
     im.onload = () => {
       skinImg = im;
     };

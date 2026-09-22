@@ -1,5 +1,5 @@
 /**
- * Full-screen paginated coin shop (skins).
+ * Full-screen paginated coin shop (skins) + owner add-item.
  */
 (function () {
   var shopPage = 1;
@@ -23,9 +23,70 @@
     return window.SkyHopApiRequest(path, opts || {});
   }
 
+  function apiOrigin() {
+    if (typeof window.SkyHopApiOrigin === 'function') return window.SkyHopApiOrigin();
+    return '';
+  }
+
+  function shopTierFromPrice(price) {
+    var p = Math.floor(Number(price) || 0);
+    if (p >= 500000) return { id: 'mythic', label: 'Mythic' };
+    if (p >= 100000) return { id: 'legendary', label: 'Legendary' };
+    if (p >= 10000) return { id: 'epic', label: 'Epic' };
+    if (p >= 4500) return { id: 'rare', label: 'Rare' };
+    if (p >= 2000) return { id: 'insane', label: 'Insane' };
+    if (p >= 1000) return { id: 'uncommon', label: 'Uncommon' };
+    return { id: 'common', label: 'Common' };
+  }
+
+  function tierBadgeClass(tier) {
+    switch (tier) {
+      case 'mythic':
+        return 'border-fuchsia-400/80 text-fuchsia-100 bg-fuchsia-950/60';
+      case 'legendary':
+        return 'border-amber-400/80 text-amber-100 bg-amber-950/50';
+      case 'epic':
+        return 'border-violet-400/80 text-violet-100 bg-violet-950/60';
+      case 'rare':
+        return 'border-sky-400/80 text-sky-100 bg-sky-950/60';
+      case 'insane':
+        return 'border-orange-400/80 text-orange-100 bg-orange-950/60';
+      case 'uncommon':
+        return 'border-emerald-400/80 text-emerald-100 bg-emerald-950/60';
+      default:
+        return 'border-slate-400/70 text-slate-200 bg-slate-800/70';
+    }
+  }
+
+  function skinImageUrl(tex) {
+    if (!tex) return '';
+    if (String(tex).indexOf('shop-') === 0) {
+      return apiOrigin() + '/api/shop/skins/' + encodeURIComponent(tex);
+    }
+    return 'textures/' + encodeURIComponent(tex);
+  }
+
+  function itemImageUrl(it) {
+    if (!it) return '';
+    if (it.imageUrl) {
+      if (/^https?:/i.test(it.imageUrl)) return it.imageUrl;
+      if (it.imageUrl.indexOf('/api/') === 0) return apiOrigin() + it.imageUrl;
+      return it.imageUrl;
+    }
+    return skinImageUrl(it.texture);
+  }
+
+  window.SkyHopSkinImageUrl = skinImageUrl;
+  window.SkyHopShopTierFromPrice = shopTierFromPrice;
+
   function ownedSet() {
     var me = window.__skyhopLastMe;
     return new Set((me && me.unlockedTextures) || []);
+  }
+
+  function isOwner() {
+    var me = window.__skyhopLastMe;
+    return !!(me && me.role === 'owner');
   }
 
   function updateCoinDisplay() {
@@ -94,7 +155,7 @@
     for (var slot = 0; slot < slotsPerPage; slot++) {
       var cell = document.createElement('div');
       cell.className =
-        'flex min-h-[10rem] flex-col items-center justify-start rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:min-h-[11rem]';
+        'flex min-h-[11.5rem] flex-col items-center justify-start rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:min-h-[12.5rem]';
       var it = itemAt(shopPage, slot);
       if (!it) {
         cell.classList.add('border-dashed', 'opacity-60');
@@ -106,12 +167,19 @@
         continue;
       }
       var img = document.createElement('img');
-      img.src = 'textures/' + encodeURIComponent(it.texture);
+      img.src = itemImageUrl(it);
       img.alt = it.label || it.texture;
       img.className = 'h-24 w-24 object-contain sm:h-28 sm:w-28';
       img.loading = 'lazy';
+      var tierId = it.tier || shopTierFromPrice(it.price).id;
+      var tierLabel = it.tierLabel || shopTierFromPrice(it.price).label;
+      var tier = document.createElement('p');
+      tier.className =
+        'mt-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ' +
+        tierBadgeClass(tierId);
+      tier.textContent = tierLabel;
       var label = document.createElement('p');
-      label.className = 'mt-2 text-center text-xs font-medium text-slate-300';
+      label.className = 'mt-1 text-center text-xs font-medium text-slate-300';
       label.textContent = it.label || it.texture;
       var has = owned.has(it.texture);
       var btn = document.createElement('button');
@@ -173,12 +241,19 @@
         })(it, has);
       }
       cell.appendChild(img);
+      cell.appendChild(tier);
       cell.appendChild(label);
       if (!has) {
         var price = document.createElement('p');
         price.className = 'mt-0.5 text-[11px] text-amber-200/90';
         price.textContent = String(it.price) + ' coins';
         cell.appendChild(price);
+        if (it.sellPrice > 0) {
+          var sellHint = document.createElement('p');
+          sellHint.className = 'text-[10px] text-slate-500';
+          sellHint.textContent = 'Sells for ' + String(it.sellPrice);
+          cell.appendChild(sellHint);
+        }
       }
       cell.appendChild(btn);
       grid.appendChild(cell);
@@ -194,7 +269,20 @@
     renderGrid();
   }
 
+  function closeOwnerAddShop() {
+    var screen = document.getElementById('screenOwnerAddShop');
+    if (!screen) return;
+    screen.classList.add('hidden');
+    screen.classList.remove('flex');
+    var err = document.getElementById('ownerShopErr');
+    if (err) {
+      err.textContent = '';
+      err.classList.add('hidden');
+    }
+  }
+
   function openShop() {
+    closeOwnerAddShop();
     var screen = document.getElementById('screenCoinShop');
     if (!screen) return;
     screen.classList.remove('hidden');
@@ -214,6 +302,118 @@
     hideConfirm();
   }
 
+  function openOwnerAddShop() {
+    if (!isOwner()) return;
+    closeShop();
+    var screen = document.getElementById('screenOwnerAddShop');
+    if (!screen) return;
+    screen.classList.remove('hidden');
+    screen.classList.add('flex');
+    updateOwnerTierPreview();
+  }
+
+  function updateOwnerTierPreview() {
+    var priceEl = document.getElementById('ownerShopPrice');
+    var preview = document.getElementById('ownerShopTierPreview');
+    if (!preview) return;
+    var raw = priceEl && priceEl.value;
+    if (raw === '' || raw == null) {
+      preview.textContent = '—';
+      preview.className = 'font-semibold text-amber-200';
+      return;
+    }
+    var t = shopTierFromPrice(raw);
+    preview.textContent = t.label;
+    preview.className = 'font-semibold';
+  }
+
+  function setOwnerShopErr(t) {
+    var err = document.getElementById('ownerShopErr');
+    if (!err) return;
+    err.textContent = t || '';
+    err.classList.toggle('hidden', !t);
+  }
+
+  async function submitOwnerShopItem() {
+    setOwnerShopErr('');
+    if (!isOwner()) {
+      setOwnerShopErr('Owner only.');
+      return;
+    }
+    var fileEl = document.getElementById('ownerShopImage');
+    var labelEl = document.getElementById('ownerShopLabel');
+    var priceEl = document.getElementById('ownerShopPrice');
+    var sellEl = document.getElementById('ownerShopSell');
+    var btn = document.getElementById('ownerShopSubmit');
+    var file = fileEl && fileEl.files && fileEl.files[0];
+    if (!file) {
+      setOwnerShopErr('Choose an image.');
+      return;
+    }
+    if (file.size > 1536 * 1024) {
+      setOwnerShopErr('Image must be 1.5 MB or smaller.');
+      return;
+    }
+    var tok = getToken();
+    if (!tok) {
+      setOwnerShopErr('Sign in as owner.');
+      return;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      var res = await fetch(apiOrigin() + '/api/owner/shop/items', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + tok,
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-Shop-Label': encodeURIComponent(String((labelEl && labelEl.value) || 'Shop item').slice(0, 80)),
+          'X-Shop-Price': String((priceEl && priceEl.value) || ''),
+          'X-Shop-Sell-Price': String((sellEl && sellEl.value) || ''),
+        },
+        body: file,
+      });
+      var text = await res.text();
+      var data = null;
+      try {
+        if (text) data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        throw new Error((data && data.error) || text || 'Upload failed');
+      }
+      var item = data && data.item;
+      if (fileEl) fileEl.value = '';
+      if (labelEl) labelEl.value = '';
+      if (priceEl) priceEl.value = '';
+      if (sellEl) sellEl.value = '';
+      updateOwnerTierPreview();
+      closeOwnerAddShop();
+      var screen = document.getElementById('screenCoinShop');
+      if (screen) {
+        screen.classList.remove('hidden');
+        screen.classList.add('flex');
+      }
+      shopPage = item && item.page != null ? Number(item.page) : 1;
+      await loadShopCatalog();
+    } catch (e) {
+      setOwnerShopErr(String(e.message || e));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function syncOwnerAddShopFab() {
+    var fab = document.getElementById('btnOwnerAddShopFab');
+    var show = isOwner();
+    if (fab) {
+      fab.classList.toggle('hidden', !show);
+      if (show) fab.style.display = 'flex';
+      else fab.style.display = '';
+    }
+    if (!show) closeOwnerAddShop();
+  }
+
   function bind() {
     var fab = document.getElementById('btnCoinShopFab');
     var close = document.getElementById('btnCoinShopClose');
@@ -221,6 +421,10 @@
     var next = document.getElementById('shopBtnNext');
     var yes = document.getElementById('shopConfirmYes');
     var no = document.getElementById('shopConfirmNo');
+    var ownerFab = document.getElementById('btnOwnerAddShopFab');
+    var ownerClose = document.getElementById('btnOwnerAddShopClose');
+    var ownerSubmit = document.getElementById('ownerShopSubmit');
+    var ownerPrice = document.getElementById('ownerShopPrice');
 
     if (fab) {
       fab.classList.remove('hidden');
@@ -255,9 +459,21 @@
         });
       });
     }
+    if (ownerFab) ownerFab.addEventListener('click', openOwnerAddShop);
+    if (ownerClose) ownerClose.addEventListener('click', closeOwnerAddShop);
+    if (ownerSubmit) ownerSubmit.addEventListener('click', function () {
+      void submitOwnerShopItem();
+    });
+    if (ownerPrice) {
+      ownerPrice.addEventListener('input', updateOwnerTierPreview);
+      ownerPrice.addEventListener('change', updateOwnerTierPreview);
+    }
+    syncOwnerAddShopFab();
+    window.addEventListener('skyhop-auth-changed', syncOwnerAddShopFab);
   }
 
   window.SkyHopOpenCoinShop = openShop;
+  window.SkyHopSyncOwnerAddShopFab = syncOwnerAddShopFab;
   window.SkyHopRefreshCoinShop = function () {
     if (document.getElementById('screenCoinShop') && !document.getElementById('screenCoinShop').classList.contains('hidden')) {
       void loadShopCatalog();

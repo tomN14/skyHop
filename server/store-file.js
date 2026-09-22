@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { BAN_PERMANENT_MS, applyRoleChangeToUser, effectiveRole, ownerUsernameLower } from './moderation.js';
+import { BAN_PERMANENT_MS, applyRoleChangeToUser, creditPromotionCoins, effectiveRole, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
 
@@ -239,8 +239,10 @@ export function createFileStore() {
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      const fromRole = effectiveRole(u);
       applyRoleChangeToUser(u, toRole);
       saveStore();
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async applyStrikeMutation(userId, { strikes, toRole, banUntilMs, banReason }) {
@@ -274,8 +276,11 @@ export function createFileStore() {
       if (effectiveRole(u) === 'report_advisor' && !isModerator) {
         throw new Error('That account is a Report Advisor. Remove that role separately.');
       }
-      applyRoleChangeToUser(u, isModerator ? 'moderator' : 'player');
+      const fromRole = effectiveRole(u);
+      const toRole = isModerator ? 'moderator' : 'player';
+      applyRoleChangeToUser(u, toRole);
       saveStore();
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async revokeAllSessionsForUser(userId) {
@@ -323,6 +328,22 @@ export function createFileStore() {
       const id = s.nextRunId++;
       s.runs.push({ id, userId, timeMs: t, deaths: d, source: src, difficulty: diff, createdAt: Date.now() });
       saveStore();
+      return { id };
+    },
+
+    async campaignTimeRankTop10(runId, difficulty) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') return null;
+      const id = Number(runId);
+      if (!Number.isFinite(id)) return null;
+      const s = loadStore();
+      const rows = s.runs
+        .filter((r) => r.source === 'campaign' && r.difficulty === diff)
+        .slice()
+        .sort((a, b) => a.timeMs - b.timeMs || Number(a.id) - Number(b.id))
+        .slice(0, 10);
+      const idx = rows.findIndex((r) => Number(r.id) === id);
+      return idx >= 0 ? idx + 1 : null;
     },
 
     async listOwnerCampaignLeaderboardEntries(difficulty, limit = 50) {
@@ -557,8 +578,11 @@ export function createFileStore() {
       if (role === 'owner') throw new Error('Cannot change owner role.');
       if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
       if (role === 'moderator') throw new Error('Demote them from moderator first.');
-      applyRoleChangeToUser(u, isAdvisor ? 'report_advisor' : 'player');
+      const fromRole = role;
+      const toRole = isAdvisor ? 'report_advisor' : 'player';
+      applyRoleChangeToUser(u, toRole);
       saveStore();
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async incrementUserCoins(userId, delta) {
@@ -1065,7 +1089,11 @@ export function createFileStore() {
         for (const other of s.users) {
           if (other.id !== userId && other.role === 'admin') applyRoleChangeToUser(other, 'player');
         }
+        const fromRole = effectiveRole(u);
         applyRoleChangeToUser(u, 'admin');
+        saveStore();
+        await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, 'admin');
+        return;
       } else if (u.role === 'admin') {
         applyRoleChangeToUser(u, 'player');
       }

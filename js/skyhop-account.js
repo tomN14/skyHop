@@ -1036,7 +1036,7 @@
         const tok = getToken();
         if (!items.length) {
           ul.innerHTML =
-            '<li class="text-xs text-slate-500">No items — add PNG/WebP skins under <span class="font-mono">textures/</span> and list them in <span class="font-mono">server/shop-catalog.js</span>.</li>';
+            '<li class="text-xs text-slate-500">No items yet. The owner can add skins in-game with the ➕ button next to the shop.</li>';
           return;
         }
         for (let i = 0; i < items.length; i++) {
@@ -1045,10 +1045,14 @@
           const li = document.createElement('li');
           li.className =
             'flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-900/50 px-2 py-2';
+          const infinite = !!(me && me.coinsInfinite);
           const priceLabel = infinite ? '—' : String(it.price);
           const left = document.createElement('span');
           left.className = 'text-slate-200';
-          left.textContent = it.label || it.texture;
+          const tierName = it.tierLabel || (typeof window.SkyHopShopTierFromPrice === 'function'
+            ? window.SkyHopShopTierFromPrice(it.price).label
+            : '');
+          left.textContent = (tierName ? '[' + tierName + '] ' : '') + (it.label || it.texture);
           const price = document.createElement('span');
           price.className = 'font-mono text-amber-200/90';
           price.textContent = priceLabel + ' coins';
@@ -1219,6 +1223,7 @@
         updateOwnerRequestBadge(null);
         hidePromotionNotice();
         syncOwnerStrikeTools(null);
+        if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
@@ -1259,6 +1264,7 @@
         updateAdminBanFab(me);
         updateOwnerRequestBadge(me);
         syncOwnerStrikeTools(me);
+        if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
         var btnOpenOwnerPage = document.getElementById('btnOpenOwnerPage');
@@ -1291,6 +1297,7 @@
         updateOwnerRequestBadge(null);
         hidePromotionNotice();
         syncOwnerStrikeTools(null);
+        if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -3244,6 +3251,7 @@
     updateAdminBanFab(null);
     updateOwnerRequestBadge(null);
     syncOwnerStrikeTools(null);
+    if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
     void refreshMenuBranding();
     if (getToken()) void refreshPanel();
   }

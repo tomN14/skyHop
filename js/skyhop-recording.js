@@ -56,6 +56,19 @@
   let gameplayActive = false;
   let sessionMeta = { title: 'Run', source: 'campaign', anticheatOn: true };
   let namedTitle = null;
+  var SPLIT_AFTER_MS = 25 * 60 * 1000;
+  var CHUNK_MS = 15 * 60 * 1000;
+  var SOFT_MAX_BYTES = Math.floor(256 * 1024 * 1024 * 0.92);
+  var recordStartedAt = 0;
+  var segmentStartedAt = 0;
+  var splitTimer = null;
+  var rotating = false;
+  var pendingBlobs = [];
+  var uploadedPartCount = 0;
+  var savedRecordings = [];
+  var uploadChain = Promise.resolve();
+  var recordMimeType = '';
+  var stopping = false;
 
   const btn = () => document.getElementById('btnRecordRun');
 
@@ -169,10 +182,22 @@
     return data && data.recording ? data.recording : data;
   }
 
+  function videoPlaybackUrl(recordingId) {
+    const tok = authToken();
+    if (!tok) return '';
+    return (
+      apiBase() +
+      '/api/recordings/' +
+      encodeURIComponent(recordingId) +
+      '/video?access_token=' +
+      encodeURIComponent(tok)
+    );
+  }
+
   async function fetchVideoBlob(recordingId) {
     const tok = authToken();
     if (!tok) throw new Error('Not signed in');
-    const res = await fetch(apiBase() + '/api/recordings/' + encodeURIComponent(recordingId) + '/video', {
+    const res = await fetch(videoPlaybackUrl(recordingId) || apiBase() + '/api/recordings/' + encodeURIComponent(recordingId) + '/video', {
       headers: { Authorization: 'Bearer ' + tok },
     });
     if (!res.ok) {
@@ -186,9 +211,141 @@
     return document.getElementById('gameCanvas');
   }
 
+  function chunkBytes(chunks) {
+    var n = 0;
+    for (var i = 0; i < (chunks || []).length; i++) n += chunks[i].size || 0;
+    return n;
+  }
+
+  function stopRecorderToBlob(mr, chunks, mime) {
+    return new Promise(function (resolve, reject) {
+      if (!mr || mr.state === 'inactive') {
+        resolve(chunks && chunks.length ? new Blob(chunks, { type: mime }) : null);
+        return;
+      }
+      mr.onstop = function () {
+        try {
+          resolve(chunks && chunks.length ? new Blob(chunks, { type: mime }) : null);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      mr.onerror = function () {
+        reject(mr.error || new Error('Recording failed'));
+      };
+      try {
+        mr.stop();
+      } catch (e2) {
+        reject(e2);
+      }
+    });
+  }
+
+  function startRecorderOnStream() {
+    recordChunks = [];
+    mediaRecorder = new MediaRecorder(captureStream, {
+      mimeType: recordMimeType,
+      videoBitsPerSecond: 1000000,
+    });
+    mediaRecorder.ondataavailable = function (e) {
+      if (e.data && e.data.size > 0) recordChunks.push(e.data);
+    };
+    mediaRecorder.start(250);
+    segmentStartedAt = performance.now();
+  }
+
+  function shouldRotateSegment() {
+    if (!recording || !mediaRecorder) return false;
+    var now = performance.now();
+    var sessionMs = now - recordStartedAt;
+    var segmentMs = now - segmentStartedAt;
+    if (sessionMs <= SPLIT_AFTER_MS) return false;
+    if (chunkBytes(recordChunks) >= SOFT_MAX_BYTES) return true;
+    if (uploadedPartCount === 0 && pendingBlobs.length === 0) return sessionMs > SPLIT_AFTER_MS;
+    return segmentMs >= CHUNK_MS;
+  }
+
+  function clipTitleForPart(partNum, multi) {
+    var base = namedTitle || sessionMeta.title || 'Run';
+    if (!multi && partNum <= 1) return base;
+    return base + ' (' + partNum + ')';
+  }
+
+  async function flushPendingUploads(multi) {
+    var meta = Object.assign({}, sessionMeta);
+    while (pendingBlobs.length) {
+      var blob = pendingBlobs.shift();
+      if (!blob || !blob.size) continue;
+      uploadedPartCount += 1;
+      var saved = await uploadClip(blob, {
+        title: clipTitleForPart(uploadedPartCount, multi || uploadedPartCount > 1 || pendingBlobs.length > 0),
+        source: meta.source,
+        mimeType: blob.type || recordMimeType || 'video/webm',
+        anticheatOn: meta.anticheatOn !== false,
+      });
+      if (saved) savedRecordings.push(saved);
+    }
+  }
+
+  function queuePendingUploads(multi) {
+    uploadChain = uploadChain
+      .then(function () {
+        return flushPendingUploads(multi);
+      })
+      .catch(function (e) {
+        window.alert(String((e && e.message) || e));
+      });
+    return uploadChain;
+  }
+
+  async function rotateSegment() {
+    if (rotating || !recording || !mediaRecorder) return;
+    rotating = true;
+    try {
+      var mr = mediaRecorder;
+      var chunks = recordChunks;
+      var mime = mr.mimeType || recordMimeType || 'video/webm';
+      mediaRecorder = null;
+      recordChunks = [];
+      var blob = await stopRecorderToBlob(mr, chunks, mime);
+      if (blob && blob.size) pendingBlobs.push(blob);
+      if (recording && captureStream) startRecorderOnStream();
+      queuePendingUploads(true);
+    } catch (e) {
+      window.alert(String(e.message || e));
+    } finally {
+      rotating = false;
+    }
+  }
+
+  function tickSplit() {
+    if (!recording || rotating) return;
+    try {
+      if (mediaRecorder && mediaRecorder.state === 'recording' && typeof mediaRecorder.requestData === 'function') {
+        mediaRecorder.requestData();
+      }
+    } catch {
+      /* ignore */
+    }
+    if (shouldRotateSegment()) void rotateSegment();
+  }
+
+  function resetSplitState() {
+    pendingBlobs = [];
+    uploadedPartCount = 0;
+    savedRecordings = [];
+    uploadChain = Promise.resolve();
+    recordStartedAt = 0;
+    segmentStartedAt = 0;
+    if (splitTimer) {
+      clearInterval(splitTimer);
+      splitTimer = null;
+    }
+  }
+
   async function startRecording(opts) {
     opts = opts || {};
-    if (recording || !gameplayActive) return false;
+    if (recording || stopping || !gameplayActive) return false;
     if (!authToken()) {
       window.alert('Sign in to record runs — clips save to your account.');
       return false;
@@ -216,17 +373,17 @@
       return false;
     }
     try {
+      resetSplitState();
       captureStream = canvas.captureStream(30);
-      recordChunks = [];
-      mediaRecorder = new MediaRecorder(captureStream, { mimeType: mimeType, videoBitsPerSecond: 2500000 });
-      mediaRecorder.ondataavailable = function (e) {
-        if (e.data && e.data.size > 0) recordChunks.push(e.data);
-      };
-      mediaRecorder.start(250);
+      recordMimeType = mimeType;
+      recordStartedAt = performance.now();
+      startRecorderOnStream();
       recording = true;
+      splitTimer = setInterval(tickSplit, 1000);
       syncRecordButton();
       return true;
     } catch (e) {
+      resetSplitState();
       stopCaptureTracks();
       window.alert(String(e.message || e));
       return false;
@@ -234,51 +391,62 @@
   }
 
   async function stopRecording() {
-    if (!recording || !mediaRecorder) return null;
-    var mr = mediaRecorder;
-    var meta = Object.assign({}, sessionMeta);
-    var titleForSave = namedTitle || meta.title;
-    var mimeType = mr.mimeType || pickMimeType() || 'video/webm';
+    if ((!recording && !mediaRecorder) || stopping) return null;
+    stopping = true;
     recording = false;
     syncRecordButton();
-    var blob = await new Promise(function (resolve, reject) {
-      mr.onstop = function () {
-        try {
-          resolve(new Blob(recordChunks, { type: mimeType }));
-        } catch (err) {
-          reject(err);
-        }
-      };
-      mr.onerror = function () {
-        reject(mr.error || new Error('Recording failed'));
-      };
-      try {
-        mr.stop();
-      } catch (e2) {
-        reject(e2);
-      }
-    });
-    mediaRecorder = null;
-    recordChunks = [];
-    stopCaptureTracks();
-    if (!blob.size) {
-      namedTitle = null;
-      return null;
+    if (splitTimer) {
+      clearInterval(splitTimer);
+      splitTimer = null;
+    }
+    var wait = 0;
+    while (rotating && wait < 80) {
+      await new Promise(function (resolve) {
+        setTimeout(resolve, 100);
+      });
+      wait += 1;
     }
     try {
-      var saved = await uploadClip(blob, {
-        title: titleForSave,
-        source: meta.source,
-        mimeType: mimeType,
-        anticheatOn: meta.anticheatOn !== false,
-      });
+      if (mediaRecorder) {
+        var mr = mediaRecorder;
+        var chunks = recordChunks;
+        var mimeType = mr.mimeType || recordMimeType || pickMimeType() || 'video/webm';
+        mediaRecorder = null;
+        recordChunks = [];
+        var blob = await stopRecorderToBlob(mr, chunks, mimeType);
+        if (blob && blob.size) pendingBlobs.push(blob);
+      }
+      stopCaptureTracks();
+      var multi = uploadedPartCount > 0 || pendingBlobs.length > 1;
+      await uploadChain;
+      await flushPendingUploads(multi);
+      var saved = savedRecordings.length ? savedRecordings[savedRecordings.length - 1] : null;
+      var ids = savedRecordings.map(function (r) {
+        return r && r.id;
+      }).filter(Boolean);
+      if (savedRecordings.length > 1) {
+        window.alert(
+          'This recording was over 25 minutes or the size limit, so it was saved as ' +
+            savedRecordings.length +
+            ' clips. The first clip is up to 25 minutes; the rest are 15-minute chunks. Submit them together in that order.'
+        );
+      }
       namedTitle = null;
-      window.dispatchEvent(new CustomEvent('skyhop-recording-saved', { detail: { id: saved && saved.id } }));
+      if (saved || ids.length) {
+        window.dispatchEvent(
+          new CustomEvent('skyhop-recording-saved', { detail: { id: ids[0] || (saved && saved.id), ids: ids } })
+        );
+      }
+      resetSplitState();
       return saved;
     } catch (e) {
+      stopCaptureTracks();
       namedTitle = null;
+      resetSplitState();
       window.alert(String(e.message || e));
       return null;
+    } finally {
+      stopping = false;
     }
   }
 
@@ -332,8 +500,9 @@
     deleteClip: deleteClip,
     renameClip: renameClip,
     fetchVideoBlob: fetchVideoBlob,
+    videoPlaybackUrl: videoPlaybackUrl,
     isRecording: function () {
-      return recording;
+      return recording || stopping;
     },
     isGameplayActive: function () {
       return gameplayActive;

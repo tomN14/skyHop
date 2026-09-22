@@ -13,7 +13,7 @@ import {
   peekDeleteToken,
 } from './owner-delete.js';
 import { sendOwnerMail } from './mail.js';
-import { getShopItemById, SHOP_ITEMS, SHOP_PAGES, SHOP_SLOTS_PER_PAGE } from './shop-catalog.js';
+import * as ShopItems from './shop-items.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
@@ -76,7 +76,8 @@ async function userMayEquipTexture(uid, user, fname) {
   if (!fname) return true;
   const base = path.basename(fname);
   const allowed = await listTextureFilenames();
-  if (!allowed.has(base)) return false;
+  const shopItem = await ShopItems.findShopItemByTexture(base);
+  if (!allowed.has(base) && !shopItem) return false;
   if (effectiveRole(user) === 'owner') return true;
   if (typeof store.userHasTextureGrant !== 'function') return false;
   return store.userHasTextureGrant(uid, base);
@@ -85,7 +86,8 @@ async function userMayEquipTexture(uid, user, fname) {
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Authorization, X-Shop-Label, X-Shop-Price, X-Shop-Sell-Price, X-Recording-Title, X-Recording-Source, X-Anticheat-On, X-Input-Log-Title, X-Input-Log-Source',
 };
 
 function json(res, status, obj) {
@@ -744,7 +746,8 @@ export async function handleApi(req, res) {
     try {
       if (fname) {
         const allowed = await listTextureFilenames();
-        if (!allowed.has(fname)) {
+        const shopItem = await ShopItems.findShopItemByTexture(fname);
+        if (!allowed.has(fname) && !shopItem) {
           json(res, 400, { error: 'Unknown texture. Add the file under textures/ on the server.' });
           return true;
         }
@@ -1184,6 +1187,8 @@ export async function handleApi(req, res) {
       }
       if (effectiveRole(sess.user) === 'owner') {
         const set = await listTextureFilenames();
+        const extra = await ShopItems.listShopTextureFilenames();
+        for (const t of extra) set.add(t);
         json(res, 200, { textures: [...set].sort() });
         return true;
       }
@@ -1202,20 +1207,36 @@ export async function handleApi(req, res) {
   if (pathname === '/api/shop/items' && req.method === 'GET') {
     try {
       const disk = await listTextureFilenames();
-      const items = SHOP_ITEMS.filter((x) => disk.has(x.texture)).map((x) => ({
-        id: x.id,
-        texture: x.texture,
-        price: x.price,
-        sellPrice: x.sellPrice != null ? x.sellPrice : 0,
-        label: x.label || x.texture,
-        page: x.page != null ? x.page : 1,
-        slot: x.slot != null ? x.slot : 0,
-      }));
-      json(res, 200, { items, pages: SHOP_PAGES, slotsPerPage: SHOP_SLOTS_PER_PAGE });
+      const out = await ShopItems.listShopItems(disk);
+      json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }
     return true;
+  }
+
+  {
+    const m = /^\/api\/shop\/skins\/([^/]+)$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      try {
+        const fn = decodeURIComponent(m[1]);
+        const hit = await ShopItems.readShopSkinByTexture(fn);
+        if (!hit) {
+          json(res, 404, { error: 'Not found' });
+          return true;
+        }
+        res.writeHead(200, {
+          'Content-Type': hit.mimeType || 'image/png',
+          'Content-Length': hit.buffer.length,
+          'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(hit.buffer);
+      } catch (e) {
+        json(res, 404, { error: String(e.message || e) });
+      }
+      return true;
+    }
   }
 
   if (pathname === '/api/shop/buy' && req.method === 'POST') {
@@ -1231,14 +1252,14 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'Invalid JSON' });
       return true;
     }
-    const item = getShopItemById(String(body.itemId || ''));
+    const item = await ShopItems.getShopItemById(String(body.itemId || ''));
     if (!item) {
       json(res, 400, { error: 'Unknown shop item.' });
       return true;
     }
     try {
       const disk = await listTextureFilenames();
-      if (!disk.has(item.texture)) {
+      if (item.source !== 'owner' && !disk.has(item.texture)) {
         json(res, 400, { error: 'That item is not available on this server.' });
         return true;
       }
@@ -1288,7 +1309,7 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'Invalid JSON' });
       return true;
     }
-    const item = getShopItemById(String(body.itemId || ''));
+    const item = await ShopItems.getShopItemById(String(body.itemId || ''));
     if (!item) {
       json(res, 400, { error: 'Unknown shop item.' });
       return true;
@@ -1331,6 +1352,42 @@ export async function handleApi(req, res) {
         coinsInfinite: !!me.coinsInfinite,
         sellPrice,
       });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/shop/items' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const buf = await readBinaryBody(req, ShopItems.MAX_SHOP_IMAGE_BYTES + 65536);
+      const contentType = String(req.headers['content-type'] || '');
+      let label = String(req.headers['x-shop-label'] || 'Shop item');
+      try {
+        label = decodeURIComponent(label);
+      } catch {
+        /* keep */
+      }
+      label = censorProfanity(label).text.slice(0, 80) || 'Shop item';
+      const price = Number(req.headers['x-shop-price']);
+      const sellPrice = Number(req.headers['x-shop-sell-price']);
+      const item = await ShopItems.createOwnerShopItem({
+        label,
+        price,
+        sellPrice,
+        buffer: buf,
+        contentType,
+      });
+      json(res, 201, { ok: true, item });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -2096,7 +2153,8 @@ export async function handleApi(req, res) {
     }
     try {
       const disk = await listTextureFilenames();
-      if (!disk.has(fname)) {
+      const shopItem = await ShopItems.findShopItemByTexture(fname);
+      if (!disk.has(fname) && !shopItem) {
         json(res, 400, { error: 'That file is not on the server (add it under textures/).' });
         return true;
       }
@@ -3116,6 +3174,10 @@ export async function handleApi(req, res) {
   {
     const m = /^\/api\/recordings\/([^/]+)\/video$/.exec(pathname);
     if (m && req.method === 'GET') {
+      if (!req.headers.authorization) {
+        const qTok = u.searchParams.get('access_token');
+        if (qTok) req.headers.authorization = 'Bearer ' + qTok;
+      }
       const uid = await bearerUserId(req);
       if (!uid) {
         json(res, 401, { error: 'Not logged in' });
@@ -3541,6 +3603,10 @@ export async function handleApi(req, res) {
   {
     const m = /^\/api\/staff\/recordings\/([^/]+)\/video$/.exec(pathname);
     if (m && req.method === 'GET') {
+      if (!req.headers.authorization) {
+        const qTok = u.searchParams.get('access_token');
+        if (qTok) req.headers.authorization = 'Bearer ' + qTok;
+      }
       const staff = await requireStaffSession(req);
       if (!staff) {
         json(res, 403, { error: 'Moderator or owner access required.' });

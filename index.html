@@ -75,6 +75,10 @@
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(11.25rem + env(safe-area-inset-bottom, 0px));
     }
+    #btnOwnerAddShopFab {
+      left: calc(max(0.75rem, env(safe-area-inset-left, 0px)) + 3.5rem);
+      bottom: calc(11.25rem + env(safe-area-inset-bottom, 0px));
+    }
     @media (min-width: 768px) {
       #btnLeaderboardFab { right: 1.25rem; bottom: 8.5rem; }
       #btnModDashboardFab { right: 1.25rem; bottom: 5.25rem; }
@@ -85,6 +89,7 @@
       #btnKeybindsFab { left: 3rem; bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
       #btnAdminBanFab { left: 3rem; bottom: calc(19.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
+      #btnOwnerAddShopFab { left: calc(3rem + 3.5rem); bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
     }
     /* Hide shop / friends / mail / mod FABs while actively playing (shown again on pause or menu). */
     body.skyhop-suppress-edge-fabs .skyhop-edge-fab {
@@ -719,6 +724,7 @@
             <li>Equip skin texture from unlocked list</li>
             <li>Owner: gift coins, remove coins, grant texture files</li>
             <li>Owner account shows unlimited coins in UI</li>
+            <li>Role promotions auto-grant coins: Report Advisor 1000, moderator 2000, Admin 3000</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Leaderboards</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
@@ -730,10 +736,11 @@
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Recordings &amp; submitted runs</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>In-run video recording (account); name clips when recording or rename later</li>
+            <li>In-run video recording (account); clips under the size limit stay one file, longer ones split into 15-minute chunks</li>
             <li>Input logs captured and uploaded (private storage)</li>
             <li>Record Run and Input Log captures both and saves to My Recordings and My Logs</li>
-            <li>Submit run flow: pick recording + log, staff review</li>
+            <li>Submit run flow: pick one or more recordings + logs in order, staff review</li>
+            <li>Auto coins: 50 on submit, 50 on accept, plus (11 − rank) × 50 if that run is top 10</li>
             <li>Mod: Submitted Runs search (approved / declined / unreviewed)</li>
             <li>Owner: Reviewed Runs queue, lock status, decline reasons</li>
           </ul>
@@ -811,7 +818,7 @@
         </div>
         <div id="ownerTools" class="mt-4 hidden rounded-xl border border-white/10 bg-slate-950/50 p-3 text-left">
           <p class="text-xs font-sem text-emerald-200">Owner: moderators</p>
-          <p class="mt-1 text-[11px] text-slate-500">Promote any <strong class="text-slate-400">player</strong> to moderator (persists until you remove mod). Demote a moderator to <strong class="text-slate-400">player</strong> — they lose the inbox button and red name after refresh.</p>
+          <p class="mt-1 text-[11px] text-slate-500">Promote any <strong class="text-slate-400">player</strong> to moderator (persists until you remove mod; they automatically get 2000 coins). Demote a moderator to <strong class="text-slate-400">player</strong> — they lose the inbox button and red name after refresh.</p>
           <p class="mt-2 text-[11px] font-sem text-rose-300/90">Current moderators</p>
           <ul id="ownerModList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-rose-200"></ul>
           <div class="mt-3 flex flex-wrap gap-2">
@@ -882,7 +889,7 @@
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admin (exactly one)</p>
-          <p class="mt-1 text-[11px] text-slate-500">Same as a moderator, plus promote mods and 1-day bans (max 2 / week). They cannot demote mods, use Owner Inbox, Owner Administration, or Reviewed Runs. Assign after deploy — nobody is Admin until you set it.</p>
+          <p class="mt-1 text-[11px] text-slate-500">Same as a moderator, plus promote mods and 1-day bans (max 2 / week). Becoming Admin automatically grants 3000 coins. They cannot demote mods, use Owner Inbox, Owner Administration, or Reviewed Runs. Assign after deploy — nobody is Admin until you set it.</p>
           <p class="mt-2 text-sm text-slate-200">Current Admin: <span id="ownerAdminCurrentLabel" class="font-semibold text-emerald-300">none</span></p>
           <input id="ownerAdminRoleUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username to make / remove Admin" />
           <div class="mt-2 flex flex-col gap-2 sm:flex-row">
@@ -893,7 +900,7 @@
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-sky-200/90">📋 Report Advisor</p>
-          <p class="mt-1 text-[11px] text-slate-500">Between player and moderator. They see the same pending reports as mods and can dismiss or escalate to you. No dashboard, owner tools, bans, or appeal votes. Assign after deploy — nobody is a Report Advisor until you set it.</p>
+          <p class="mt-1 text-[11px] text-slate-500">Between player and moderator. They see the same pending reports as mods and can dismiss or escalate to you. Becoming Report Advisor automatically grants 1000 coins. No dashboard, owner tools, bans, or appeal votes. Assign after deploy — nobody is a Report Advisor until you set it.</p>
           <p class="mt-2 text-[11px] font-sem text-sky-300/90">Current Report Advisors</p>
           <ul id="ownerAdvisorList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-sky-200"></ul>
           <input id="ownerAdvisorUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username to make / remove Report Advisor" />
@@ -1013,6 +1020,7 @@
         </div>
         <div class="mt-4 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-emerald-200/90">Promote moderator</p>
+          <p class="mt-1 text-[11px] text-slate-500">New moderators automatically receive 2000 coins.</p>
           <input id="adminModUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
           <button id="adminBtnPromoteMod" type="button" class="mt-2 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Make moderator</button>
         </div>
@@ -1286,7 +1294,7 @@
       <div class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
         <div>
           <p class="text-xs font-sem uppercase tracking-widest text-amber-400">Coin shop</p>
-          <p class="text-sm text-slate-400">Page <span id="shopPageNum">1</span> / <span id="shopPageTotal">3</span></p>
+          <p class="text-sm text-slate-400">Page <span id="shopPageNum">1</span> / <span id="shopPageTotal">3</span> · rarity from buy price</p>
         </div>
         <p class="font-mono text-lg text-amber-200"><span id="shopCoinBalance">0</span> coins</p>
         <button id="btnCoinShopClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
@@ -1310,6 +1318,34 @@
       </div>
     </div>
 
+    <div id="screenOwnerAddShop" class="pointer-events-auto fixed inset-0 z-[41] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+        <div>
+          <p class="text-xs font-sem uppercase tracking-widest text-amber-400">Owner</p>
+          <h2 class="text-lg font-bold text-white">Add shop item</h2>
+        </div>
+        <button id="btnOwnerAddShopClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+      </div>
+      <div class="mx-auto w-full max-w-md flex-1 overflow-y-auto p-4 md:p-6">
+        <p class="text-xs text-slate-400">Upload a skin image, set buy and sell prices. Rarity is calculated from the buy price and the item appears in the shop immediately (no redeploy).</p>
+        <label class="mt-4 block text-xs text-slate-500">Image (PNG, JPEG, WebP, or GIF, max 1.5 MB)</label>
+        <input id="ownerShopImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="mt-1 w-full text-sm text-slate-200" />
+        <label class="mt-3 block text-xs text-slate-500">Name</label>
+        <input id="ownerShopLabel" type="text" maxlength="80" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Item name" />
+        <label class="mt-3 block text-xs text-slate-500">Buy price (coins)</label>
+        <input id="ownerShopPrice" type="number" min="50" max="1000000" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="50–1,000,000" />
+        <label class="mt-3 block text-xs text-slate-500">Sell price (coins the player gets back)</label>
+        <input id="ownerShopSell" type="number" min="0" max="1000000" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="0–1,000,000" />
+        <p class="mt-3 text-sm text-slate-300">Tier: <span id="ownerShopTierPreview" class="font-semibold text-amber-200">—</span></p>
+        <ul class="mt-2 space-y-0.5 text-[11px] text-slate-500">
+          <li>Common 50–999 · Uncommon 1000–1999 · Insane 2000–4499</li>
+          <li>Rare 4500–9999 · Epic 10000–99999 · Legendary 100000–499999 · Mythic 500000–1000000</li>
+        </ul>
+        <p id="ownerShopErr" class="mt-2 hidden text-sm text-rose-300"></p>
+        <button id="ownerShopSubmit" type="button" class="mt-4 w-full rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-500">Add to shop</button>
+      </div>
+    </div>
+
     <!-- User levels: My levels -->
     <div id="screenLevelsMine" class="absolute inset-0 z-[29] hidden flex flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
       <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center justify-between gap-2 pb-3">
@@ -1328,12 +1364,12 @@
         <ul id="levelsMineList" class="list-none space-y-2 p-0"></ul>
       </div>
       <div id="levelsMinePanelRecordings" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
-        <p class="mb-2 text-center text-xs text-slate-500">Clips are saved to your account. Tap Record or Record Run and Input Log while playing and give it a name. You can rename clips here later.</p>
+        <p class="mb-2 text-center text-xs text-slate-500">Clips under the size limit (about 25 minutes) stay as one file. Longer recordings are split into 15-minute chunks after that. Tap Record or Record Run and Input Log while playing and give it a name.</p>
         <p id="levelsRecordingsErr" class="mb-2 hidden text-center text-sm text-rose-300"></p>
         <ul id="levelsRecordingsList" class="list-none space-y-3 p-0"></ul>
       </div>
       <div id="levelsMinePanelLogs" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
-        <p class="mb-2 text-center text-xs text-slate-500">Input logs are saved to your account (sign in, then use Record Input Log or Record Run and Input Log while playing).</p>
+        <p class="mb-2 text-center text-xs text-slate-500">Input logs are saved to your account. Logs over 25 minutes are split into 15-minute parts so you can submit them with the matching clips.</p>
         <p id="levelsInputLogsErr" class="mb-2 hidden text-center text-sm text-rose-300"></p>
         <ul id="levelsInputLogsList" class="list-none space-y-3 p-0"></ul>
       </div>
@@ -1346,15 +1382,16 @@
         <span class="w-16"></span>
       </div>
       <p id="submitRunErr" class="mx-auto mb-2 hidden max-w-2xl text-center text-sm text-rose-300"></p>
+      <p id="submitRunMultiNotice" class="mx-auto mb-2 hidden max-w-2xl rounded-xl border border-amber-400/40 bg-amber-950/50 px-3 py-2 text-center text-xs text-amber-100"></p>
       <div id="submitRunStep1" class="mx-auto w-full max-w-2xl flex-1 overflow-y-auto">
-        <p class="mb-3 text-sm text-slate-400">Step 1 — Choose a recording from your account.</p>
+        <p class="mb-3 text-sm text-slate-400">Step 1 — Choose one or more recordings. Tap in chronological order (first tap = start of the run). Tap again to remove.</p>
         <ul id="submitRunRecordingsList" class="list-none space-y-2 p-0"></ul>
         <div class="mt-4 flex justify-end">
           <button id="submitRunNext1" type="button" disabled class="rounded-xl bg-violet-600 px-5 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40">Next</button>
         </div>
       </div>
       <div id="submitRunStep2" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
-        <p class="mb-3 text-sm text-slate-400">Step 2 — Choose the matching input log.</p>
+        <p class="mb-3 text-sm text-slate-400">Step 2 — Choose one or more matching input logs. Tap in the same chronological order as the recordings.</p>
         <ul id="submitRunLogsList" class="list-none space-y-2 p-0"></ul>
         <div class="mt-4 flex justify-between gap-2">
           <button id="submitRunBack2" type="button" class="rounded-xl border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">Back</button>
@@ -1362,7 +1399,8 @@
         </div>
       </div>
       <div id="submitRunStep3" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
-        <p class="mb-3 text-sm text-slate-400">Step 3 — Run stats for moderators (must match the recording).</p>
+        <p class="mb-3 text-sm text-slate-400">Step 3 — Run stats for moderators (must match the recording). This is still one run even if you attached several clips or logs.</p>
+        <p class="mb-3 rounded-xl border border-amber-400/30 bg-amber-950/30 px-3 py-2 text-xs text-amber-100">Submitting credits <strong>50 coins</strong> automatically. If staff accepts the run you get <strong>50 more</strong>. If that accepted run is top 10 on that difficulty’s time leaderboard you get extra: 1st = 500, 2nd = 450, … 10th = 50.</p>
         <label class="block text-xs text-slate-500">Difficulty</label>
         <select id="submitRunDifficulty" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
           <option value="easy">Easy</option>
@@ -1687,6 +1725,9 @@
   </button>
   <button id="btnCoinShopFab" type="button" title="Coin shop" class="skyhop-edge-fab border border-amber-500/50 bg-slate-900/95 hover:bg-amber-950/80">
     <span aria-hidden="true">🛒</span>
+  </button>
+  <button id="btnOwnerAddShopFab" type="button" title="Add shop item" class="skyhop-edge-fab hidden border border-amber-400/60 bg-slate-900/95 hover:bg-amber-950/80">
+    <span aria-hidden="true">➕</span>
   </button>
   <button id="btnLeaderboardFab" type="button" title="More leaderboards" class="skyhop-edge-fab border border-amber-500/45 bg-slate-900/95 hover:bg-amber-950/80">
     <span aria-hidden="true">🏆</span>

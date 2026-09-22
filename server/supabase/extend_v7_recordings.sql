@@ -19,7 +19,7 @@ values (
   'skyhop-recordings',
   'skyhop-recordings',
   false,
-  26214400,
+  268435456,
   array['video/webm', 'video/mp4', 'video/x-matroska']
 )
 on conflict (id) do update set

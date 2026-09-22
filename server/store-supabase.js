@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { BAN_PERMANENT_MS, effectiveRole, ownerUsernameLower, roleChangeDbPatch } from './moderation.js';
+import { BAN_PERMANENT_MS, creditPromotionCoins, effectiveRole, ownerUsernameLower, roleChangeDbPatch } from './moderation.js';
 import {
   createSignedAvatarUpload,
   removeUserProfileStorage,
@@ -210,7 +210,9 @@ export function createSupabaseStore() {
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      const fromRole = effectiveRole(u);
       await updateUserRow(sb, userId, roleChangeDbPatch(u.role, toRole));
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async applyStrikeMutation(userId, { strikes, toRole, banUntilMs, banReason }) {
@@ -244,7 +246,10 @@ export function createSupabaseStore() {
       if (effectiveRole(u) === 'report_advisor' && !isModerator) {
         throw new Error('That account is a Report Advisor. Remove that role separately.');
       }
-      await updateUserRow(sb, userId, roleChangeDbPatch(u.role, isModerator ? 'moderator' : 'player'));
+      const fromRole = effectiveRole(u);
+      const toRole = isModerator ? 'moderator' : 'player';
+      await updateUserRow(sb, userId, roleChangeDbPatch(u.role, toRole));
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async revokeAllSessionsForUser(userId) {
@@ -291,8 +296,27 @@ export function createSupabaseStore() {
         created_at: createdAt,
       };
       if (diff) row.difficulty = diff;
-      const { error } = await sb.from('skyhop_runs').insert(row);
+      const { data, error } = await sb.from('skyhop_runs').insert(row).select('id').maybeSingle();
       if (error) throw new Error(error.message);
+      return { id: data && data.id != null ? Number(data.id) : null };
+    },
+
+    async campaignTimeRankTop10(runId, difficulty) {
+      const diff = String(difficulty || '').toLowerCase();
+      if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') return null;
+      const id = Number(runId);
+      if (!Number.isFinite(id)) return null;
+      const { data, error } = await sb
+        .from('skyhop_runs')
+        .select('id')
+        .eq('source', 'campaign')
+        .eq('difficulty', diff)
+        .order('time_ms', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(10);
+      if (error) throw new Error(error.message);
+      const idx = (data || []).findIndex((r) => Number(r.id) === id);
+      return idx >= 0 ? idx + 1 : null;
     },
 
     async listCampaignLeaderboard(difficulty, limit = 10, friendUserIds = null) {
@@ -612,12 +636,15 @@ export function createSupabaseStore() {
       if (role === 'owner') throw new Error('Cannot change owner role.');
       if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
       if (role === 'moderator') throw new Error('Demote them from moderator first.');
+      const fromRole = role;
+      const toRole = isAdvisor ? 'report_advisor' : 'player';
       if (isAdvisor) {
-        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'report_advisor'));
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, toRole));
       } else {
         if (effectiveRole(u) !== 'report_advisor') return;
-        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'player'));
+        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, toRole));
       }
+      await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, toRole);
     },
 
     async incrementUserCoins(userId, delta) {
@@ -1198,7 +1225,9 @@ export function createSupabaseStore() {
           }
           if (e1) throw new Error(e1.message);
         }
+        const fromRole = effectiveRole(u);
         await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'admin'));
+        await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, 'admin');
       } else {
         if (effectiveRole(u) !== 'admin') return;
         await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'player'));

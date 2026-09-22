@@ -10,7 +10,8 @@ const INDEX_PATH = path.join(__dirname, 'data', 'recordings_index.json');
 const FILES_DIR = path.join(__dirname, 'data', 'recordings_files');
 
 export const RECORDINGS_BUCKET = 'skyhop-recordings';
-export const MAX_RECORDING_BYTES = 25 * 1024 * 1024;
+/** 25 min at ~1 Mbps capture, with headroom. */
+export const MAX_RECORDING_BYTES = 256 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(['video/webm', 'video/mp4', 'video/x-matroska', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8']);
 
 function normalizeMime(ct) {
@@ -76,7 +77,7 @@ function rowAnticheatOn(row) {
 
 function validateUpload(buffer, contentType) {
   if (!buffer || !buffer.length) throw new Error('Empty recording');
-  if (buffer.length > MAX_RECORDING_BYTES) throw new Error('Recording too large (max 25 MB)');
+  if (buffer.length > MAX_RECORDING_BYTES) throw new Error('Recording too large (max 25 minutes)');
   const mime = normalizeMime(contentType);
   const ok =
     ALLOWED_TYPES.has(mime) ||
@@ -86,8 +87,22 @@ function validateUpload(buffer, contentType) {
   return mime;
 }
 
+async function ensureRecordingsBucketLimit() {
+  if (!useSupabase()) return;
+  try {
+    await sbClient().storage.updateBucket(RECORDINGS_BUCKET, {
+      public: false,
+      fileSizeLimit: String(MAX_RECORDING_BYTES),
+      allowedMimeTypes: ['video/webm', 'video/mp4', 'video/x-matroska'],
+    });
+  } catch {
+    /* bucket may already allow this size */
+  }
+}
+
 export async function recordingsCreate(userId, buffer, contentType, meta) {
   const mime = validateUpload(buffer, contentType);
+  await ensureRecordingsBucketLimit();
   const title = String(meta?.title || 'Run').trim().slice(0, 120) || 'Run';
   const source = String(meta?.source || 'campaign').trim().slice(0, 40) || 'campaign';
   const anticheatOn = parseAnticheatOn(meta?.anticheatOn);
@@ -161,6 +176,7 @@ export async function recordingsCreate(userId, buffer, contentType, meta) {
 }
 
 export async function recordingsListForUser(userId) {
+  await ensureRecordingsBucketLimit();
   if (useSupabase()) {
     const sb = sbClient();
     const { data, error } = await sb

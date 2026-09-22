@@ -2325,16 +2325,31 @@
           '</div>';
         const videoEl = li.querySelector('.rec-video');
         const loadEl = li.querySelector('.rec-load');
-        void window.SkyHopRecording.fetchVideoBlob(clip.id)
-          .then(function (blob) {
-            const url = URL.createObjectURL(blob);
-            recordingObjectUrls.push(url);
-            videoEl.src = url;
-            if (loadEl) loadEl.classList.add('hidden');
-          })
-          .catch(function (err) {
-            if (loadEl) loadEl.textContent = String(err.message || err);
+        const playUrl =
+          window.SkyHopRecording.videoPlaybackUrl && window.SkyHopRecording.videoPlaybackUrl(clip.id);
+        function hideLoad() {
+          if (loadEl) loadEl.classList.add('hidden');
+        }
+        function showLoadErr(err) {
+          if (loadEl) loadEl.textContent = String((err && err.message) || err || 'Could not load video');
+        }
+        if (playUrl && videoEl) {
+          videoEl.preload = 'metadata';
+          videoEl.src = playUrl;
+          videoEl.addEventListener('loadeddata', hideLoad);
+          videoEl.addEventListener('error', function () {
+            showLoadErr('Could not load video');
           });
+        } else {
+          void window.SkyHopRecording.fetchVideoBlob(clip.id)
+            .then(function (blob) {
+              const url = URL.createObjectURL(blob);
+              recordingObjectUrls.push(url);
+              videoEl.src = url;
+              hideLoad();
+            })
+            .catch(showLoadErr);
+        }
         li.querySelector('.rec-rename').addEventListener('click', function () {
           var next = window.prompt('Rename recording', clip.title || 'Run');
           if (next == null) return;

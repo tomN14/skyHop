@@ -65,12 +65,24 @@
     }
   }
 
-  async function fetchStaffVideo(recordingId) {
-    var res = await fetch(apiBase() + '/api/staff/recordings/' + encodeURIComponent(recordingId) + '/video', {
-      headers: { Authorization: 'Bearer ' + token() },
-    });
-    if (!res.ok) throw new Error('Could not load recording');
-    return res.blob();
+  function recordingIdsOf(row) {
+    if (row.recordingIds && row.recordingIds.length) return row.recordingIds;
+    return row.recordingId ? [row.recordingId] : [];
+  }
+
+  function inputLogIdsOf(row) {
+    if (row.inputLogIds && row.inputLogIds.length) return row.inputLogIds;
+    return row.inputLogId ? [row.inputLogId] : [];
+  }
+
+  function staffVideoUrl(recordingId) {
+    return (
+      apiBase() +
+      '/api/staff/recordings/' +
+      encodeURIComponent(recordingId) +
+      '/video?access_token=' +
+      encodeURIComponent(token())
+    );
   }
 
   async function fetchStaffLog(inputLogId) {
@@ -93,7 +105,7 @@
   }
 
   async function review(id, status, declineReason) {
-    await api('/api/staff/submitted-runs/review', {
+    return api('/api/staff/submitted-runs/review', {
       method: 'POST',
       body: JSON.stringify({ id: id, status: status, declineReason: declineReason || '' }),
     });
@@ -153,8 +165,12 @@
               ? '<p class="mt-2 text-xs text-slate-300">Note: ' + String(row.playerNote).replace(/</g, '&lt;') + '</p>'
               : '') +
             '<div class="mt-3 flex flex-wrap gap-2">' +
-            '<button type="button" data-act="video" class="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">Watch recording</button>' +
-            '<button type="button" data-act="log" class="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">View input log</button>' +
+            '<button type="button" data-act="video" class="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">Watch recording' +
+            (recordingIdsOf(row).length > 1 ? 's (' + recordingIdsOf(row).length + ')' : '') +
+            '</button>' +
+            '<button type="button" data-act="log" class="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">View input log' +
+            (inputLogIdsOf(row).length > 1 ? 's (' + inputLogIdsOf(row).length + ')' : '') +
+            '</button>' +
             '</div>' +
             '<div class="staff-submit-media mt-3 hidden"></div>' +
             '<pre class="staff-submit-log mt-3 hidden max-h-48 overflow-auto rounded-lg bg-black/50 p-2 text-[10px] text-emerald-200"></pre>' +
@@ -163,23 +179,33 @@
           var pre = li.querySelector('.staff-submit-log');
           var actions = li.querySelector('.staff-submit-actions');
 
-          li.querySelector('[data-act="video"]').addEventListener('click', async function () {
-            try {
-              var blob = await fetchStaffVideo(row.recordingId);
-              var url = URL.createObjectURL(blob);
-              objectUrls.push(url);
-              media.classList.remove('hidden');
-              media.innerHTML =
-                '<video controls playsinline class="w-full max-h-64 rounded-lg bg-black" src="' + url + '"></video>';
-            } catch (e) {
-              window.alert(String(e.message || e));
-            }
+          li.querySelector('[data-act="video"]').addEventListener('click', function () {
+            var ids = recordingIdsOf(row);
+            media.classList.remove('hidden');
+            media.innerHTML = ids
+              .map(function (id, idx) {
+                return (
+                  '<p class="mb-1 mt-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Part ' +
+                  (idx + 1) +
+                  ' of ' +
+                  ids.length +
+                  '</p><video controls playsinline class="w-full max-h-64 rounded-lg bg-black" src="' +
+                  staffVideoUrl(id) +
+                  '"></video>'
+                );
+              })
+              .join('');
           });
           li.querySelector('[data-act="log"]').addEventListener('click', async function () {
             try {
-              var json = await fetchStaffLog(row.inputLogId);
+              var ids = inputLogIdsOf(row);
+              var parts = [];
+              for (var i = 0; i < ids.length; i++) {
+                var json = await fetchStaffLog(ids[i]);
+                parts.push('--- Input log ' + (i + 1) + ' of ' + ids.length + ' ---\n' + JSON.stringify(json, null, 2));
+              }
               pre.classList.remove('hidden');
-              pre.textContent = JSON.stringify(json, null, 2);
+              pre.textContent = parts.join('\n\n');
             } catch (e) {
               window.alert(String(e.message || e));
             }
@@ -203,7 +229,10 @@
                   reason = promptDeclineReason();
                   if (reason === null) return;
                 }
-                await review(row.id, st, reason);
+                var reviewOut = await review(row.id, st, reason);
+                if (st === 'approved' && reviewOut && Number(reviewOut.coinsAwarded) > 0) {
+                  window.alert('Approved. Player received +' + Number(reviewOut.coinsAwarded) + ' coins.');
+                }
                 await runSearch();
               } catch (e) {
                 window.alert(String(e.message || e));

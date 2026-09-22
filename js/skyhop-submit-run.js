@@ -1,10 +1,13 @@
 /**
- * Submit Run wizard: pick recording → pick input log → submit for moderator review.
+ * Submit Run wizard: pick recording(s) → pick input log(s) → submit for moderator review.
+ * Selection order is first tap to last tap.
  */
 (function () {
   var step = 1;
-  var pickedRecordingId = '';
-  var pickedLogId = '';
+  var pickedRecordingIds = [];
+  var pickedLogIds = [];
+  var MULTI_ORDER_NOTICE =
+    'Double-check that the recordings and input logs you selected are in chronological order (first selected is the start of the run). If they are out of order, staff may decline the run.';
 
   function api(path, opts) {
     if (typeof window.SkyHopApiRequest !== 'function') {
@@ -24,12 +27,12 @@
     el.classList.toggle('hidden', !t);
   }
 
-  function fmtClock(ms) {
-    if (!Number.isFinite(ms)) return '—';
-    var s = Math.floor(ms / 1000);
-    var m = Math.floor(s / 60);
-    s = s % 60;
-    return m + ':' + String(s).padStart(2, '0');
+  function syncMultiNotice() {
+    var el = document.getElementById('submitRunMultiNotice');
+    if (!el) return;
+    var show = pickedRecordingIds.length > 1;
+    el.textContent = MULTI_ORDER_NOTICE;
+    el.classList.toggle('hidden', !show);
   }
 
   function show(on) {
@@ -38,9 +41,10 @@
     el.classList.toggle('hidden', !on);
     if (on) {
       step = 1;
-      pickedRecordingId = '';
-      pickedLogId = '';
+      pickedRecordingIds = [];
+      pickedLogIds = [];
       setErr('');
+      syncMultiNotice();
       syncSteps();
       void loadStep1();
     }
@@ -54,11 +58,12 @@
     if (s2) s2.classList.toggle('hidden', step !== 2);
     if (s3) s3.classList.toggle('hidden', step !== 3);
     var next1 = document.getElementById('submitRunNext1');
-    if (next1) next1.disabled = !pickedRecordingId;
+    if (next1) next1.disabled = !pickedRecordingIds.length;
     var submitBtn = document.getElementById('submitRunSubmit');
-    if (submitBtn) submitBtn.disabled = step === 3 ? false : !pickedLogId;
+    if (submitBtn) submitBtn.disabled = step === 3 ? false : !pickedLogIds.length;
     var next2 = document.getElementById('submitRunNext2');
-    if (next2) next2.disabled = !pickedLogId;
+    if (next2) next2.disabled = !pickedLogIds.length;
+    syncMultiNotice();
   }
 
   var SUBMIT_AC_OFF_MSG = 'You may not submit this run as anti-cheat was off.';
@@ -67,7 +72,18 @@
     return !!(it && (it.anticheatOn === false || it.anticheat_on === false));
   }
 
-  function renderPickList(ul, items, kind, selectedId) {
+  function toggleId(arr, id) {
+    var i = arr.indexOf(id);
+    if (i >= 0) arr.splice(i, 1);
+    else arr.push(id);
+    return arr;
+  }
+
+  function orderOf(arr, id) {
+    return arr.indexOf(id) + 1;
+  }
+
+  function renderPickList(ul, items, kind, selectedIds) {
     if (!ul) return;
     ul.innerHTML = '';
     if (!items.length) {
@@ -79,7 +95,8 @@
       var it = items[i];
       var id = it.id;
       var li = document.createElement('li');
-      var sel = id === selectedId;
+      var ord = orderOf(selectedIds, id);
+      var sel = ord > 0;
       li.className =
         'cursor-pointer rounded-xl border px-3 py-3 text-sm ' +
         (sel ? 'border-violet-400 bg-violet-950/50' : 'border-white/10 bg-slate-900/60 hover:bg-slate-800/80');
@@ -87,13 +104,19 @@
       var when = it.created_at ? new Date(it.created_at).toLocaleString() : '';
       var acOff = isAnticheatOff(it);
       li.innerHTML =
-        '<p class="font-semibold text-white">' +
+        '<div class="flex items-start gap-2">' +
+        (sel
+          ? '<span class="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-500 px-1 text-[10px] font-bold text-white">' +
+            ord +
+            '</span>'
+          : '<span class="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-white/15 text-[10px] text-slate-500">+</span>') +
+        '<div class="min-w-0 flex-1"><p class="font-semibold text-white">' +
         title.replace(/</g, '&lt;') +
         '</p><p class="mt-1 text-xs text-slate-400">' +
         (it.source || '') +
         (when ? ' · ' + when : '') +
         (acOff ? ' · Anti-cheat off' : '') +
-        '</p>';
+        '</p></div></div>';
       li.addEventListener('click', function (item, k) {
         return function () {
           if (isAnticheatOff(item)) {
@@ -101,14 +124,14 @@
             return;
           }
           if (k === 'recording') {
-            pickedRecordingId = item.id;
+            toggleId(pickedRecordingIds, item.id);
             step = 1;
+            void loadStep1();
           } else {
-            pickedLogId = item.id;
+            toggleId(pickedLogIds, item.id);
+            void loadStep2();
           }
           syncSteps();
-          if (k === 'recording') void loadStep1();
-          else void loadStep2();
         };
       }(it, kind));
       ul.appendChild(li);
@@ -123,7 +146,7 @@
     }
     try {
       var recs = await window.SkyHopRecording.listClips();
-      renderPickList(ul, recs, 'recording', pickedRecordingId);
+      renderPickList(ul, recs, 'recording', pickedRecordingIds);
     } catch (e) {
       setErr(String(e.message || e));
     }
@@ -137,7 +160,7 @@
     }
     try {
       var logs = await window.SkyHopInputLog.listLogs();
-      renderPickList(ul, logs, 'log', pickedLogId);
+      renderPickList(ul, logs, 'log', pickedLogIds);
     } catch (e) {
       setErr(String(e.message || e));
     }
@@ -168,7 +191,7 @@
     var next1 = document.getElementById('submitRunNext1');
     if (next1) {
       next1.addEventListener('click', function () {
-        if (!pickedRecordingId) return;
+        if (!pickedRecordingIds.length) return;
         step = 2;
         setErr('');
         syncSteps();
@@ -186,7 +209,7 @@
     if (next2) {
       next2.disabled = true;
       next2.addEventListener('click', function () {
-        if (!pickedLogId) return;
+        if (!pickedLogIds.length) return;
         step = 3;
         setErr('');
         syncSteps();
@@ -213,24 +236,39 @@
         var timeMs = Number((document.getElementById('submitRunTimeMs') || {}).value);
         var deaths = Number((document.getElementById('submitRunDeaths') || {}).value);
         var note = String((document.getElementById('submitRunNote') || {}).value || '').trim();
-        if (!pickedRecordingId || !pickedLogId) {
-          setErr('Pick a recording and input log.');
+        if (!pickedRecordingIds.length || !pickedLogIds.length) {
+          setErr('Pick at least one recording and one input log.');
           return;
         }
         submitBtn.disabled = true;
         try {
-          await api('/api/submitted-runs/submit', {
+          var out = await api('/api/submitted-runs/submit', {
             method: 'POST',
             body: JSON.stringify({
-              recordingId: pickedRecordingId,
-              inputLogId: pickedLogId,
+              recordingId: pickedRecordingIds[0],
+              inputLogId: pickedLogIds[0],
+              recordingIds: pickedRecordingIds.slice(),
+              inputLogIds: pickedLogIds.slice(),
               difficulty: diff,
               timeMs: timeMs,
               deaths: deaths,
               playerNote: note,
             }),
           });
-          window.alert('Run submitted! Moderators will review it under Submitted Runs.');
+          var awarded =
+            out && out.submission && out.submission.coinsAwarded != null
+              ? Number(out.submission.coinsAwarded)
+              : 0;
+          if (awarded > 0 && window.__skyhopLastMe && !window.__skyhopLastMe.coinsInfinite) {
+            window.__skyhopLastMe.coins = (Number(window.__skyhopLastMe.coins) || 0) + awarded;
+            var acc = document.getElementById('accStatCoins');
+            if (acc) acc.textContent = String(window.__skyhopLastMe.coins);
+            var shop = document.getElementById('shopCoinBalance');
+            if (shop) shop.textContent = String(window.__skyhopLastMe.coins);
+          }
+          var msg = 'Run submitted! Moderators will review it under Submitted Runs.';
+          if (awarded > 0) msg = 'Run submitted! +' + awarded + ' coins. Moderators will review it under Submitted Runs.';
+          window.alert(msg);
           show(false);
         } catch (e) {
           setErr(String(e.message || e));

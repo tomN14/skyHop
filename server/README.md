@@ -55,9 +55,11 @@ Online races and collabs include **session chat** and **server anti-cheat** (imp
 
 Restart **`npm start`**. If both variables are set, the app uses Supabase; otherwise it keeps using `accounts.json`.
 
-**Run recordings (account clips):** Run **`server/supabase/extend_v7_recordings.sql`** — `skyhop_recordings` table and private **`skyhop-recordings`** Storage bucket (max 25 MB per clip).
+**Run recordings (account clips):** Run **`server/supabase/extend_v7_recordings.sql`** — `skyhop_recordings` table and private **`skyhop-recordings`** Storage bucket (max 256 MB per clip, enough for about 25 minutes). If the bucket already exists at a smaller limit, also run **`server/supabase/extend_v21_recording_size.sql`**.
 
-**Input logs + submitted runs:** Run **`server/supabase/extend_v8_input_logs_submitted_runs.sql`** after v7 — `skyhop_input_logs`, `skyhop_submitted_runs`, and private **`skyhop-input-logs`** bucket (max 5 MB per log).
+**Input logs + submitted runs:** Run **`server/supabase/extend_v8_input_logs_submitted_runs.sql`** after v7 — `skyhop_input_logs`, `skyhop_submitted_runs`, and private **`skyhop-input-logs`** bucket (max 5 MB per log). For multiple recordings/logs on one submission, also run **`server/supabase/extend_v22_submitted_run_media_lists.sql`**. For automatic submit/accept/top-10 coins, run **`server/supabase/extend_v23_submitted_run_coins.sql`**.
+
+**Owner shop catalog (in-game, no redeploy):** Run **`server/supabase/extend_v24_shop_items.sql`** after v23 — `skyhop_shop_items` and private **`skyhop-shop`** bucket (1.5 MB per image). Owner adds items from the ➕ FAB next to the shop. Rarity is calculated from buy price: Common 50–999, Uncommon 1000–1999, Insane 2000–4499, Rare 4500–9999, Epic 10000–99999, Legendary 100000–499999, Mythic 500000–1000000.
 
 **Submitted run locks + decline reasons:** Run **`server/supabase/extend_v9_submitted_run_lock_decline_reason.sql`** after v8 — `decline_reason`, `status_locked` on `skyhop_submitted_runs`.
 
@@ -111,6 +113,11 @@ HTTP REST on the **same port** as racing (use `http://HOST:PORT/...`; CORS allow
 | `POST` | `/api/owner/set-moderator` | Owner or Admin; body `{ username, promote: boolean }` (Admin cannot demote) |
 | `POST` | `/api/owner/set-report-advisor` | Owner only; body `{ username, promote: boolean }` |
 | `GET` | `/api/strikes` | Owner or Admin; query `username`. Admin cannot look up owner/Admin. |
+| `GET` | `/api/shop/items` | Public shop catalog (bundled + owner-added) with auto rarity |
+| `GET` | `/api/shop/skins/:filename` | Owner-uploaded shop image |
+| `POST` | `/api/shop/buy` | Bearer; body `{ itemId }` |
+| `POST` | `/api/shop/sell` | Bearer; body `{ itemId }` |
+| `POST` | `/api/owner/shop/items` | Owner only; raw image body; headers `X-Shop-Label`, `X-Shop-Price`, `X-Shop-Sell-Price` |
 | `POST` | `/api/owner/strikes` | Owner only; body `{ username, action: "add" \| "remove" }` |
 
 The game’s **Account & cloud stats** panel uses that API. A run is uploaded when you **clear all 50 stages** while logged in (campaign or race). The HTTP base URL is derived from the **Racing** WebSocket URL (`ws:` → `http:`, `wss:` → `https:`).
