@@ -221,15 +221,19 @@
     if (titleEl) titleEl.textContent = title;
     if (versionEl) {
       versionEl.textContent = '';
-      var dot = version.indexOf('.');
-      if (dot > 0 && dot < version.length - 1) {
+      var parts = version.split('.');
+      if (parts.length > 1 && parts[0]) {
         var main = document.createElement('span');
-        main.textContent = version.slice(0, dot);
-        var frac = document.createElement('span');
-        frac.className = 'skyhop-ver-frac';
-        frac.textContent = version.slice(dot);
+        main.textContent = parts[0];
         versionEl.appendChild(main);
-        versionEl.appendChild(frac);
+        var parent = versionEl;
+        for (var vi = 1; vi < parts.length; vi++) {
+          var frac = document.createElement('span');
+          frac.className = 'skyhop-ver-frac';
+          frac.appendChild(document.createTextNode('.' + parts[vi]));
+          parent.appendChild(frac);
+          parent = frac;
+        }
       } else {
         versionEl.textContent = version;
       }
