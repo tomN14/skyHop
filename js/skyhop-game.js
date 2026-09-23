@@ -25,7 +25,9 @@
       typeof window.SkyHopWorlds.getActiveWorldId === 'function'
         ? window.SkyHopWorlds.getActiveWorldId()
         : 1;
-    return w === 2 ? 2 : 1;
+    if (w === 2 || w === '2') return 2;
+    if (typeof w === 'number' && w >= 3) return w;
+    return 1;
   }
 
   function restoreBundledCampaignIfEmpty() {
@@ -56,6 +58,7 @@
         if (w2 && w2.length) return w2;
         return [];
       }
+      if (typeof wid === 'number' && wid >= 3) return wst && wst.length ? wst : [];
       if (wid === 'both' && wst && wst.length) return wst;
       if (wst && wst.length) return wst;
     }
@@ -73,6 +76,7 @@
     }
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
       const wid = activePlayWorldId();
+      if (typeof wid === 'number' && wid >= 3) return stagesNow().length;
       if (wid === 2) return window.SkyHopWorlds.stageCount(2);
       if (wid === 'both') return window.SkyHopWorlds.bothStages().length;
       return window.SkyHopWorlds.stageCount(1);
@@ -122,15 +126,19 @@
       }
       const w =
         typeof window.SkyHopWorlds.getActiveWorldId === 'function' ? window.SkyHopWorlds.getActiveWorldId() : 1;
-      return window.SkyHopWorlds.progressKeyForWorld(w === 2 ? 2 : 1);
+      return window.SkyHopWorlds.progressKeyForWorld(w === 2 || (typeof w === 'number' && w >= 3) ? w : 1);
     }
     return RUN_PROGRESS_LS;
   }
 
   function onCampaignFullyComplete() {
-    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.markWorld1Complete === 'function') {
-      const w = window.SkyHopWorlds.getActiveWorldId ? window.SkyHopWorlds.getActiveWorldId() : 1;
-      if (w === 1 || w === '1') window.SkyHopWorlds.markWorld1Complete();
+    if (!window.SkyHopWorlds || typeof window.SkyHopWorlds.getActiveWorldId !== 'function') return;
+    const w = window.SkyHopWorlds.getActiveWorldId();
+    if ((w === 1 || w === '1') && typeof window.SkyHopWorlds.markWorld1Complete === 'function') {
+      window.SkyHopWorlds.markWorld1Complete();
+    }
+    if (typeof w === 'number' && w >= 2 && typeof window.SkyHopApiRequest === 'function') {
+      window.SkyHopApiRequest('/api/worlds/' + w + '/clear', { method: 'POST', body: '{}' }).catch(function () {});
     }
   }
 
@@ -4126,6 +4134,9 @@
       'screenAccount',
       'screenModDashboard',
       'screenModWatch',
+      'screenPublicSessions',
+      'screenPublicWatch',
+      'screenRolePowers',
     ];
     const anyVisible = shellIds.some(function (id) {
       const el = document.getElementById(id);

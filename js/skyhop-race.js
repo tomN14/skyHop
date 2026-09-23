@@ -95,6 +95,61 @@
     mainSwitch: null,
   };
 
+  let raceHostWorld = 0;
+  let racePublic = false;
+
+  function syncRaceVisibility() {
+    var priv = document.getElementById('btnRacePrivate');
+    var pub = document.getElementById('btnRacePublic');
+    var hostBtn = document.getElementById('btnRaceVisibility');
+    function paint(btn, on) {
+      if (!btn) return;
+      btn.classList.toggle('border-amber-400', on);
+      btn.classList.toggle('bg-amber-950/70', on);
+      btn.classList.toggle('text-amber-100', on);
+      btn.classList.toggle('border-white/15', !on);
+      btn.classList.toggle('bg-slate-950/80', !on);
+      btn.classList.toggle('text-slate-200', !on);
+    }
+    paint(priv, !racePublic);
+    paint(pub, !!racePublic);
+    if (hostBtn) hostBtn.textContent = racePublic ? 'Make private' : 'Make public';
+  }
+
+  function raceWorldStageCount(world) {
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
+      return window.SkyHopWorlds.stageCount(world === 2 ? 2 : 1);
+    }
+    return 50;
+  }
+
+  function syncRaceWorldPick() {
+    var b1 = document.getElementById('btnRaceWorld1');
+    var b2 = document.getElementById('btnRaceWorld2');
+    function paint(btn, on) {
+      if (!btn) return;
+      btn.classList.toggle('border-amber-400', on);
+      btn.classList.toggle('bg-amber-600/50', on);
+      btn.classList.toggle('text-white', on);
+      btn.classList.toggle('border-white/15', !on);
+      btn.classList.toggle('bg-slate-950/80', !on);
+      btn.classList.toggle('text-slate-200', !on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    paint(b1, raceHostWorld === 1);
+    paint(b2, raceHostWorld === 2);
+    var countEl = document.getElementById('raceMenuStageCount');
+    if (countEl) {
+      countEl.textContent =
+        raceHostWorld === 1 || raceHostWorld === 2 ? String(raceWorldStageCount(raceHostWorld)) : '—';
+    }
+    if (el.btnCreate) {
+      var ready = raceHostWorld === 1 || raceHostWorld === 2;
+      el.btnCreate.disabled = !ready;
+      el.btnCreate.classList.toggle('opacity-40', !ready);
+    }
+  }
+
   function getWsUrl() {
     try {
       let v = localStorage.getItem(LS_URL);
@@ -276,10 +331,21 @@
     return {};
   }
 
-  function sendChatLine(text) {
+  function sendChatLine(text, asMod) {
     if (!ws || ws.readyState !== 1) return;
     try {
-      ws.send(JSON.stringify({ type: 'chat', text: text }));
+      var payload = { type: 'chat', text: text };
+      if (asMod) payload.asMod = true;
+      ws.send(JSON.stringify(payload));
+    } catch {
+      /* */
+    }
+  }
+
+  function moderateChat(action, payload) {
+    if (!ws || ws.readyState !== 1) return;
+    try {
+      ws.send(JSON.stringify(Object.assign({ type: action }, payload || {})));
     } catch {
       /* */
     }
@@ -287,7 +353,7 @@
 
   function attachChat(history) {
     if (window.SkyHopSessionChat) {
-      window.SkyHopSessionChat.attach(sendChatLine);
+      window.SkyHopSessionChat.attach(sendChatLine, moderateChat);
       if (history && history.length) window.SkyHopSessionChat.load(history);
     }
   }
@@ -494,7 +560,10 @@
       if (el.hostPanel) el.hostPanel.classList.remove('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
       if (el.mpStatus) {
-        el.mpStatus.textContent = 'Share the session ID with friends. When they join, press Start race.';
+        var createdWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+        el.mpStatus.textContent = createdWorld
+          ? 'Hosting ' + createdWorld + '. Share the session ID, then start when everyone has joined.'
+          : 'Share the session ID with friends. When they join, press Start race.';
         el.mpStatus.classList.remove('hidden');
       }
       if (el.btnStartRace) el.btnStartRace.classList.remove('hidden');
@@ -515,13 +584,19 @@
         if (el.joinPanel) el.joinPanel.classList.add('hidden');
         if (el.btnStartRace) el.btnStartRace.classList.remove('hidden');
         if (el.mpStatus) {
-          el.mpStatus.textContent = "You're the host. Share the session ID, then start when ready.";
+          var hostWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+          el.mpStatus.textContent = hostWorld
+            ? "You're the host. " + hostWorld + '. Share the session ID, then start when ready.'
+            : "You're the host. Share the session ID, then start when ready.";
           el.mpStatus.classList.remove('hidden');
         }
       } else {
         if (el.hostPanel) el.hostPanel.classList.add('hidden');
         if (el.mpStatus) {
-          el.mpStatus.textContent = 'In lobby. Wait for the host to start the race.';
+          var joinWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+          el.mpStatus.textContent = joinWorld
+            ? 'In lobby for ' + joinWorld + '. Wait for the host to start the race.'
+            : 'In lobby. Wait for the host to start the race.';
           el.mpStatus.classList.remove('hidden');
         }
         if (el.btnStartRace) el.btnStartRace.classList.add('hidden');
@@ -561,6 +636,9 @@
       if (el.mpStatus) el.mpStatus.classList.add('hidden');
       if (el.hostPanel) el.hostPanel.classList.add('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
+      if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
+        window.SkyHopWorlds.setActiveWorld(msg.world === 2 ? 2 : 1);
+      }
       window.SKYHOP.beginRacing({
         type: 'mp',
         difficulty: msg.difficulty,
@@ -605,11 +683,24 @@
       }, 100);
       return;
     }
+    if (msg.type === 'visibility') {
+      racePublic = !!msg.public;
+      syncRaceVisibility();
+      return;
+    }
     if (msg.type === 'roomChat') {
       if (window.SkyHopSessionChat) window.SkyHopSessionChat.push(msg);
       return;
     }
-    if (msg.type === 'cheatKick') {
+    if (msg.type === 'roomChatEdit') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.update(msg);
+      return;
+    }
+    if (msg.type === 'roomChatDelete') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.remove(msg.id);
+      return;
+    }
+    if (msg.type === 'cheatKick' || msg.type === 'staffRemoved') {
       try {
         window.__skyhopRaceOnline = false;
       } catch {
@@ -623,7 +714,13 @@
           /* */
         }
       }
-      showRaceOver('Removed from race', msg.reason || 'This session blocked automated play.', undefined);
+      showRaceOver(
+        msg.type === 'staffRemoved' ? 'Removed by a moderator' : 'Removed from race',
+        msg.type === 'staffRemoved'
+          ? msg.reason || 'A moderator removed you from this session.'
+          : msg.reason || 'This session blocked automated play.',
+        undefined
+      );
       return;
     }
     if (msg.type === 'finishOk') {
@@ -769,6 +866,49 @@
     el.name = document.getElementById('raceName');
     el.btnVsBots = document.getElementById('btnRaceVsBots');
     el.btnCreate = document.getElementById('btnRaceCreate');
+    var world1Btn = document.getElementById('btnRaceWorld1');
+    var world2Btn = document.getElementById('btnRaceWorld2');
+    if (world1Btn) {
+      world1Btn.addEventListener('click', function () {
+        raceHostWorld = 1;
+        syncRaceWorldPick();
+      });
+    }
+    if (world2Btn) {
+      world2Btn.addEventListener('click', function () {
+        raceHostWorld = 2;
+        syncRaceWorldPick();
+      });
+    }
+    syncRaceWorldPick();
+    syncRaceVisibility();
+    var racePriv = document.getElementById('btnRacePrivate');
+    var racePub = document.getElementById('btnRacePublic');
+    if (racePriv) {
+      racePriv.addEventListener('click', function () {
+        racePublic = false;
+        syncRaceVisibility();
+      });
+    }
+    if (racePub) {
+      racePub.addEventListener('click', function () {
+        racePublic = true;
+        syncRaceVisibility();
+      });
+    }
+    var raceVis = document.getElementById('btnRaceVisibility');
+    if (raceVis) {
+      raceVis.addEventListener('click', function () {
+        if (!ws || ws.readyState !== 1 || !isHost) return;
+        racePublic = !racePublic;
+        syncRaceVisibility();
+        try {
+          ws.send(JSON.stringify({ type: 'setVisibility', public: racePublic }));
+        } catch {
+          /* */
+        }
+      });
+    }
     el.btnJoin = document.getElementById('btnRaceJoin');
     el.roomInput = document.getElementById('raceRoomId');
     el.hostPanel = document.getElementById('raceHostPanel');
@@ -837,6 +977,13 @@
     }
     if (el.btnCreate) {
       el.btnCreate.addEventListener('click', () => {
+        if (raceHostWorld !== 1 && raceHostWorld !== 2) {
+          if (el.mpStatus) {
+            el.mpStatus.textContent = 'Pick World 1 or World 2 before hosting.';
+            el.mpStatus.classList.remove('hidden');
+          }
+          return;
+        }
         disconnectWs();
         try {
           localStorage.setItem('SKYHOP_RACE_NAME', (el.name && el.name.value) || 'Racer');
@@ -850,6 +997,8 @@
             JSON.stringify({
               type: 'create',
               name: (el.name && el.name.value) || 'Host',
+              world: raceHostWorld,
+              public: !!racePublic,
               anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
               authToken: (function () {
                 try {
@@ -935,6 +1084,8 @@
           try {
             const payload = {
               type: 'start',
+              world: raceHostWorld === 2 ? 2 : 1,
+              stageCount: raceWorldStageCount(raceHostWorld === 2 ? 2 : 1),
               anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
             };
             try {

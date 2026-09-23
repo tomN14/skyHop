@@ -48,6 +48,7 @@ export function createRoom(roomId, hostWs, hostPlayerId, name, isCollab, antiche
     progress: { [hostPlayerId]: emptyProgress() },
     chat: [],
     flags: [],
+    public: false,
   };
   rooms.set(roomId, room);
   return room;
@@ -107,12 +108,48 @@ export function serializeRoom(room) {
     worldScope: room.collab ? room.worldScope || 'w1' : null,
     createdAt: room.createdAt || 0,
     startedAt: room.startAt || 0,
+    public: !!room.public,
     playerCount: room.clients.size,
     spectatorCount: room.spectators ? room.spectators.size : 0,
     players,
     spectators: spectatorList(room),
     flags: Array.isArray(room.flags) ? room.flags.slice(-12) : [],
   };
+}
+
+export function publicSessionSummary(room) {
+  const players = [];
+  for (const c of room.clients) {
+    const m = socketMeta.get(c);
+    if (!m || m.spectator) continue;
+    const pr = room.progress[m.playerId] || {};
+    players.push({
+      id: m.playerId,
+      name: room.names[m.playerId] || '?',
+      host: c === room.host,
+      stage: pr.stage != null ? pr.stage : 0,
+      finished: !!pr.finished,
+    });
+  }
+  return {
+    id: room.id,
+    mode: room.collab ? 'collab' : 'race',
+    started: !!room.started,
+    world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+    worldScope: room.collab ? room.worldScope || 'w1' : null,
+    playerCount: room.clients.size,
+    players,
+  };
+}
+
+export function listPublicSessions() {
+  const out = [];
+  for (const room of rooms.values()) {
+    if (!room.public) continue;
+    out.push(publicSessionSummary(room));
+  }
+  out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  return out;
 }
 
 export function listLiveSessions() {
@@ -269,6 +306,62 @@ export function applyFinish(room, playerId, msg, now) {
   return { ok: true, timeMs: ev.timeMs, deaths: ev.deaths, token };
 }
 
+export function viewChatRow(row, reveal) {
+  if (!row) return null;
+  const view = {
+    id: row.id || null,
+    at: row.at,
+    from: row.from,
+    text: row.text,
+    staff: !!row.staff,
+    modAlias: !!row.modAlias,
+    flagged: !!row.flagged,
+    edited: !!row.edited,
+  };
+  if (reveal && row.modAlias) view.moderatorUsername = row.modUsername || 'Unknown';
+  return view;
+}
+
+export function chatHistoryFor(room, reveal) {
+  return (room.chat || []).map((row) => viewChatRow(row, reveal));
+}
+
+function mayRevealMod(role) {
+  return role === 'owner' || role === 'admin';
+}
+
+export function broadcastChat(room, row) {
+  const deliver = (sock) => {
+    const meta = socketMeta.get(sock);
+    send(sock, { type: 'roomChat', ...viewChatRow(row, mayRevealMod(meta && meta.role)) });
+  };
+  for (const c of room.clients) deliver(c);
+  if (room.spectators) {
+    for (const s of room.spectators) deliver(s);
+  }
+}
+
+export function broadcastChatUpdate(room, kind, row) {
+  const deliver = (sock) => {
+    const meta = socketMeta.get(sock);
+    const reveal = mayRevealMod(meta && meta.role);
+    if (kind === 'delete') {
+      send(sock, { type: 'roomChatDelete', id: row.id });
+      return;
+    }
+    send(sock, { type: 'roomChatEdit', ...viewChatRow(row, reveal) });
+  };
+  for (const c of room.clients) deliver(c);
+  if (room.spectators) {
+    for (const s of room.spectators) deliver(s);
+  }
+}
+
+function modAliasName() {
+  const n = Math.floor(Math.random() * 100000);
+  return 'SkyHopMod_' + String(n).padStart(5, '0');
+}
+
 export function applyChat(room, playerId, rawText, meta) {
   const now = Date.now();
   const last = meta && meta.lastChatAt != null ? meta.lastChatAt : 0;
@@ -276,19 +369,64 @@ export function applyChat(room, playerId, rawText, meta) {
   const text = String(rawText || '').trim().slice(0, CHAT_MAX);
   if (!text) return { ok: false, error: 'Empty message.' };
   const censored = censorProfanity(text);
-  const from =
-    (meta && meta.spectator ? '[Staff] ' : '') +
-    ((meta && (meta.displayName || meta.username)) || room.names[playerId] || 'Player');
+  const from = (meta && (meta.displayName || meta.username)) || room.names[playerId] || 'Player';
   const row = {
+    id: crypto.randomUUID(),
     at: now,
     from,
     text: censored.text,
-    staff: !!(meta && meta.spectator),
+    staff: false,
+    modAlias: false,
     flagged: !!censored.flagged,
   };
   room.chat.push(row);
   if (room.chat.length > CHAT_HISTORY) room.chat.splice(0, room.chat.length - CHAT_HISTORY);
   if (meta) meta.lastChatAt = now;
+  return { ok: true, row };
+}
+
+export function applyModChat(room, rawText, meta) {
+  const now = Date.now();
+  const last = meta && meta.lastChatAt != null ? meta.lastChatAt : 0;
+  if (now - last < CHAT_GAP_MS) return { ok: false, error: 'Slow down a second.' };
+  const text = String(rawText || '').trim().slice(0, CHAT_MAX);
+  if (!text) return { ok: false, error: 'Empty message.' };
+  const censored = censorProfanity(text);
+  const row = {
+    id: crypto.randomUUID(),
+    at: now,
+    from: modAliasName(),
+    text: censored.text,
+    staff: true,
+    modAlias: true,
+    modUserId: meta && meta.userId != null ? meta.userId : null,
+    modUsername: (meta && meta.username) || 'Unknown',
+    flagged: !!censored.flagged,
+  };
+  room.chat.push(row);
+  if (room.chat.length > CHAT_HISTORY) room.chat.splice(0, room.chat.length - CHAT_HISTORY);
+  if (meta) meta.lastChatAt = now;
+  return { ok: true, row };
+}
+
+export function editChatMessage(room, id, rawText) {
+  const want = String(id || '');
+  const row = (room.chat || []).find((r) => r.id === want);
+  if (!row) return { ok: false, error: 'Message not found.' };
+  const text = String(rawText || '').trim().slice(0, CHAT_MAX);
+  if (!text) return { ok: false, error: 'Empty message.' };
+  const censored = censorProfanity(text);
+  row.text = censored.text;
+  row.flagged = !!censored.flagged;
+  row.edited = true;
+  return { ok: true, row };
+}
+
+export function deleteChatMessage(room, id) {
+  const want = String(id || '');
+  const idx = (room.chat || []).findIndex((r) => r.id === want);
+  if (idx < 0) return { ok: false, error: 'Message not found.' };
+  const [row] = room.chat.splice(idx, 1);
   return { ok: true, row };
 }
 

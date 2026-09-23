@@ -39,11 +39,12 @@
             <li>Admin (exactly one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
             <li>Report Advisor: pending reports only — dismiss or escalate to the owner; no dashboard, owner tools, or bans</li>
             <li>Owner: edit / append built-in World 1 &amp; World 2 stages; Upload ALL saves them to Play</li>
+            <li>Owner: add worlds (unlock checklist) from the button above leaderboards; add that world’s stages from the owner inbox</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Racing</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Race vs bots (offline)</li>
-            <li>Online race: host session ID, join, WebSocket sync</li>
+            <li>Online race: host picks World 1 or World 2 before creating a session</li>
             <li>In-session chat (lobby + during the run); profanity censored</li>
             <li>Server anti-cheat on online races (movement, timing, input); offline bot races stay local</li>
             <li>Live in-race top-5 leaderboard HUD; race over screen</li>
@@ -108,7 +109,9 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>📧 Reports inbox FAB (Report Advisor / mod / Admin / owner); badge counts</li>
             <li>⚠️ Strikes (owner FAB below 📋): permanent until the owner removes them. Player 3 → automatic 1-week ban; moderator / Report Advisor 2 → demoted to player; Admin 1 → demoted to moderator. Admin can look up counts for players / advisors / mods</li>
-            <li>🛡️ Mod dashboard: site visits, user lookup, live races/collabs (watch), level list, stats</li>
+            <li>🛡️ Mod dashboard: site visits, user lookup, live races/collabs (remove players; add, edit, or delete chat as SkyHopMod_#####), level list, stats. Report Advisors do not get this</li>
+            <li>Role powers: Report Advisor, moderator, and Admin each have a list of every power for that role. Only that role can open it. Admin can also open the Report Advisor and moderator lists. The owner can open all three</li>
+            <li>Hosts can set a race or collab to public or private. Public sessions can be watched by anyone from the button above the shop. Moderators, Admin, and the owner can watch private sessions too</li>
             <li>Owner inbox: promote/demote moderators, gifts, built-in editor, ban dialog</li>
             <li>Account administration page: disable, re-enable, delete user</li>
             <li>Owner campaign leaderboard editor on admin page</li>

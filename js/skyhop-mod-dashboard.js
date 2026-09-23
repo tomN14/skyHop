@@ -271,48 +271,129 @@
     }
   }
 
+  function canRevealMod() {
+    var me = window.__skyhopLastMe;
+    var role = me && me.role ? me.role : 'player';
+    return role === 'owner' || role === 'admin';
+  }
+
+  function sendWatch(obj) {
+    if (!watchWs || watchWs.readyState !== 1) return;
+    watchWs.send(JSON.stringify(obj));
+  }
+
   function renderWatchPlayers(players) {
     var ul = document.getElementById('modWatchPlayers');
     if (!ul) return;
+    ul.textContent = '';
     if (!players || !players.length) {
-      ul.innerHTML = '<li class="text-slate-500">No players.</li>';
+      var empty = document.createElement('li');
+      empty.className = 'text-slate-500';
+      empty.textContent = 'No players.';
+      ul.appendChild(empty);
       return;
     }
-    ul.innerHTML = players
-      .map(function (p) {
+    for (var i = 0; i < players.length; i++) {
+      (function (p) {
+        var li = document.createElement('li');
+        li.className = 'flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-950/60 px-2 py-1.5 text-slate-200';
+        var label = document.createElement('span');
         var flags = p.flags && p.flags.length ? ' · ' + p.flags.join(', ') : '';
         var un = p.username ? ' (@' + p.username + ')' : '';
-        return (
-          '<li class="rounded-lg border border-white/10 bg-slate-950/60 px-2 py-1.5 text-slate-200">' +
-          '<span class="font-semibold text-white">' +
-          escapeHtml(p.name || '?') +
-          '</span>' +
-          '<span class="text-slate-500">' +
-          escapeHtml(un) +
-          '</span>' +
-          ' · ' +
-          fmtStage(p) +
-          (p.host ? ' · host' : '') +
-          '<span class="text-amber-200/80">' +
-          escapeHtml(flags) +
-          '</span></li>'
-        );
-      })
-      .join('');
+        label.textContent = (p.name || '?') + un + ' · ' + fmtStage(p) + (p.host ? ' · host' : '') + flags;
+        var rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'shrink-0 rounded-lg bg-rose-700 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-rose-600';
+        rm.textContent = 'Remove';
+        rm.addEventListener('click', function () {
+          if (!window.confirm('Remove ' + (p.name || 'this player') + ' from the session?')) return;
+          sendWatch({ type: 'staffRemove', playerId: p.id });
+        });
+        li.appendChild(label);
+        li.appendChild(rm);
+        ul.appendChild(li);
+      })(players[i]);
+    }
+  }
+
+  function fillWatchChat(li, row) {
+    li.textContent = '';
+    if (row && row.id) li.setAttribute('data-id', String(row.id));
+    li.className = row && (row.staff || row.modAlias) ? 'text-emerald-200' : 'text-slate-200';
+    var name = document.createElement(row && row.modAlias && canRevealMod() && row.moderatorUsername ? 'button' : 'span');
+    name.className = 'font-semibold ' + (row && row.modAlias ? 'text-emerald-300' : 'text-amber-200/90');
+    name.textContent = (row && row.from) || 'Player';
+    if (name.tagName === 'BUTTON') {
+      name.type = 'button';
+      name.className += ' underline decoration-dotted';
+      name.title = 'Show who posted this';
+      name.addEventListener('click', function () {
+        var note = li.querySelector('[data-mod-who]');
+        if (note) {
+          note.remove();
+          return;
+        }
+        note = document.createElement('span');
+        note.setAttribute('data-mod-who', '1');
+        note.className = 'ml-1 font-normal text-slate-400';
+        note.textContent = 'Posted by ' + row.moderatorUsername;
+        name.after(note);
+      });
+    }
+    var body = document.createElement('span');
+    body.textContent = ': ' + ((row && row.text) || '') + (row && row.edited ? ' (edited)' : '');
+    li.appendChild(name);
+    li.appendChild(body);
+    if (row && row.id) {
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'ml-2 text-[10px] font-semibold text-amber-200/80 hover:text-white';
+      edit.textContent = 'Edit';
+      edit.addEventListener('click', function () {
+        var next = window.prompt('Edit message', row.text || '');
+        if (next == null) return;
+        next = String(next).trim();
+        if (!next) return;
+        sendWatch({ type: 'chatEdit', id: row.id, text: next });
+      });
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'ml-1 text-[10px] font-semibold text-rose-300 hover:text-white';
+      del.textContent = 'Delete';
+      del.addEventListener('click', function () {
+        if (!window.confirm('Delete this message?')) return;
+        sendWatch({ type: 'chatDelete', id: row.id });
+      });
+      li.appendChild(edit);
+      li.appendChild(del);
+    }
   }
 
   function pushWatchChat(row) {
     var ul = document.getElementById('modWatchChat');
     if (!ul || !row) return;
     var li = document.createElement('li');
-    li.className = row.staff ? 'text-emerald-200' : 'text-slate-200';
-    li.innerHTML =
-      '<span class="font-semibold text-amber-200/90">' +
-      escapeHtml(row.from || 'Player') +
-      ':</span> ' +
-      escapeHtml(row.text || '');
+    fillWatchChat(li, row);
     ul.appendChild(li);
     ul.scrollTop = ul.scrollHeight;
+  }
+
+  function updateWatchChat(row) {
+    var ul = document.getElementById('modWatchChat');
+    if (!ul || !row || !row.id) return;
+    var li = ul.querySelector('li[data-id="' + String(row.id).replace(/"/g, '') + '"]');
+    if (!li) {
+      pushWatchChat(row);
+      return;
+    }
+    fillWatchChat(li, row);
+  }
+
+  function removeWatchChat(id) {
+    var ul = document.getElementById('modWatchChat');
+    if (!ul || !id) return;
+    var li = ul.querySelector('li[data-id="' + String(id).replace(/"/g, '') + '"]');
+    if (li) li.remove();
   }
 
   function applyWatchRoom(room) {
@@ -399,11 +480,23 @@
         pushWatchChat(msg);
         return;
       }
+      if (msg.type === 'roomChatEdit') {
+        updateWatchChat(msg);
+        return;
+      }
+      if (msg.type === 'roomChatDelete') {
+        removeWatchChat(msg.id);
+        return;
+      }
       if (msg.type === 'playerProgress' || msg.type === 'playerFinished') {
         upsertWatchPlayer(msg);
         return;
       }
       if (msg.type === 'playerJoined' || msg.type === 'playerLeft') {
+        if (msg.players) {
+          watchPlayers = msg.players.slice();
+          renderWatchPlayers(watchPlayers);
+        }
         void refreshLiveSessions();
         return;
       }
@@ -447,6 +540,7 @@
             '</span>' +
             '<p class="mt-0.5 text-[11px] text-slate-400">' +
             (s.started ? 'In progress' : 'Lobby') +
+            (s.public ? ' · public' : ' · private') +
             ' · ' +
             String(s.playerCount || 0) +
             ' player(s)' +

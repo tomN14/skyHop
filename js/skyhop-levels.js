@@ -2701,13 +2701,28 @@
     if (!ownerBuiltinArr || !ownerBuiltinArr.length) return;
     try {
       const postPath =
-        ownerBuiltinWorld === 2 ? '/api/owner/builtin-stages-world2' : '/api/owner/builtin-stages';
+        ownerBuiltinWorld >= 3
+          ? '/api/owner/worlds/' + ownerBuiltinWorld + '/stages'
+          : ownerBuiltinWorld === 2
+            ? '/api/owner/builtin-stages-world2'
+            : '/api/owner/builtin-stages';
       await api(postPath, {
         method: 'POST',
         body: JSON.stringify({ stages: ownerBuiltinArr }),
       });
       const uploaded = ownerBuiltinArr;
-      const world = ownerBuiltinWorld === 2 ? 2 : 1;
+      const world = ownerBuiltinWorld >= 3 ? ownerBuiltinWorld : ownerBuiltinWorld === 2 ? 2 : 1;
+      if (world >= 3) {
+        if (window.__skyhopCustomWorldId === world) window.__skyhopCustomWorldStages = uploaded;
+        if (typeof window.SkyHopRefreshCustomWorlds === 'function') void window.SkyHopRefreshCustomWorlds();
+        lvlEdStatus.textContent = 'Uploaded ' + uploaded.length + ' stages for this world. Play uses them now.';
+        ownerBuiltinArr = null;
+        showEditorScreen(false);
+        showMine(true);
+        void refreshMineList();
+        syncEditorUi();
+        return;
+      }
       let applied = false;
       if (typeof window.SkyHopApplyServerCampaign === 'function') {
         applied = !!window.SkyHopApplyServerCampaign(world, uploaded);
@@ -2745,8 +2760,13 @@
     const edSel = document.getElementById('ownerBuiltinWorldSelect');
     if (pick && edSel && !ownerBuiltinArr) edSel.value = pick.value;
     ownerBuiltinWorld = Number(edSel?.value || pick?.value) || 1;
-    if (ownerBuiltinWorld !== 2) ownerBuiltinWorld = 1;
+    if (!Number.isFinite(ownerBuiltinWorld) || ownerBuiltinWorld < 1) ownerBuiltinWorld = 1;
     if (pick) pick.value = String(ownerBuiltinWorld);
+    if (ownerBuiltinWorld >= 3) {
+      const data = await api('/api/worlds/' + ownerBuiltinWorld + '/stages');
+      const stages = data && Array.isArray(data.stages) ? JSON.parse(JSON.stringify(data.stages)) : [];
+      return stages;
+    }
     const getPath = ownerBuiltinWorld === 2 ? '/api/builtin-stages-world2' : '/api/builtin-stages';
     const data = await api(getPath, { noAuth: true });
     let arr = data.stages && data.stages.length ? data.stages : null;
@@ -2798,6 +2818,10 @@
         return;
       }
       const arr = await loadOwnerBuiltinStagesForEdit();
+      if (!arr.length) {
+        window.alert('This world has no stages yet. Use Add built-in stage.');
+        return;
+      }
       openOwnerBuiltinEditorAtIndex(arr, 0);
     } catch (e) {
       window.alert(String(e.message || e));

@@ -42,13 +42,39 @@
     return {};
   }
 
-  function sendChatLine(text) {
-    send({ type: 'chat', text: text });
+  let collabPublic = false;
+
+  function syncCollabVisibility() {
+    var priv = el('btnCollabPrivate');
+    var pub = el('btnCollabPublic');
+    var hostBtn = el('collabBtnVisibility');
+    function paint(btn, on) {
+      if (!btn) return;
+      btn.classList.toggle('border-teal-400', on);
+      btn.classList.toggle('bg-teal-950/70', on);
+      btn.classList.toggle('text-teal-100', on);
+      btn.classList.toggle('border-white/15', !on);
+      btn.classList.toggle('bg-slate-950/80', !on);
+      btn.classList.toggle('text-slate-200', !on);
+    }
+    paint(priv, !collabPublic);
+    paint(pub, !!collabPublic);
+    if (hostBtn) hostBtn.textContent = collabPublic ? 'Make private' : 'Make public';
+  }
+
+  function sendChatLine(text, asMod) {
+    var payload = { type: 'chat', text: text };
+    if (asMod) payload.asMod = true;
+    send(payload);
+  }
+
+  function moderateChat(action, payload) {
+    send(Object.assign({ type: action }, payload || {}));
   }
 
   function attachChat(history) {
     if (window.SkyHopSessionChat) {
-      window.SkyHopSessionChat.attach(sendChatLine);
+      window.SkyHopSessionChat.attach(sendChatLine, moderateChat);
       if (history && history.length) window.SkyHopSessionChat.load(history);
     }
   }
@@ -167,13 +193,31 @@
       }
       return;
     }
+    if (msg.type === 'visibility') {
+      collabPublic = !!msg.public;
+      syncCollabVisibility();
+      return;
+    }
     if (msg.type === 'roomChat') {
       if (window.SkyHopSessionChat) window.SkyHopSessionChat.push(msg);
       return;
     }
-    if (msg.type === 'cheatKick') {
+    if (msg.type === 'roomChatEdit') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.update(msg);
+      return;
+    }
+    if (msg.type === 'roomChatDelete') {
+      if (window.SkyHopSessionChat) window.SkyHopSessionChat.remove(msg.id);
+      return;
+    }
+    if (msg.type === 'cheatKick' || msg.type === 'staffRemoved') {
+      var kickedByMod = msg.type === 'staffRemoved';
       var stKick = el('collabMpStatus');
-      if (stKick) stKick.textContent = String(msg.reason || 'Removed from session.');
+      if (stKick) {
+        stKick.textContent = kickedByMod
+          ? String(msg.reason || 'A moderator removed you from this session.')
+          : String(msg.reason || 'Removed from session.');
+      }
       if (window.SKYHOP && typeof window.SKYHOP.goToMenu === 'function') {
         try {
           window.SKYHOP.goToMenu();
@@ -182,7 +226,11 @@
         }
       }
       disconnect();
-      window.alert(msg.reason || 'Removed from this collab — automated play is blocked.');
+      window.alert(
+        kickedByMod
+          ? msg.reason || 'A moderator removed you from this session.'
+          : msg.reason || 'Removed from this collab — automated play is blocked.'
+      );
       return;
     }
     if (msg.type === 'error') {
@@ -228,6 +276,29 @@
     }
     var close = el('btnCollabClose');
     if (close) close.addEventListener('click', hideScreen);
+    syncCollabVisibility();
+    var collabPriv = el('btnCollabPrivate');
+    var collabPub = el('btnCollabPublic');
+    if (collabPriv) {
+      collabPriv.addEventListener('click', function () {
+        collabPublic = false;
+        syncCollabVisibility();
+      });
+    }
+    if (collabPub) {
+      collabPub.addEventListener('click', function () {
+        collabPublic = true;
+        syncCollabVisibility();
+      });
+    }
+    var collabVis = el('collabBtnVisibility');
+    if (collabVis) {
+      collabVis.addEventListener('click', function () {
+        collabPublic = !collabPublic;
+        syncCollabVisibility();
+        send({ type: 'setVisibility', public: collabPublic });
+      });
+    }
 
     var host = el('collabBtnHost');
     if (host) {
@@ -241,6 +312,7 @@
             mode: 'collab',
             name: (el('collabName') && el('collabName').value) || 'Host',
             anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+            public: !!collabPublic,
             authToken: authToken(),
           });
         };

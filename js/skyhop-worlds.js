@@ -100,6 +100,11 @@
   let collabScope = null;
 
   function setActiveWorld(id) {
+    if (typeof id === 'number' && id >= 3) {
+      activeWorldId = id;
+      collabScope = null;
+      return;
+    }
     activeWorldId = id === 2 ? 2 : id === 'both' ? 'both' : 1;
     collabScope = null;
   }
@@ -117,6 +122,15 @@
     if (collabScope === 'w2') return stagesForWorld(2);
     if (collabScope === 'both') return bothStages();
     if (collabScope === 'w1') return stagesForWorld(1);
+    if (typeof activeWorldId === 'number' && activeWorldId >= 3) {
+      if (
+        window.__skyhopCustomWorldId === activeWorldId &&
+        Array.isArray(window.__skyhopCustomWorldStages)
+      ) {
+        return window.__skyhopCustomWorldStages.slice();
+      }
+      return [];
+    }
     return stagesForWorld(activeWorldId);
   }
 

@@ -14,13 +14,14 @@ import {
 } from './owner-delete.js';
 import { sendOwnerMail } from './mail.js';
 import * as ShopItems from './shop-items.js';
+import * as CustomWorlds from './custom-worlds.js';
 import { store } from './store.js';
 import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
 import * as SubmittedRuns from './submitted-runs.js';
 import * as UserMods from './user-mods.js';
-import { consumeRaceFinishReceipt, listLiveSessions, minUntokenedRaceMs } from './live-sessions.js';
+import { consumeRaceFinishReceipt, listLiveSessions, listPublicSessions, minUntokenedRaceMs } from './live-sessions.js';
 import {
   joinTosPagesForEditor,
   resolveBranding,
@@ -1771,6 +1772,145 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/worlds' && req.method === 'GET') {
+    try {
+      const sess = await getActiveSessionUser(req);
+      let world1Cleared = false;
+      let isOwner = false;
+      let userId = null;
+      if (sess && sess.user) {
+        userId = sess.userId;
+        isOwner = effectiveRole(sess.user) === 'owner';
+        const ach = typeof store.getAchievementsForUser === 'function' ? await store.getAchievementsForUser(sess.userId) : [];
+        const achIds = new Set((ach || []).map((a) => a.achievementId));
+        world1Cleared =
+          !!(sess.user.campaignWorld1ClearedAt && sess.user.campaignWorld1ClearedAt > 0) || achIds.has('first_clear');
+      }
+      json(res, 200, await CustomWorlds.listWorldCatalog({ userId, isOwner, world1Cleared }));
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/worlds\/(\d+)\/stages$/.exec(pathname);
+    if (m && req.method === 'GET') {
+      try {
+        const id = Number(m[1]);
+        const sess = await getActiveSessionUser(req);
+        let world1Cleared = false;
+        let isOwner = false;
+        let userId = null;
+        if (sess && sess.user) {
+          userId = sess.userId;
+          isOwner = effectiveRole(sess.user) === 'owner';
+          const ach = typeof store.getAchievementsForUser === 'function' ? await store.getAchievementsForUser(sess.userId) : [];
+          const achIds = new Set((ach || []).map((a) => a.achievementId));
+          world1Cleared =
+            !!(sess.user.campaignWorld1ClearedAt && sess.user.campaignWorld1ClearedAt > 0) || achIds.has('first_clear');
+        }
+        const allowed = await CustomWorlds.customWorldUnlocked(id, { userId, isOwner, world1Cleared });
+        if (!allowed) {
+          json(res, 403, { error: 'That world is locked.' });
+          return true;
+        }
+        const hit = await CustomWorlds.getCustomWorldStages(id);
+        if (!hit) {
+          json(res, 404, { error: 'Unknown world.' });
+          return true;
+        }
+        json(res, 200, hit);
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/owner/worlds' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const name = censorProfanity(String(body.name || '')).text.slice(0, 40);
+      const world = await CustomWorlds.createCustomWorld({ name, requires: body.requires });
+      json(res, 201, { ok: true, world });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/owner\/worlds\/(\d+)\/stages$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Owner only' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const stages = body.stages;
+      if (!Array.isArray(stages) || stages.length < 1) {
+        json(res, 400, { error: 'stages array required' });
+        return true;
+      }
+      if (JSON.stringify(stages).length > 4_000_000) {
+        json(res, 400, { error: 'Campaign data too large' });
+        return true;
+      }
+      try {
+        const out = await CustomWorlds.setCustomWorldStages(m[1], stages);
+        json(res, 200, { ok: true, count: out.count });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/worlds\/(\d+)\/clear$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      try {
+        await CustomWorlds.markWorldCleared(sess.userId, m[1]);
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
   if (pathname === '/api/builtin-stages-world2' && req.method === 'GET') {
     try {
       if (typeof store.getBuiltinWorld2Stages !== 'function') {
@@ -2932,6 +3072,15 @@ export async function handleApi(req, res) {
       }
       return true;
     }
+  }
+
+  if (pathname === '/api/public-sessions' && req.method === 'GET') {
+    try {
+      json(res, 200, { sessions: listPublicSessions() });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
   }
 
   if (pathname === '/api/staff/live-sessions' && req.method === 'GET') {

@@ -12,14 +12,21 @@ import { recordVisit } from './visit-stats.js';
 import {
   applyChat,
   applyFinish,
+  applyModChat,
   applyProgress,
   broadcastAll,
+  broadcastChat,
+  broadcastChatUpdate,
+  chatHistoryFor,
   createRoom,
+  deleteChatMessage,
+  editChatMessage,
   emptyProgress,
   leaveRoom,
   makePlayerId,
   makeRoomId,
   playerList,
+  publicSessionSummary,
   rooms,
   send,
   serializeRoom,
@@ -168,6 +175,38 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
+function stampSessionUser(meta, user) {
+  if (!meta || !user || !user.username) return;
+  meta.username = user.username;
+  meta.role = user.role;
+  meta.userId = user.uid;
+}
+
+function revealModsFor(userOrMeta) {
+  const role = userOrMeta && userOrMeta.role;
+  return role === 'owner' || role === 'admin';
+}
+
+function canModerateSession(meta) {
+  if (!meta || meta.watchKind === 'public') return false;
+  return isStaffRole(meta.role);
+}
+
+function dropPublicWatchers(room) {
+  if (!room || !room.spectators) return;
+  for (const s of [...room.spectators]) {
+    const m = socketMeta.get(s);
+    if (!m || m.watchKind !== 'public') continue;
+    send(s, { type: 'sessionEnded', message: 'This session is now private.' });
+    leaveRoom(s, room.id);
+    try {
+      s.close();
+    } catch {
+      /* */
+    }
+  }
+}
+
 function kickCheater(ws, room, reason) {
   send(ws, { type: 'cheatKick', reason: reason || 'Removed from this session.' });
   const meta = socketMeta.get(ws);
@@ -238,15 +277,25 @@ wss.on('connection', (ws) => {
           msg.anticheatOn === false ||
           msg.anticheat === false
         );
+        let raceWorld = 0;
+        if (!isCollab) {
+          const w = Number(msg.world);
+          if (w !== 1 && w !== 2) {
+            send(ws, { type: 'error', message: 'Pick World 1 or World 2 before hosting.' });
+            return;
+          }
+          raceWorld = w;
+        }
         const room = createRoom(roomId, ws, playerId, name, isCollab, anticheatEnabled);
+        if (!isCollab) room.raceWorld = raceWorld;
+        room.public = msg.public === true || msg.visibility === 'public';
         const meta = socketMeta.get(ws);
         meta.roomId = roomId;
         meta.displayName = name;
-        if (user && user.username) {
-          meta.username = user.username;
-          meta.role = user.role;
-          room.usernames[playerId] = user.username;
-        }
+        meta.spectator = false;
+        meta.watchKind = null;
+        stampSessionUser(meta, user);
+        if (user && user.username) room.usernames[playerId] = user.username;
         send(ws, {
           type: 'roomCreated',
           roomId,
@@ -254,8 +303,10 @@ wss.on('connection', (ws) => {
           name,
           playerId,
           players: playerList(room),
-          chat: room.chat,
+          chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
+          world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          public: !!room.public,
         });
       })();
       return;
@@ -294,11 +345,10 @@ wss.on('connection', (ws) => {
         const meta = socketMeta.get(ws);
         meta.roomId = roomId;
         meta.displayName = name;
-        if (user && user.username) {
-          meta.username = user.username;
-          meta.role = user.role;
-          room.usernames[playerId] = user.username;
-        }
+        meta.spectator = false;
+        meta.watchKind = null;
+        stampSessionUser(meta, user);
+        if (user && user.username) room.usernames[playerId] = user.username;
         const players = playerList(room);
         send(ws, {
           type: 'joined',
@@ -307,8 +357,10 @@ wss.on('connection', (ws) => {
           name,
           playerId,
           players,
-          chat: room.chat,
+          chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
+          world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          public: !!room.public,
         });
         broadcastAll(room, { type: 'playerJoined', playerId, name, players }, ws);
       })();
@@ -333,17 +385,59 @@ wss.on('connection', (ws) => {
         if (meta.roomId && meta.roomId !== roomId) leaveRoom(ws, meta.roomId);
         meta.roomId = roomId;
         meta.spectator = true;
-        meta.username = user.username;
-        meta.role = user.role;
+        meta.watchKind = 'staff';
+        stampSessionUser(meta, user);
         meta.displayName = user.username;
         if (!room.spectators) room.spectators = new Set();
         room.spectators.add(ws);
         send(ws, {
           type: 'watching',
           room: serializeRoom(room),
-          chat: room.chat,
+          chat: chatHistoryFor(room, revealModsFor(user)),
         });
       })();
+      return;
+    }
+
+    if (msg.type === 'publicWatch') {
+      const roomId =
+        (msg.roomId && String(msg.roomId).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) || '';
+      const room = rooms.get(roomId);
+      if (!room || !room.public) {
+        send(ws, { type: 'error', message: 'This session is private.' });
+        return;
+      }
+      const meta = socketMeta.get(ws);
+      if (meta.roomId && meta.roomId !== roomId) leaveRoom(ws, meta.roomId);
+      if (meta.roomId === roomId && !meta.spectator) {
+        send(ws, { type: 'error', message: 'You are already in this session.' });
+        return;
+      }
+      meta.roomId = roomId;
+      meta.spectator = true;
+      meta.watchKind = 'public';
+      meta.role = 'player';
+      meta.username = null;
+      if (!room.spectators) room.spectators = new Set();
+      room.spectators.add(ws);
+      send(ws, {
+        type: 'watching',
+        room: publicSessionSummary(room),
+        chat: chatHistoryFor(room, false),
+      });
+      return;
+    }
+
+    if (msg.type === 'setVisibility') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || room.host !== ws || (meta && meta.spectator)) {
+        send(ws, { type: 'error', message: 'Only the host can change who can watch.' });
+        return;
+      }
+      room.public = !!msg.public;
+      if (!room.public) dropPublicWatchers(room);
+      broadcastAll(room, { type: 'visibility', public: !!room.public });
       return;
     }
 
@@ -410,11 +504,15 @@ wss.on('connection', (ws) => {
         broadcastAll(room, pack);
         return;
       }
-      room.maxStage0 = 49;
+      const raceWorld = room.raceWorld === 2 ? 2 : 1;
+      const sc = Number(msg.stageCount);
+      const nRaceStages = Number.isFinite(sc) && sc >= 1 ? Math.min(200, Math.floor(sc)) : 50;
+      room.maxStage0 = Math.max(0, nRaceStages - 1);
       const pack = {
         type: 'raceStart',
         startAt,
         roomId: room.id,
+        world: raceWorld,
         difficulty,
         anticheatEnabled: room.anticheatEnabled !== false,
       };
@@ -501,12 +599,71 @@ wss.on('connection', (ws) => {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
       if (!room) return;
-      const result = applyChat(room, playerId, msg.text, meta);
+      if (meta.watchKind === 'public') {
+        send(ws, { type: 'error', message: 'Watching is view-only.' });
+        return;
+      }
+      const asMod = meta.watchKind === 'staff' || !!msg.asMod;
+      if (asMod && !canModerateSession(meta)) {
+        send(ws, { type: 'error', message: 'Moderator access required.' });
+        return;
+      }
+      const result = asMod ? applyModChat(room, msg.text, meta) : applyChat(room, playerId, msg.text, meta);
       if (!result.ok) {
         send(ws, { type: 'error', message: result.error || 'Chat failed' });
         return;
       }
-      broadcastAll(room, { type: 'roomChat', ...result.row });
+      broadcastChat(room, result.row);
+      return;
+    }
+
+    if (msg.type === 'chatEdit' || msg.type === 'chatDelete') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !canModerateSession(meta)) {
+        send(ws, { type: 'error', message: 'Moderator access required.' });
+        return;
+      }
+      const result =
+        msg.type === 'chatEdit'
+          ? editChatMessage(room, msg.id, msg.text)
+          : deleteChatMessage(room, msg.id);
+      if (!result.ok) {
+        send(ws, { type: 'error', message: result.error || 'Could not update chat.' });
+        return;
+      }
+      broadcastChatUpdate(room, msg.type === 'chatEdit' ? 'edit' : 'delete', result.row);
+      return;
+    }
+
+    if (msg.type === 'staffRemove') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !canModerateSession(meta)) {
+        send(ws, { type: 'error', message: 'Moderator access required.' });
+        return;
+      }
+      const targetId = String(msg.playerId || '');
+      let target = null;
+      for (const c of room.clients) {
+        const m = socketMeta.get(c);
+        if (m && m.playerId === targetId) target = c;
+      }
+      if (!target) {
+        send(ws, { type: 'error', message: 'Player not in this session.' });
+        return;
+      }
+      send(target, {
+        type: 'staffRemoved',
+        reason: 'A moderator removed you from this session.',
+      });
+      const tmeta = socketMeta.get(target);
+      if (tmeta && tmeta.roomId) leaveRoom(target, tmeta.roomId);
+      try {
+        target.close();
+      } catch {
+        /* */
+      }
       return;
     }
 

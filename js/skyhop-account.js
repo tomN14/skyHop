@@ -1228,6 +1228,8 @@
         hidePromotionNotice();
         syncOwnerStrikeTools(null);
         if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
+        if (typeof window.SkyHopSyncRolePowers === 'function') window.SkyHopSyncRolePowers();
+        if (typeof window.SkyHopSyncOwnerAddWorldFab === 'function') window.SkyHopSyncOwnerAddWorldFab();
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
         window.__skyhopLastMe = null;
@@ -1269,6 +1271,8 @@
         updateOwnerRequestBadge(me);
         syncOwnerStrikeTools(me);
         if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
+        if (typeof window.SkyHopSyncRolePowers === 'function') window.SkyHopSyncRolePowers();
+        if (typeof window.SkyHopSyncOwnerAddWorldFab === 'function') window.SkyHopSyncOwnerAddWorldFab();
         const ownerTools = document.getElementById('ownerTools');
         if (ownerTools) ownerTools.classList.toggle('hidden', (me.role || 'player') !== 'owner');
         var btnOpenOwnerPage = document.getElementById('btnOpenOwnerPage');
@@ -1302,6 +1306,8 @@
         hidePromotionNotice();
         syncOwnerStrikeTools(null);
         if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
+        if (typeof window.SkyHopSyncRolePowers === 'function') window.SkyHopSyncRolePowers();
+        if (typeof window.SkyHopSyncOwnerAddWorldFab === 'function') window.SkyHopSyncOwnerAddWorldFab();
         window.__skyhopLastMe = null;
         setErr(String(e.message || e));
       }
@@ -3256,6 +3262,8 @@
     updateOwnerRequestBadge(null);
     syncOwnerStrikeTools(null);
     if (typeof window.SkyHopSyncOwnerAddShopFab === 'function') window.SkyHopSyncOwnerAddShopFab();
+    if (typeof window.SkyHopSyncRolePowers === 'function') window.SkyHopSyncRolePowers();
+    if (typeof window.SkyHopSyncOwnerAddWorldFab === 'function') window.SkyHopSyncOwnerAddWorldFab();
     void refreshMenuBranding();
     if (getToken()) void refreshPanel();
   }
