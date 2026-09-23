@@ -61,17 +61,30 @@
   function renderMenuWorlds(worlds) {
     var box = document.getElementById('menuExtraWorlds');
     if (!box) return;
-    box.innerHTML = '';
-    var extra = (worlds || []).filter(function (w) {
-      return w && !w.builtin && w.id >= 3 && w.unlocked;
-    });
+    box.textContent = '';
+    var extra = (worlds || [])
+      .filter(function (w) {
+        return w && !w.builtin && w.id >= 3 && w.unlocked;
+      })
+      .sort(function (a, b) {
+        return Number(a.id) - Number(b.id);
+      });
     box.classList.toggle('hidden', extra.length === 0);
+    box.classList.toggle('flex', extra.length > 0);
     extra.forEach(function (w) {
       var btn = document.createElement('button');
       btn.type = 'button';
+      btn.title = w.name;
       btn.className =
-        'w-full rounded-2xl border border-violet-500/40 bg-violet-950/40 px-4 py-3 text-sm font-semibold text-violet-100 hover:bg-violet-900/50';
-      btn.textContent = 'Play ' + w.name;
+        'pointer-events-auto inline-flex items-center gap-2 rounded-2xl border border-teal-500/50 bg-teal-950/80 px-3 py-1.5 text-sm font-semibold text-teal-100 shadow-lg backdrop-blur-md hover:bg-teal-900/60';
+      var arrow = document.createElement('span');
+      arrow.setAttribute('aria-hidden', 'true');
+      arrow.textContent = '→';
+      var label = document.createElement('span');
+      label.className = 'text-xs';
+      label.textContent = w.name;
+      btn.appendChild(arrow);
+      btn.appendChild(label);
       btn.addEventListener('click', function () {
         void playCustomWorld(w);
       });
