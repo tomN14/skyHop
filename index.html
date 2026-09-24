@@ -71,9 +71,13 @@
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(17.75rem + env(safe-area-inset-bottom, 0px));
     }
-    #btnAdminBanFab {
+    #btnSplGuideFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(21rem + env(safe-area-inset-bottom, 0px));
+    }
+    #btnAdminBanFab {
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      bottom: calc(24.25rem + env(safe-area-inset-bottom, 0px));
     }
     #btnCoinShopFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
@@ -100,7 +104,8 @@
       #btnStaffFeatureList { left: 3rem; bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)); }
       #btnOwnerStrikesFab { left: 3rem; bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnKeybindsFab { left: 3rem; bottom: calc(19.5rem + env(safe-area-inset-bottom, 0px)); }
-      #btnAdminBanFab { left: 3rem; bottom: calc(22.75rem + env(safe-area-inset-bottom, 0px)); }
+      #btnSplGuideFab { left: 3rem; bottom: calc(22.75rem + env(safe-area-inset-bottom, 0px)); }
+      #btnAdminBanFab { left: 3rem; bottom: calc(26rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
       #btnPublicSessionsFab { left: 3rem; bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
       #btnRolePowersFab { left: calc(3rem + 3.5rem); bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
@@ -1355,6 +1360,84 @@
       </div>
     </div>
 
+    <div id="screenSplGuide" class="pointer-events-auto fixed inset-0 z-[40] hidden flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
+      <div class="my-auto w-full max-w-2xl rounded-3xl border border-fuchsia-400/35 bg-gradient-to-br from-slate-900 to-fuchsia-950/40 p-6 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-sem uppercase tracking-widest text-fuchsia-300">Level scripts</p>
+            <h3 class="mt-1 text-xl font-bold text-white">SPL in SkyHop</h3>
+            <p class="mt-1 text-[11px] text-slate-500">What a level script can do in the game. SPL is still the language. This is only the SkyHop side.</p>
+          </div>
+          <button id="btnSplGuideClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <div class="mt-4 max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-left text-[11px] leading-relaxed text-slate-300">
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Where the script goes</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li>In the level editor, press <span class="font-mono text-fuchsia-100">&lt;/&gt;</span>. The script is saved with the level.</li>
+              <li>Stage time and jump limit are the number fields next to it. <span class="font-mono">-1</span> means unlimited, and the matching HUD chip stays hidden.</li>
+              <li>Hover an object to see its center, such as <span class="font-mono">Center: (500, 491)</span>. Use that point in <span class="font-mono">skyhop.tag</span>.</li>
+              <li>The first scripted stage shows “Loading SPL…” once, then the script starts.</li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">The lines you need</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li>The first line must be <span class="font-mono text-fuchsia-100">use skyhop;</span>. Any other <span class="font-mono">use</span> is rejected.</li>
+              <li><span class="font-mono">name &lt;- expr</span> stores a value. Member assignment such as <span class="font-mono">object.id &lt;- 1</span> is not SPL.</li>
+              <li><span class="font-mono">#comment:</span> starts a comment. <span class="font-mono">1</span> is true and <span class="font-mono">0</span> is false. Close every block with <span class="font-mono">end;</span>.</li>
+              <li><span class="font-mono">test.while(1):</span> runs one pass per frame, so <span class="font-mono">skyhop.get</span> inside it sees the player change.</li>
+              <li><span class="font-mono">test.forLoop(start, end, name):</span> counts from start through end, one step at a time, and finishes in the same frame. The third argument is the variable name, not a value.</li>
+              <li><span class="font-mono">test.ifTrue</span> runs when the condition is <span class="font-mono">1</span>. <span class="font-mono">test.ifFalse</span>, <span class="font-mono">test.else</span>, <span class="font-mono">test.elseIfTrue</span>, and <span class="font-mono">test.elseIfFalse</span> work too.</li>
+              <li><span class="font-mono">test.break;</span> leaves the loop. <span class="font-mono">test.continue;</span> skips to the next pass.</li>
+              <li>Comparisons: <span class="font-mono">test.isEqualNumber</span>, <span class="font-mono">test.isGreater</span>, <span class="font-mono">test.isLess</span>. Math: <span class="font-mono">math.add</span>, <span class="font-mono">math.subtract</span>, <span class="font-mono">math.multiply</span>, <span class="font-mono">math.div</span>.</li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">skyhop.get</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.get("stage_time_limit")</span> — the limit for this stage. <span class="font-mono">-1</span> means no timer.</li>
+              <li><span class="font-mono">skyhop.get("stage_time_left")</span> — seconds left on this attempt. <span class="font-mono">-1</span> if unlimited. At 0 the player dies and the stage restarts.</li>
+              <li><span class="font-mono">skyhop.get("jump_limit")</span> — the jump cap. <span class="font-mono">-1</span> means unlimited.</li>
+              <li><span class="font-mono">skyhop.get("jumps_remaining")</span> — jumps left this attempt. <span class="font-mono">-1</span> if unlimited. Ground, double, and wall jumps all count.</li>
+              <li><span class="font-mono">skyhop.get("is_player_jumping")</span> — <span class="font-mono">1</span> for one frame, the frame after a jump starts, then <span class="font-mono">0</span>. Read it inside the loop.</li>
+              <li>Any other name returns <span class="font-mono">0</span>.</li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Tags and rotate</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.tag(x, y, id)</span> gives that id to the object whose center is at <span class="font-mono">(x, y)</span>. The center has to be within a pixel. Platforms use the middle of the box. Coins and the spawn use their point.</li>
+              <li>The same id can be given to more than one object.</li>
+              <li><span class="font-mono">skyhop.rotate(id, degrees)</span> turns the first object with that id. Use 90, 180, 270, or a negative amount. Each 90° swaps width and height around the center.</li>
+              <li>Rotate searches in this order and stops at the first match: spawn, goal, platforms in list order, movers, spikes, lava, coins, gravity arrows, portals, switches, blackouts, fireball emitters.</li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Random and limits</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.random(n)</span> returns a whole number from 0 through n − 1.</li>
+              <li><span class="font-mono">skyhop.random(low, high)</span> returns a whole number from low through high.</li>
+              <li>File, network, SQL, packages, and system calls are blocked.</li>
+              <li>Dying or restarting the stage runs the script again and puts rotated objects back. The speedrun timer keeps going.</li>
+            </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Example</p>
+            <p class="mt-1">Turn the object at (500, 491) once on the first jump. Later jumps do nothing until the stage restarts. On a new level that point is the middle floating platform, if you have not moved it.</p>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">use skyhop;
+skyhop.tag(500, 491, 1);
+test.while(1):
+    test.ifTrue(skyhop.get("is_player_jumping")):
+        skyhop.rotate(1, 90);
+        test.break;
+    end;
+end;</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="screenKeybinds" class="pointer-events-auto fixed inset-0 z-[40] hidden flex items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
       <div class="my-auto w-full max-w-md rounded-3xl border border-cyan-500/35 bg-gradient-to-br from-slate-900 to-cyan-950/40 p-6 shadow-2xl">
         <div class="flex items-start justify-between gap-3">
@@ -1876,6 +1959,9 @@
   <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🚫</span>
   </button>
+  <button id="btnSplGuideFab" type="button" title="SPL in SkyHop" class="skyhop-edge-fab border border-fuchsia-400/50 bg-slate-900/95 hover:bg-fuchsia-950/80">
+    <span aria-hidden="true" class="font-mono text-[11px] font-semibold leading-none">&lt;/&gt;</span>
+  </button>
   <button id="btnKeybindsFab" type="button" title="Keybinds" class="skyhop-edge-fab border border-cyan-500/45 bg-slate-900/95 hover:bg-cyan-950/80">
     <span aria-hidden="true">⌨️</span>
   </button>
@@ -1931,6 +2017,7 @@
   <script src="js/skyhop-input-log.js"></script>
   <script src="js/skyhop-keybinds.js"></script>
   <script src="js/skyhop-spl.js"></script>
+  <script src="js/skyhop-spl-guide.js"></script>
   <script src="js/skyhop-spl-real.js"></script>
   <script src="js/skyhop-game.js"></script>
   <script src="js/skyhop-anticheat-probe.js"></script>
