@@ -29,9 +29,23 @@ _state = {}
 _commands = []
 
 
+def _stub_module(name):
+    """Pyodide's browser build omits some stdlib modules the interpreter imports."""
+    import types
+
+    try:
+        __import__(name)
+    except ImportError:
+        sys.modules[name] = types.ModuleType(name)
+
+
 def _import_spl():
     import types
 
+    # The game runtime (Pyodide 0.27) has no ssl or sqlite3. The interpreter
+    # imports both while loading. Network and SQL stay blocked, so a name-only
+    # stub is enough to let scripts start.
+    _stub_module("ssl")
     try:
         import sqlite3  # noqa: F401
     except ImportError:
