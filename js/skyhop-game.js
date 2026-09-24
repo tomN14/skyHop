@@ -434,6 +434,11 @@
   const hudStage = document.getElementById('hudStage');
   const hudDeaths = document.getElementById('hudDeaths');
   const hudTimer = document.getElementById('hudTimer');
+  const hudStageLimit = document.getElementById('hudStageLimit');
+  const hudStageLimitVal = document.getElementById('hudStageLimitVal');
+  const hudJumps = document.getElementById('hudJumps');
+  const hudJumpsVal = document.getElementById('hudJumpsVal');
+  const hudSplError = document.getElementById('hudSplError');
   const hudBossHpWrap = document.getElementById('hudBossHpWrap');
   const hudBossHpFill = document.getElementById('hudBossHpFill');
   const hudBossHpNums = document.getElementById('hudBossHpNums');
@@ -888,6 +893,194 @@
   }
 
   let stageStartedAt = 0;
+  let stageTimeLeft = -1;
+  let jumpLimit = -1;
+  let jumpsUsed = 0;
+  let jumpEdge = 0;
+  let splSession = null;
+  let splReal = null;
+  let splGen = 0;
+  const stageAttemptBases = new WeakMap();
+
+  function readLimit(value, integer) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 0) return -1;
+    return integer ? Math.min(9999, Math.floor(n)) : Math.min(86400, n);
+  }
+
+  function restoreStageForAttempt(stage) {
+    let raw = stageAttemptBases.get(stage);
+    if (!raw) {
+      stageAttemptBases.set(stage, JSON.stringify(stage));
+      return;
+    }
+    const fresh = JSON.parse(raw);
+    for (const k of Object.keys(stage)) delete stage[k];
+    Object.assign(stage, fresh);
+  }
+
+  function formatStageLeft(sec) {
+    const s = Math.max(0, sec);
+    const m = Math.floor(s / 60);
+    const rem = s - m * 60;
+    const whole = Math.floor(rem);
+    const tenth = Math.min(9, Math.floor((rem - whole) * 10 + 1e-6));
+    return m + ':' + String(whole).padStart(2, '0') + '.' + tenth;
+  }
+
+  function showSplError(message) {
+    if (!hudSplError) return;
+    hudSplError.textContent = message;
+    hudSplError.classList.remove('hidden');
+  }
+
+  function hideSplError() {
+    if (!hudSplError) return;
+    hudSplError.textContent = '';
+    hudSplError.classList.add('hidden');
+  }
+
+  function beginStageRules(stage) {
+    restoreStageForAttempt(stage);
+    stageTimeLeft = readLimit(stage.stage_time_limit, false);
+    jumpLimit = readLimit(stage.jump_limit, true);
+    jumpsUsed = 0;
+    jumpEdge = 0;
+    hideSplError();
+    splSession = null;
+    splReal = null;
+    const splCode = typeof stage.spl === 'string' ? stage.spl : '';
+    if (!splCode.trim()) return;
+    const gen = ++splGen;
+    if (window.SkyHopSplReal) {
+      splReal = { gen: gen, ready: false, api: null, failed: false, done: false };
+      showSplError('Loading SPL…');
+      window.SkyHopSplReal.ensure()
+        .then(function (api) {
+          if (gen !== splGen || !splReal || splReal.gen !== gen) return;
+          const opened = api.open(splCode);
+          splReal.ready = true;
+          if (!opened.ok) {
+            splReal.failed = true;
+            showSplError(opened.error || 'Script failed to open');
+            return;
+          }
+          splReal.api = api;
+          hideSplError();
+        })
+        .catch(function (err) {
+          if (gen !== splGen || !splReal || splReal.gen !== gen) return;
+          splReal.ready = true;
+          splReal.failed = true;
+          splSession = window.SkyHopSpl ? window.SkyHopSpl.open(splCode) : null;
+          if (splSession && splSession.error) showSplError(splSession.error);
+          else hideSplError();
+          console.error('SkyHop SPL runtime', err);
+        });
+      return;
+    }
+    splSession = window.SkyHopSpl ? window.SkyHopSpl.open(splCode) : null;
+    if (splSession && splSession.error) {
+      splSession.errorShown = true;
+      showSplError(splSession.error);
+    }
+  }
+
+  function splState(stage) {
+    return {
+      stage_time_limit: splGet(stage, 'stage_time_limit'),
+      jump_limit: splGet(stage, 'jump_limit'),
+      stage_time_left: splGet(stage, 'stage_time_left'),
+      jumps_remaining: splGet(stage, 'jumps_remaining'),
+      is_player_jumping: splGet(stage, 'is_player_jumping'),
+    };
+  }
+
+  function applySplCommands(stage, commands) {
+    const spl = window.SkyHopSpl;
+    if (!spl || !commands) return;
+    for (let i = 0; i < commands.length; i++) {
+      const cmd = commands[i];
+      if (!cmd || !cmd.length) continue;
+      if (cmd[0] === 'tag') spl.tagObject(stage, cmd[1], cmd[2], cmd[3]);
+      else if (cmd[0] === 'rotate') spl.rotateObject(stage, cmd[1], cmd[2]);
+    }
+  }
+
+  function splGet(stage, key) {
+    if (key === 'stage_time_limit') return readLimit(stage.stage_time_limit, false);
+    if (key === 'jump_limit') return jumpLimit;
+    if (key === 'stage_time_left') return stageTimeLeft;
+    if (key === 'jumps_remaining') {
+      if (jumpLimit < 0) return -1;
+      return Math.max(0, jumpLimit - jumpsUsed);
+    }
+    if (key === 'is_player_jumping') return jumpEdge ? 1 : 0;
+    return 0;
+  }
+
+  function tickLevelScript(stage) {
+    if (splReal) {
+      if (!splReal.ready) return;
+      if (splReal.failed) {
+        splReal = null;
+      } else if (splReal.api && !splReal.done) {
+        try {
+          const out = splReal.api.tick(splState(stage));
+          applySplCommands(stage, out.commands);
+          if (out.error && !splReal.errorShown) {
+            splReal.errorShown = true;
+            showSplError(out.error);
+            console.error('SkyHop SPL', out.error);
+          }
+          splReal.done = !!out.done;
+        } catch (err) {
+          splReal.done = true;
+          showSplError(String((err && err.message) || err));
+        }
+        jumpEdge = 0;
+        return;
+      } else {
+        jumpEdge = 0;
+        return;
+      }
+    }
+    if (splSession && !splSession.done && window.SkyHopSpl) {
+      window.SkyHopSpl.tick(splSession, {
+        get: function (key) {
+          return splGet(stage, String(key));
+        },
+        tag: function (x, y, sid) {
+          window.SkyHopSpl.tagObject(stage, x, y, sid);
+        },
+        rotate: function (sid, deg) {
+          window.SkyHopSpl.rotateObject(stage, sid, deg);
+        },
+      });
+      if (splSession.error && !splSession.errorShown) {
+        splSession.errorShown = true;
+        showSplError(splSession.error);
+        console.error('SkyHop SPL', splSession.error);
+      }
+    }
+    jumpEdge = 0;
+  }
+
+  function spendJump() {
+    if (jumpLimit >= 0 && jumpsUsed >= jumpLimit) return false;
+    jumpsUsed += 1;
+    jumpEdge = 1;
+    return true;
+  }
+
+  function consumeStageTime(dt) {
+    if (stageTimeLeft < 0) return false;
+    stageTimeLeft -= dt;
+    if (stageTimeLeft > 0) return false;
+    stageTimeLeft = 0;
+    die();
+    return true;
+  }
 
   const keys = {};
   const keysByCode = {};
@@ -2107,6 +2300,7 @@
         return;
       }
     }
+    beginStageRules(s);
     player.x = s.spawn.x;
     player.y = s.spawn.y - player.h;
     player.vx = 0;
@@ -2812,6 +3006,8 @@
     if (gameState !== 'playing') return;
     const stage = stagesNow()[stageIndex];
     if (!stage) return;
+    if (consumeStageTime(dt)) return;
+    tickLevelScript(stage);
     const now = performance.now();
     tickSwitchAnims(now);
     tickBlackouts(stage, dt);
@@ -2875,12 +3071,16 @@
     const canJump = player.onGround || now < player.coyoteUntil;
     let usedGroundJump = false;
     if (canJump && now - lastJumpPress < C.JUMP_BUFFER_MS) {
-      player.vy = C.JUMP_V * gravityDir * O.jumpMul;
-      player.onGround = false;
-      player.coyoteUntil = 0;
-      lastJumpPress = -9999;
-      usedGroundJump = true;
-      player.noMoverSnapUntil = now + 100;
+      if (!spendJump()) {
+        lastJumpPress = -9999;
+      } else {
+        player.vy = C.JUMP_V * gravityDir * O.jumpMul;
+        player.onGround = false;
+        player.coyoteUntil = 0;
+        lastJumpPress = -9999;
+        usedGroundJump = true;
+        player.noMoverSnapUntil = now + 100;
+      }
     }
 
     const doubleJumpStage = !!stage.doubleJump;
@@ -3001,11 +3201,15 @@
       now - lastJumpPress < C.JUMP_BUFFER_MS &&
       now >= player.wallJumpLockUntil
     ) {
-      player.vy = C.JUMP_V * gravityDir * O.jumpMul;
-      player.airJumpsUsed++;
-      lastJumpPress = -9999;
-      handledMidairJump = true;
-      player.noMoverSnapUntil = now + 100;
+      if (!spendJump()) {
+        lastJumpPress = -9999;
+      } else {
+        player.vy = C.JUMP_V * gravityDir * O.jumpMul;
+        player.airJumpsUsed++;
+        lastJumpPress = -9999;
+        handledMidairJump = true;
+        player.noMoverSnapUntil = now + 100;
+      }
     }
 
     if (
@@ -3018,10 +3222,14 @@
       const wl = PHY.wallTouching(wallJumpRects, -1, player.x, player.y, player.w, player.h);
       const wr = PHY.wallTouching(wallJumpRects, 1, player.x, player.y, player.w, player.h);
       if (wl || wr) {
-        player.vy = C.JUMP_V * C.WALL_JUMP_VY_MULT * gravityDir * O.jumpMul;
-        player.vx = (wr ? -1 : 1) * C.WALL_KICK;
-        player.wallJumpLockUntil = now + 200;
-        lastJumpPress = -9999;
+        if (!spendJump()) {
+          lastJumpPress = -9999;
+        } else {
+          player.vy = C.JUMP_V * C.WALL_JUMP_VY_MULT * gravityDir * O.jumpMul;
+          player.vx = (wr ? -1 : 1) * C.WALL_KICK;
+          player.wallJumpLockUntil = now + 200;
+          lastJumpPress = -9999;
+        }
       }
     }
 
@@ -4074,6 +4282,17 @@
       const m = Math.floor(sec / 60);
       const s = sec % 60;
       hudTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    }
+    const showRules = gameState === 'playing' || gameState === 'paused';
+    if (hudStageLimit) {
+      const showTime = showRules && stageTimeLeft >= 0;
+      hudStageLimit.classList.toggle('hidden', !showTime);
+      if (showTime && hudStageLimitVal) hudStageLimitVal.textContent = formatStageLeft(stageTimeLeft);
+    }
+    if (hudJumps) {
+      const showJumps = showRules && jumpLimit >= 0;
+      hudJumps.classList.toggle('hidden', !showJumps);
+      if (showJumps && hudJumpsVal) hudJumpsVal.textContent = String(Math.max(0, jumpLimit - jumpsUsed));
     }
     if (
       hudWeaponsWrap &&

@@ -63,7 +63,24 @@
       portals: [],
       switches: [],
       blackouts: [],
+      stage_time_limit: -1,
+      jump_limit: -1,
+      spl: '',
     };
+  }
+
+  function normalizeStageTime(v) {
+    if (v == null || v === '') return -1;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return -1;
+    return Math.min(86400, n);
+  }
+
+  function normalizeJumpLimit(v) {
+    if (v == null || v === '') return -1;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return -1;
+    return Math.min(9999, Math.floor(n));
   }
 
   const RAINBOW_HEX = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#4f46e5', '#a855f7'];
@@ -260,6 +277,7 @@
   }
 
   function stagePayloadFromEditor(d) {
+    if (d && d === editorState.data) applyStageFlagsFromUi();
     const raw = JSON.parse(JSON.stringify(d));
     if (!raw.spikes) raw.spikes = [];
     if (!raw.lava) raw.lava = [];
@@ -346,6 +364,9 @@
     const bg = validHexColor(d.bgColor);
     if (bg) d.bgColor = bg;
     else delete d.bgColor;
+    d.stage_time_limit = normalizeStageTime(d.stage_time_limit);
+    d.jump_limit = normalizeJumpLimit(d.jump_limit);
+    d.spl = typeof d.spl === 'string' ? d.spl.slice(0, 20000) : '';
   }
 
   function normalizeMoverMotion(p) {
@@ -1003,6 +1024,15 @@
     if (g && document.activeElement !== g) g.checked = editorGrappleChecked();
     if (dj && document.activeElement !== dj) dj.checked = !!d.doubleJump;
     if (beams && document.activeElement !== beams) beams.checked = !d.underhangDisabled;
+    const timeEl = document.getElementById('lvlEdTimeLimit');
+    const jumpEl = document.getElementById('lvlEdJumpLimit');
+    const splEl = document.getElementById('lvlEdSplText');
+    const splPanel = document.getElementById('lvlEdSplPanel');
+    if (timeEl && document.activeElement !== timeEl) timeEl.value = String(normalizeStageTime(d.stage_time_limit));
+    if (jumpEl && document.activeElement !== jumpEl) jumpEl.value = String(normalizeJumpLimit(d.jump_limit));
+    if (splEl && splPanel && !splPanel.classList.contains('hidden') && document.activeElement !== splEl) {
+      splEl.value = typeof d.spl === 'string' ? d.spl : '';
+    }
   }
 
   function applyStageFlagsFromUi() {
@@ -1014,6 +1044,15 @@
     if (g) d.grapple = !!g.checked;
     if (dj) d.doubleJump = !!dj.checked;
     if (beams) d.underhangDisabled = !beams.checked;
+    const timeEl = document.getElementById('lvlEdTimeLimit');
+    const jumpEl = document.getElementById('lvlEdJumpLimit');
+    const splEl = document.getElementById('lvlEdSplText');
+    const splPanel = document.getElementById('lvlEdSplPanel');
+    if (timeEl) d.stage_time_limit = normalizeStageTime(timeEl.value);
+    if (jumpEl) d.jump_limit = normalizeJumpLimit(jumpEl.value);
+    if (splEl && splPanel && !splPanel.classList.contains('hidden')) {
+      d.spl = String(splEl.value || '').slice(0, 20000);
+    }
   }
 
   function syncMoverInspector() {
@@ -1085,6 +1124,7 @@
   /* ---------- Editor canvas ---------- */
   let editorTool = 'select';
   let editorSelection = null;
+  let editorHover = null;
   let drag = null;
   let cam = { s: 1, ox: 0, oy: 0 };
 
@@ -1751,6 +1791,54 @@
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, cut.w * cam.s - 1, cut.h * cam.s - 1);
       ctx.restore();
     }
+
+    if (editorHover && editorHover.text) {
+      const a = toScreen(editorHover.x, editorHover.y);
+      ctx.save();
+      ctx.font = '12px ui-monospace, monospace';
+      const pad = 6;
+      const tw = ctx.measureText(editorHover.text).width;
+      const boxW = tw + pad * 2;
+      const boxH = 18;
+      let lx = a.x + 10;
+      let ly = a.y - boxH - 8;
+      if (lx + boxW > cw - 4) lx = Math.max(4, cw - boxW - 4);
+      if (ly < 4) ly = Math.min(ch - boxH - 4, a.y + 12);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.35)';
+      ctx.fillRect(lx, ly, boxW, boxH);
+      ctx.strokeRect(lx + 0.5, ly + 0.5, boxW - 1, boxH - 1);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(editorHover.text, lx + pad, ly + 13);
+      ctx.restore();
+    }
+  }
+
+  function hoverLabelFor(d, hit) {
+    if (!d || !hit) return null;
+    const obj = hit.kind === 'spawn' ? d.spawn : objectFromSel(d, hit);
+    if (!obj) return null;
+    const center = window.SkyHopSpl
+      ? window.SkyHopSpl.objectCenter(d, hit.kind, obj)
+      : { x: obj.x, y: obj.y };
+    if (!center) return null;
+    const fmt = window.SkyHopSpl ? window.SkyHopSpl.formatCoord : String;
+    const id = obj.id != null && obj.id !== '' ? ' ' + obj.id : '';
+    const sid = obj.sid != null && obj.sid !== '' ? ' · script id ' + obj.sid : '';
+    return {
+      x: center.x,
+      y: center.y,
+      text: hit.kind + id + sid + ' · Center: (' + fmt(center.x) + ', ' + fmt(center.y) + ')',
+    };
+  }
+
+  function updateEditorHover(w) {
+    const d = editorState.data;
+    const next = d && w ? hoverLabelFor(d, hitTest(w.x, w.y, d)) : null;
+    const prev = editorHover && editorHover.text;
+    const now = next && next.text;
+    editorHover = next;
+    return prev !== now;
   }
 
   function editorHasRainbow() {
@@ -2031,6 +2119,8 @@
     function onMove(e) {
       const { x, y } = localXY(e);
       const w = toWorld(x, y);
+      const onCanvas = pointerOnCanvas(e);
+      if (updateEditorHover(onCanvas ? w : null)) scheduleEditorRedraw();
       if (switchLinkMode && editorState.data) {
         if (pointerOnCanvas(e)) {
           const hit = hitTestLinkable(w.x, w.y, editorState.data);
@@ -2055,7 +2145,7 @@
         if (!drag) return;
       }
       if (!drag || !editorState.data) {
-        if (pointerOnCanvas(e)) canvas.style.cursor = editorHoverCursor(w);
+        if (onCanvas) canvas.style.cursor = editorHoverCursor(w);
         return;
       }
       canvas.style.cursor = 'grabbing';
@@ -2114,6 +2204,7 @@
         b.x += dx;
         b.y += dy;
       }
+      updateEditorHover(onCanvas ? w : null);
       scheduleEditorRedraw();
     }
 
@@ -2130,10 +2221,10 @@
     canvas.addEventListener('touchend', onUp);
     canvas.addEventListener('mouseleave', () => {
       if (eraserDrag) return;
-      if (eraserHover) {
-        eraserHover = null;
-        scheduleEditorRedraw();
-      }
+      const hadEraser = !!eraserHover;
+      if (eraserHover) eraserHover = null;
+      const hoverChanged = updateEditorHover(null);
+      if (hadEraser || hoverChanged) scheduleEditorRedraw();
     });
   }
 
@@ -3393,6 +3484,91 @@
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
     document.getElementById('btnLvlEdTest').addEventListener('click', () => runTestPlay());
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
+    const btnJson = document.getElementById('btnLvlEdJson');
+    const jsonPanel = document.getElementById('lvlEdJsonPanel');
+    const jsonText = document.getElementById('lvlEdJsonText');
+    if (btnJson && jsonPanel && jsonText) {
+      btnJson.addEventListener('click', () => {
+        const opening = jsonPanel.classList.contains('hidden');
+        jsonPanel.classList.toggle('hidden', !opening);
+        if (!opening || !editorState.data) return;
+        try {
+          jsonText.value = JSON.stringify(stagePayloadFromEditor(editorState.data), null, 2);
+        } catch (e) {
+          const st = document.getElementById('lvlEdStatus');
+          if (st) st.textContent = String(e.message || e);
+        }
+      });
+    }
+    const btnJsonCopy = document.getElementById('btnLvlEdJsonCopy');
+    if (btnJsonCopy && jsonText) {
+      btnJsonCopy.addEventListener('click', () => {
+        const st = document.getElementById('lvlEdStatus');
+        const text = jsonText.value || '';
+        const done = () => {
+          if (st) st.textContent = 'Level JSON copied.';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(() => {
+            jsonText.focus();
+            jsonText.select();
+            done();
+          });
+        } else {
+          jsonText.focus();
+          jsonText.select();
+          done();
+        }
+      });
+    }
+    const btnJsonImport = document.getElementById('btnLvlEdJsonImport');
+    if (btnJsonImport && jsonText) {
+      btnJsonImport.addEventListener('click', () => {
+        const st = document.getElementById('lvlEdStatus');
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonText.value || '');
+        } catch (e) {
+          if (st) st.textContent = 'JSON: ' + String(e.message || e);
+          return;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          if (st) st.textContent = 'JSON must be a level object.';
+          return;
+        }
+        if (JSON.stringify(parsed).length > 120000) {
+          if (st) st.textContent = 'Level JSON is too large.';
+          return;
+        }
+        editorState.data = parsed;
+        normalizeEditorLevelInPlace(editorState.data);
+        editorSelection = null;
+        editorHover = null;
+        const timeEl = document.getElementById('lvlEdTimeLimit');
+        const jumpEl = document.getElementById('lvlEdJumpLimit');
+        const splEl = document.getElementById('lvlEdSplText');
+        if (timeEl) timeEl.value = String(editorState.data.stage_time_limit);
+        if (jumpEl) jumpEl.value = String(editorState.data.jump_limit);
+        if (splEl) splEl.value = editorState.data.spl || '';
+        scheduleEditorRedraw();
+        if (st) st.textContent = 'Imported level JSON.';
+      });
+    }
+    const btnSpl = document.getElementById('btnLvlEdSpl');
+    const splPanel = document.getElementById('lvlEdSplPanel');
+    const splText = document.getElementById('lvlEdSplText');
+    if (btnSpl && splPanel && splText) {
+      btnSpl.addEventListener('click', () => {
+        const opening = splPanel.classList.contains('hidden');
+        if (opening && editorState.data) splText.value = editorState.data.spl || '';
+        else if (editorState.data) editorState.data.spl = String(splText.value || '').slice(0, 20000);
+        splPanel.classList.toggle('hidden', !opening);
+      });
+      splText.addEventListener('input', () => {
+        if (!editorState.data) return;
+        editorState.data.spl = String(splText.value || '').slice(0, 20000);
+      });
+    }
     const btnOb = document.getElementById('btnOwnerEditBuiltin');
     if (btnOb) btnOb.addEventListener('click', () => void startOwnerBuiltinEdit());
     const btnObAdd = document.getElementById('btnOwnerAddBuiltin');
@@ -3534,6 +3710,12 @@
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener('change', applyStageFlagsFromUi);
+    });
+    ['lvlEdTimeLimit', 'lvlEdJumpLimit'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', applyStageFlagsFromUi);
+      el.addEventListener('input', applyStageFlagsFromUi);
     });
     const colorSel = document.getElementById('lvlEdColorSel');
     if (colorSel) {

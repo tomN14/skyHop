@@ -173,6 +173,15 @@
             <span class="text-xs font-sem uppercase tracking-widest text-amber-300">Time</span>
             <span id="hudTimer" class="ml-2 font-mono text-lg font-bold text-white">0:00</span>
           </div>
+          <div id="hudStageLimit" class="hidden rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-sky-300">Stage time</span>
+            <span id="hudStageLimitVal" class="ml-2 font-mono text-lg font-bold text-white">0:00.0</span>
+          </div>
+          <div id="hudJumps" class="hidden rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
+            <span class="text-xs font-sem uppercase tracking-widest text-violet-300">Jumps</span>
+            <span id="hudJumpsVal" class="ml-2 font-mono text-lg font-bold text-white">0</span>
+          </div>
+          <div id="hudSplError" class="hidden max-w-md rounded-2xl border border-rose-500/40 bg-rose-950/80 px-4 py-2 text-xs text-rose-100 shadow-lg backdrop-blur-md"></div>
             <div id="hudBossHpWrap" class="hidden rounded-2xl border border-rose-500/25 bg-slate-900/80 px-4 py-2 shadow-lg backdrop-blur-md">
             <span class="text-xs font-sem uppercase tracking-widest text-rose-300">Your HP</span>
             <span id="hudBossHpNums" class="ml-1 font-mono text-sm text-rose-100"></span>
@@ -1573,6 +1582,8 @@
         <button id="btnLvlEdSave" type="button" class="rounded-lg bg-violet-600 px-2 py-1 text-xs font-semibold text-white hover:bg-violet-500">Save</button>
         <button id="btnLvlEdTest" type="button" class="rounded-lg border border-cyan-500/50 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Test play</button>
         <button id="btnLvlEdUpload" type="button" class="rounded-lg border border-emerald-500/50 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40">Upload</button>
+        <button id="btnLvlEdJson" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60">JSON</button>
+        <button id="btnLvlEdSpl" type="button" class="rounded-lg border border-fuchsia-400/50 px-2 py-1 font-mono text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">&lt;/&gt;</button>
       </div>
       <p id="lvlEdStatus" class="px-3 py-1 text-center text-xs text-slate-400"></p>
       <div class="flex flex-wrap items-center justify-center gap-3 border-b border-white/10 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-300">
@@ -1590,6 +1601,15 @@
           Auto support columns
         </label>
         <label class="inline-flex items-center gap-1.5">
+          Stage time (s)
+          <input id="lvlEdTimeLimit" type="number" step="0.1" value="-1" class="w-20 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <label class="inline-flex items-center gap-1.5">
+          Jumps
+          <input id="lvlEdJumpLimit" type="number" step="1" value="-1" class="w-20 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <span class="text-[10px] text-slate-500">-1 means unlimited</span>
+        <label class="inline-flex items-center gap-1.5">
           Paint
           <input id="lvlEdColorPaint" type="color" value="#4338ca" class="h-6 w-8 cursor-pointer rounded border border-white/15 bg-slate-950 p-0" />
         </label>
@@ -1597,6 +1617,18 @@
           Background
           <input id="lvlEdColorBg" type="color" value="#1e1b4b" class="h-6 w-8 cursor-pointer rounded border border-white/15 bg-slate-950 p-0" />
         </label>
+      </div>
+      <div id="lvlEdJsonPanel" class="hidden border-b border-white/10 bg-slate-950 px-3 py-2">
+        <p class="mb-1 text-[10px] text-slate-400">Level JSON. Edit it here, then import. Reopen this panel to refresh from the canvas.</p>
+        <textarea id="lvlEdJsonText" spellcheck="false" class="h-40 w-full rounded-lg border border-white/15 bg-slate-900 p-2 font-mono text-[11px] text-slate-100"></textarea>
+        <div class="mt-1 flex gap-2">
+          <button id="btnLvlEdJsonCopy" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:bg-white/10">Copy</button>
+          <button id="btnLvlEdJsonImport" type="button" class="rounded-lg bg-violet-600 px-2 py-1 text-xs font-semibold text-white hover:bg-violet-500">Import</button>
+        </div>
+      </div>
+      <div id="lvlEdSplPanel" class="hidden border-b border-white/10 bg-slate-950 px-3 py-2">
+        <p class="mb-1 text-[10px] text-slate-400">SPL sandbox. The script must start with <span class="font-mono text-fuchsia-200">use skyhop;</span>. SPL itself runs the program, including <span class="font-mono">test.forLoop</span>, <span class="font-mono">test.while</span>, and the SPL libraries. File, network, and system access are blocked. Read stage settings with <span class="font-mono">skyhop.get("stage_time_limit")</span> and <span class="font-mono">skyhop.get("jump_limit")</span>. Hover an object for its center, then <span class="font-mono">skyhop.tag(x, y, 1)</span> and <span class="font-mono">skyhop.rotate(1, 90)</span>.</p>
+        <textarea id="lvlEdSplText" spellcheck="false" class="h-44 w-full rounded-lg border border-white/15 bg-slate-900 p-2 font-mono text-[11px] text-slate-100" placeholder="use skyhop;&#10;&#10;skyhop.tag(420, 315, 1);&#10;&#10;test.while(1):&#10;    test.ifTrue(skyhop.get(&quot;is_player_jumping&quot;)):&#10;        skyhop.rotate(1, 90);&#10;        test.break;&#10;    end;&#10;end;"></textarea>
       </div>
       <div id="lvlEdAppearProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-violet-100">Selected look</span>
@@ -1898,6 +1930,8 @@
   <script src="js/skyhop-recording.js"></script>
   <script src="js/skyhop-input-log.js"></script>
   <script src="js/skyhop-keybinds.js"></script>
+  <script src="js/skyhop-spl.js"></script>
+  <script src="js/skyhop-spl-real.js"></script>
   <script src="js/skyhop-game.js"></script>
   <script src="js/skyhop-anticheat-probe.js"></script>
   <script src="js/skyhop-session-chat.js"></script>
