@@ -9,6 +9,7 @@ import {
   uploadProfileAvatar,
 } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
+import { checkPassword, hashNewPassword } from './password.js';
 
 const SESSION_DAYS = 60;
 
@@ -124,7 +125,7 @@ export function createSupabaseStore() {
       if (existing) throw new Error('Username already taken.');
 
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.scryptSync(password, Buffer.from(salt, 'hex'), 64).toString('hex');
+      const hash = hashNewPassword(password, salt);
       const createdAt = Date.now();
       const role = initialRoleForUsername(name);
 
@@ -155,8 +156,12 @@ export function createSupabaseStore() {
     async verifyUser(username, password) {
       const u = await this.findUserByUsername(username);
       if (!u) return null;
-      const hashTry = crypto.scryptSync(password, Buffer.from(u.salt, 'hex'), 64).toString('hex');
-      if (!crypto.timingSafeEqual(Buffer.from(hashTry, 'hex'), Buffer.from(u.hash, 'hex'))) return null;
+      const checked = checkPassword(password, u.salt, u.hash);
+      if (!checked.ok) return null;
+      if (checked.upgrade) {
+        await updateUserRow(sb, u.id, { hash: checked.upgrade });
+        u.hash = checked.upgrade;
+      }
       return u;
     },
 

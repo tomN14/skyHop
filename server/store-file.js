@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { BAN_PERMANENT_MS, applyRoleChangeToUser, creditPromotionCoins, effectiveRole, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
+import { checkPassword, hashNewPassword } from './password.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -151,7 +152,7 @@ export function createFileStore() {
       const s = loadStore();
       if (s.users.some((u) => u.usernameLower === name.toLowerCase())) throw new Error('Username already taken.');
       const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.scryptSync(password, Buffer.from(salt, 'hex'), 64).toString('hex');
+      const hash = hashNewPassword(password, salt);
       const user = {
         id: s.nextUserId++,
         username: name,
@@ -176,8 +177,17 @@ export function createFileStore() {
     async verifyUser(username, password) {
       const u = await this.findUserByUsername(username);
       if (!u) return null;
-      const hashTry = crypto.scryptSync(password, Buffer.from(u.salt, 'hex'), 64).toString('hex');
-      if (!crypto.timingSafeEqual(Buffer.from(hashTry, 'hex'), Buffer.from(u.hash, 'hex'))) return null;
+      const checked = checkPassword(password, u.salt, u.hash);
+      if (!checked.ok) return null;
+      if (checked.upgrade) {
+        const s = loadStore();
+        const row = s.users.find((x) => x.id === u.id);
+        if (row) {
+          row.hash = checked.upgrade;
+          u.hash = checked.upgrade;
+          saveStore();
+        }
+      }
       return u;
     },
 

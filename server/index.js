@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 
 import './env.js';
+import { warnIfPasswordPepperMissing } from './password.js';
 import { handleApi } from './api.js';
 import { store } from './store.js';
 import { effectiveRole, isAccountDisabled, isStaffRole } from './moderation.js';
@@ -683,6 +684,7 @@ wss.on('connection', (ws) => {
 });
 
 function onListen() {
+  warnIfPasswordPepperMissing();
   console.log(`Sky Hop race on ${HOST}:${PORT} — on this machine use ws://127.0.0.1:${PORT} — on another device use ws://LAN-IP:${PORT}`);
   console.log(`  Accounts & stats API: POST /api/register, /api/login, GET /api/me, POST /api/runs (same origin as above).`);
   console.log(`  Static game from ${STATIC_ROOT} — open http://127.0.0.1:${PORT}/ for one-URL play (use TLS proxy in production for https+wss).`);
