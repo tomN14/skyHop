@@ -44,6 +44,33 @@
 
   let collabPublic = false;
   let pendingLevel = null;
+  let collabMenuBlurbHtml = '';
+
+  function setCollabLevelChrome(levelTitle) {
+    var world = el('collabWorldBlock');
+    var blurb = el('collabMenuBlurb');
+    var join = el('collabBtnJoin');
+    var host = el('collabBtnHost');
+    var level = !!levelTitle;
+    if (world) world.classList.toggle('hidden', level);
+    if (join) join.classList.toggle('hidden', level);
+    if (host) host.classList.toggle('hidden', level);
+    if (blurb) {
+      if (!collabMenuBlurbHtml) collabMenuBlurbHtml = blurb.innerHTML;
+      if (level) {
+        blurb.textContent =
+          'Hosting “' +
+          levelTitle +
+          '”. Share the session ID. Others open Collab and choose Join with ID.';
+      } else {
+        blurb.innerHTML = collabMenuBlurbHtml;
+      }
+    }
+    if (level) {
+      var panel = el('collabJoinPanel');
+      if (panel) panel.classList.add('hidden');
+    }
+  }
 
   function syncCollabVisibility() {
     var priv = el('btnCollabPrivate');
@@ -305,11 +332,21 @@
     var open = el('btnOpenCollabMenu');
     if (open) {
       open.addEventListener('click', function () {
+        if (pendingLevel) disconnect();
+        pendingLevel = null;
+        setCollabLevelChrome('');
         showScreen();
       });
     }
     var close = el('btnCollabClose');
-    if (close) close.addEventListener('click', hideScreen);
+    if (close) {
+      close.addEventListener('click', function () {
+        if (pendingLevel) disconnect();
+        pendingLevel = null;
+        setCollabLevelChrome('');
+        hideScreen();
+      });
+    }
     syncCollabVisibility();
     var collabPriv = el('btnCollabPrivate');
     var collabPub = el('btnCollabPublic');
@@ -458,6 +495,7 @@
   window.SkyHopDisconnectCollab = disconnect;
   window.SkyHopHostLevelCollab = function (stage, title, levelId) {
     pendingLevel = { stage: stage, title: title || 'Level', levelId: levelId || '' };
+    setCollabLevelChrome(pendingLevel.title);
     showScreen();
     disconnect();
     ws = new WebSocket(wsUrl());

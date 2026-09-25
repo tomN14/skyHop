@@ -98,6 +98,32 @@
   let raceHostWorld = 0;
   let racePublic = false;
   let pendingLevel = null;
+  let raceMenuBlurbHtml = '';
+
+  function setRaceLevelChrome(levelTitle) {
+    const world = document.getElementById('raceWorldBlock');
+    const blurb = document.getElementById('raceMenuBlurb');
+    const join = document.getElementById('btnRaceJoin');
+    const bots = document.getElementById('btnRaceVsBots');
+    const create = document.getElementById('btnRaceCreate');
+    const level = !!levelTitle;
+    if (world) world.classList.toggle('hidden', level);
+    if (join) join.classList.toggle('hidden', level);
+    if (bots) bots.classList.toggle('hidden', level);
+    if (create) create.classList.toggle('hidden', level);
+    if (blurb) {
+      if (!raceMenuBlurbHtml) raceMenuBlurbHtml = blurb.innerHTML;
+      if (level) {
+        blurb.textContent =
+          'Hosting “' +
+          levelTitle +
+          '”. Share the session ID. Others open Racing and choose Join with session ID.';
+      } else {
+        blurb.innerHTML = raceMenuBlurbHtml;
+      }
+    }
+    if (level && el.joinPanel) el.joinPanel.classList.add('hidden');
+  }
 
   function syncRaceVisibility() {
     var priv = document.getElementById('btnRacePrivate');
@@ -1029,6 +1055,8 @@
     if (el.name) el.name.value = (localStorage.getItem('SKYHOP_RACE_NAME') || 'Racer').slice(0, 20);
     if (el.mainSwitch) {
       el.mainSwitch.addEventListener('click', () => {
+        pendingLevel = null;
+        setRaceLevelChrome('');
         if (el.menu) {
           el.menu.classList.remove('hidden');
           el.menu.classList.add('flex');
@@ -1037,6 +1065,8 @@
     }
     if (el.back) {
       el.back.addEventListener('click', () => {
+        pendingLevel = null;
+        setRaceLevelChrome('');
         if (el.menu) {
           el.menu.classList.add('hidden');
           el.menu.classList.remove('flex');
@@ -1214,6 +1244,7 @@
 
   window.SkyHopHostLevelRace = function (stage, title, levelId) {
     pendingLevel = { stage: stage, title: title || 'Level', levelId: levelId || '' };
+    setRaceLevelChrome(pendingLevel.title);
     if (el.menu) {
       el.menu.classList.remove('hidden');
       el.menu.classList.add('flex');
