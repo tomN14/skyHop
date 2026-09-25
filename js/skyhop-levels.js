@@ -2284,6 +2284,11 @@
   /* ---------- Screens ---------- */
   const mineEl = document.getElementById('screenLevelsMine');
   const onlineEl = document.getElementById('screenLevelsOnline');
+  const awardedEl = document.getElementById('screenAwardedLevels');
+  const awardedList = document.getElementById('awardedLevelsList');
+  const awardedPager = document.getElementById('awardedLevelsPager');
+  let onlineIsOwner = false;
+  let awardedPage = 1;
   const editorScreen = document.getElementById('screenLevelEditor');
   const mineList = document.getElementById('levelsMineList');
   const mineErr = document.getElementById('levelsMineErr');
@@ -2306,7 +2311,7 @@
   const lvlEdStatus = document.getElementById('lvlEdStatus');
 
   function levelsOverlayOpen() {
-    const ids = ['screenLevelEditor', 'screenLevelsMine', 'screenLevelsOnline'];
+    const ids = ['screenLevelEditor', 'screenLevelsMine', 'screenLevelsOnline', 'screenAwardedLevels'];
     for (let i = 0; i < ids.length; i++) {
       const el = document.getElementById(ids[i]);
       if (el && !el.classList.contains('hidden')) return true;
@@ -2342,6 +2347,91 @@
   function showOnline(on) {
     if (!onlineEl) return;
     onlineEl.classList.toggle('hidden', !on);
+    if (on) onlineEl.classList.add('flex');
+    else onlineEl.classList.remove('flex');
+  }
+
+  function showAwarded(on) {
+    if (!awardedEl) return;
+    awardedEl.classList.toggle('hidden', !on);
+    if (on) awardedEl.classList.add('flex');
+    else awardedEl.classList.remove('flex');
+  }
+
+  function refreshOnlineOwner() {
+    onlineIsOwner = false;
+    if (!hasAuth()) return Promise.resolve();
+    return api('/api/me')
+      .then(function (me) {
+        onlineIsOwner = !!(me && me.role === 'owner');
+        if (onlineCtx && (onlineCtx.username || onlineCtx.titleQ || onlineCtx.idQ)) fetchOnlineList();
+      })
+      .catch(function () {
+        onlineIsOwner = false;
+      });
+  }
+
+  function fetchAwardedList() {
+    if (!awardedList) return;
+    awardedList.innerHTML = '';
+    api('/api/levels/awarded?page=' + encodeURIComponent(String(awardedPage)), { noAuth: true })
+      .then(function (out) {
+        const total = out.total || 0;
+        const page = out.page || 1;
+        const pages = Math.max(1, Math.ceil(total / 12));
+        if (awardedPager) {
+          awardedPager.innerHTML = '';
+          const prev = document.createElement('button');
+          prev.type = 'button';
+          prev.className = 'rounded-lg border border-white/15 px-3 py-1 text-xs hover:bg-white/10';
+          prev.textContent = 'Prev';
+          prev.disabled = page <= 1;
+          const next = document.createElement('button');
+          next.type = 'button';
+          next.className = 'rounded-lg border border-white/15 px-3 py-1 text-xs hover:bg-white/10';
+          next.textContent = 'Next';
+          next.disabled = page >= pages;
+          const lab = document.createElement('span');
+          lab.className = 'text-xs text-slate-400';
+          lab.textContent = 'Page ' + page + ' / ' + pages;
+          prev.addEventListener('click', function () {
+            awardedPage = Math.max(1, page - 1);
+            fetchAwardedList();
+          });
+          next.addEventListener('click', function () {
+            awardedPage = Math.min(pages, page + 1);
+            fetchAwardedList();
+          });
+          awardedPager.appendChild(prev);
+          awardedPager.appendChild(lab);
+          awardedPager.appendChild(next);
+        }
+        const items = out.items || [];
+        if (!items.length) {
+          const li = document.createElement('li');
+          li.className = 'text-sm text-slate-400';
+          li.textContent = 'No awarded levels yet.';
+          awardedList.appendChild(li);
+          return;
+        }
+        for (let i = 0; i < items.length; i++) {
+          awardedList.appendChild(
+            rowOnlineItem(items[i].title, items[i].id, items[i].play_count, {
+              author: items[i].author_username || '—',
+              authorRole: items[i].author_role || 'player',
+              awarded: true,
+              canAward: false,
+              returnTo: 'awarded',
+            })
+          );
+        }
+      })
+      .catch(function (err) {
+        const li = document.createElement('li');
+        li.className = 'text-sm text-rose-300';
+        li.textContent = String(err.message || err);
+        awardedList.appendChild(li);
+      });
   }
 
   function showEditorScreen(on) {
@@ -2631,9 +2721,13 @@
           '<button type="button" class="lvl-row-edit rounded-lg border border-violet-500/50 px-2 py-1 text-xs text-violet-100 hover:bg-violet-950/50" data-id="' +
           row.id +
           '">Edit</button>' +
+          '<button type="button" class="lvl-row-race rounded-lg border border-amber-500/50 px-2 py-1 text-xs text-amber-100 hover:bg-amber-950/50">Race</button>' +
+          '<button type="button" class="lvl-row-collab rounded-lg border border-teal-500/50 px-2 py-1 text-xs text-teal-100 hover:bg-teal-950/50">Collab</button>' +
           '<button type="button" class="lvl-row-delete rounded-lg border border-rose-500/50 px-2 py-1 text-xs text-rose-100 hover:bg-rose-950/50">Delete</button>' +
           '</div>';
         li.querySelector('.lvl-row-edit').addEventListener('click', () => openEditorForId(row.id));
+        li.querySelector('.lvl-row-race').addEventListener('click', () => void hostSavedLevel(row.id, 'race'));
+        li.querySelector('.lvl-row-collab').addEventListener('click', () => void hostSavedLevel(row.id, 'collab'));
         li.querySelector('.lvl-row-delete').addEventListener('click', () => void deleteOwnLevel(row.id, row.title));
         mineList.appendChild(li);
       }
@@ -3156,6 +3250,20 @@
     }
   }
 
+  function hostEditorLevel(kind) {
+    applyStageFlagsFromUi();
+    const title = (document.getElementById('lvlEdTitle').value || '').trim() || 'Level';
+    const stage = JSON.parse(JSON.stringify(stagePayloadFromEditor(editorState.data)));
+    if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST([stage]);
+    showEditorScreen(false);
+    const levelId = editorState.id || '';
+    if (kind === 'collab' && typeof window.SkyHopHostLevelCollab === 'function') {
+      window.SkyHopHostLevelCollab(stage, title, levelId);
+      return;
+    }
+    if (typeof window.SkyHopHostLevelRace === 'function') window.SkyHopHostLevelRace(stage, title, levelId);
+  }
+
   function runTestPlay() {
     if (editorState.readOnly) {
       lvlEdStatus.textContent = 'Cannot test-edit a published level.';
@@ -3279,6 +3387,8 @@
               author: onlineCtx.username,
               authorIsModerator: !!out.author_is_moderator,
               authorRole: out.author_role || (out.author_is_moderator ? 'moderator' : 'player'),
+              awarded: !!it.awarded,
+              canAward: onlineIsOwner,
             })
           );
         }
@@ -3298,6 +3408,8 @@
               author: it.author_username || '—',
               authorIsModerator: !!it.author_is_moderator,
               authorRole: it.author_role || (it.author_is_moderator ? 'moderator' : 'player'),
+              awarded: !!it.awarded,
+              canAward: onlineIsOwner,
             })
           );
         }
@@ -3312,6 +3424,8 @@
               author: out.item.author_username || '—',
               authorIsModerator: !!out.item.author_is_moderator,
               authorRole: out.item.author_role || (out.item.author_is_moderator ? 'moderator' : 'player'),
+              awarded: !!out.item.awarded,
+              canAward: onlineIsOwner,
             })
           );
         }
@@ -3330,6 +3444,7 @@
     extra = extra || {};
     const author = extra.author;
     var authorRole = extra.authorRole || (extra.authorIsModerator ? 'moderator' : 'player');
+    var titleClass = extra.awarded ? 'font-sem text-blue-400' : 'font-sem text-white';
     var titleHtml;
     if (author != null && author !== '') {
       var ac =
@@ -3339,7 +3454,9 @@
             ? 'text-rose-400 font-semibold'
             : 'text-slate-400';
       titleHtml =
-        '<div class="text-sm"><span class="font-sem text-white">' +
+        '<div class="text-sm"><span class="' +
+        titleClass +
+        '">' +
         escapeHtml(titleLine) +
         '</span> <span class="' +
         ac +
@@ -3347,10 +3464,14 @@
         escapeHtml(author) +
         '</span></div>';
     } else {
-      titleHtml = '<div class="text-sm font-sem text-white">' + escapeHtml(titleLine) + '</div>';
+      titleHtml = '<div class="text-sm ' + titleClass + '">' + escapeHtml(titleLine) + '</div>';
     }
     const li = document.createElement('li');
     li.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-3';
+    const awardBtn =
+      extra.canAward && !extra.awarded
+        ? '<button type="button" class="lvl-award rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">Award</button>'
+        : '';
     li.innerHTML =
       titleHtml +
       '<div class="mt-1 font-mono text-[10px] text-slate-500">' +
@@ -3358,12 +3479,65 @@
       ' · ' +
       (plays || 0) +
       ' plays</div>' +
-      '<button type="button" class="lvl-play mt-2 rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">Play</button>';
-    li.querySelector('.lvl-play').addEventListener('click', () => playPublishedLevel(id));
+      '<div class="mt-2 flex flex-wrap gap-2">' +
+      '<button type="button" class="lvl-play rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">Play</button>' +
+      awardBtn +
+      '<button type="button" class="lvl-race rounded-lg border border-amber-500/50 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Race</button>' +
+      '<button type="button" class="lvl-collab rounded-lg border border-teal-500/50 px-3 py-1 text-xs font-semibold text-teal-100 hover:bg-teal-950/50">Collab</button>' +
+      '</div>';
+    li.querySelector('.lvl-play').addEventListener('click', () => playPublishedLevel(id, extra.returnTo));
+    const award = li.querySelector('.lvl-award');
+    if (award) {
+      award.addEventListener('click', () => {
+        award.disabled = true;
+        api('/api/levels/' + encodeURIComponent(id) + '/award', { method: 'POST', body: '{}' })
+          .then(function () {
+            fetchOnlineList();
+          })
+          .catch(function (err) {
+            award.disabled = false;
+            alert(String(err.message || err));
+          });
+      });
+    }
+    li.querySelector('.lvl-race').addEventListener('click', () => void hostSavedLevel(id, 'race'));
+    li.querySelector('.lvl-collab').addEventListener('click', () => void hostSavedLevel(id, 'collab'));
     return li;
   }
 
-  async function playPublishedLevel(id) {
+  async function hostSavedLevel(id, kind) {
+    try {
+      const row = await api('/api/levels/' + encodeURIComponent(id), { noAuth: true });
+      const stage = JSON.parse(JSON.stringify(row.data));
+      if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST([stage]);
+      showMine(false);
+      showOnline(false);
+      showAwarded(false);
+      showEditorScreen(false);
+      const title = row.title || 'Level';
+      if (kind === 'collab' && typeof window.SkyHopHostLevelCollab === 'function') {
+        window.SkyHopHostLevelCollab(stage, title, id);
+        return;
+      }
+      if (typeof window.SkyHopHostLevelRace === 'function') window.SkyHopHostLevelRace(stage, title, id);
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  }
+
+  function claimLevelClearReward(id) {
+    if (!hasAuth() || !id) return;
+    api('/api/levels/' + encodeURIComponent(id) + '/clear-reward', { method: 'POST', body: '{}' })
+      .then(function (out) {
+        if (!out || out.coins !== 25) return;
+        const sub = document.getElementById('stageClearSub');
+        if (sub) sub.textContent = (sub.textContent ? sub.textContent + ' ' : '') + 'You earned 25 coins.';
+      })
+      .catch(function () {});
+  }
+  window.SkyHopClaimLevelClear = claimLevelClearReward;
+
+  async function playPublishedLevel(id, returnTo) {
     try {
       const row = await api('/api/levels/' + encodeURIComponent(id), { noAuth: true });
       try {
@@ -3374,6 +3548,7 @@
       const stage = JSON.parse(JSON.stringify(row.data));
       if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST([stage]);
       showOnline(false);
+      showAwarded(false);
       let onlineCoinsCollected = new Set();
       if (hasAuth()) {
         try {
@@ -3397,9 +3572,16 @@
               body: JSON.stringify({ coinIndex: coinIndex }),
             }).catch(function () {});
           },
+          onCleared: function () {
+            claimLevelClearReward(id);
+          },
           onContinue: function () {
-            showOnline(true);
-            if (onlineUserPanel) onlineUserPanel.classList.remove('hidden');
+            if (returnTo === 'awarded') {
+              showAwarded(true);
+            } else {
+              showOnline(true);
+              if (onlineUserPanel) onlineUserPanel.classList.remove('hidden');
+            }
             revealMainMenuIfIdle();
             if (window.SKYHOP && typeof window.SKYHOP.ensureGameShellVisible === 'function') {
               window.SKYHOP.ensureGameShellVisible();
@@ -3445,7 +3627,18 @@
     document.getElementById('btnNavOnlineLevels').addEventListener('click', () => {
       showOnline(true);
       onlineUserPanel.classList.add('hidden');
+      void refreshOnlineOwner();
     });
+    const awardedBtn = document.getElementById('btnAwardedLevels');
+    const awardedBack = document.getElementById('btnAwardedLevelsBack');
+    if (awardedBtn) {
+      awardedBtn.addEventListener('click', () => {
+        showAwarded(true);
+        awardedPage = 1;
+        void fetchAwardedList();
+      });
+    }
+    if (awardedBack) awardedBack.addEventListener('click', () => showAwarded(false));
     document.getElementById('btnNavMyLevels').addEventListener('click', () => {
       if (!hasAuth()) {
         alert('Create an account and sign in to use My Levels and recordings.');
@@ -3536,6 +3729,10 @@
     }
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
     document.getElementById('btnLvlEdTest').addEventListener('click', () => runTestPlay());
+    const raceEd = document.getElementById('btnLvlEdRace');
+    const collabEd = document.getElementById('btnLvlEdCollab');
+    if (raceEd) raceEd.addEventListener('click', () => hostEditorLevel('race'));
+    if (collabEd) collabEd.addEventListener('click', () => hostEditorLevel('collab'));
     document.getElementById('btnLvlEdUpload').addEventListener('click', () => publishLevel());
     const btnJson = document.getElementById('btnLvlEdJson');
     const jsonPanel = document.getElementById('lvlEdJsonPanel');

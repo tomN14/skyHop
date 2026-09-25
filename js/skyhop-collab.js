@@ -43,6 +43,7 @@
   }
 
   let collabPublic = false;
+  let pendingLevel = null;
 
   function syncCollabVisibility() {
     var priv = el('btnCollabPrivate');
@@ -143,6 +144,34 @@
 
   function handleMsg(msg) {
     if (!msg || !msg.type) return;
+    if (msg.type === 'scriptDie') {
+      if (window.SKYHOP && typeof window.SKYHOP.dieFromScript === 'function') window.SKYHOP.dieFromScript();
+      return;
+    }
+    if ((msg.type === 'collabStart' || msg.type === 'raceStart') && msg.level) {
+      if (!window.SKYHOP || !window.SKYHOP.beginLevelSession) return;
+      collabT0 = msg.startAt || Date.now();
+      if (window.SkyHopSetRaceT0) window.SkyHopSetRaceT0(collabT0);
+      for (var lk of Object.keys(mpProgress)) delete mpProgress[lk];
+      window.__skyhopMpPeers = mpProgress;
+      window.__skyhopMyPlayerId = window.__skyhopCollabPlayerId;
+      window.__skyhopCollabActive = msg.type === 'collabStart';
+      pendingLevel = null;
+      hideScreen();
+      var levelHud = el('raceLeaderboard');
+      if (levelHud) levelHud.classList.add('hidden');
+      window.SKYHOP.beginLevelSession({
+        kind: msg.type === 'raceStart' ? 'race' : 'collab',
+        stage: msg.level,
+        title: msg.levelTitle || 'Level',
+        levelId: msg.levelId || '',
+        difficulty: msg.difficulty || 'normal',
+        customOpts: msg.customOpts,
+        anticheatEnabled: msg.anticheatEnabled !== false,
+      });
+      startCollabProgressPinger();
+      return;
+    }
     if (msg.type === 'collabStart') {
       if (!window.SKYHOP || !window.SKYHOP.beginCollab) return;
       collabT0 = msg.startAt || Date.now();
@@ -167,10 +196,15 @@
       startCollabProgressPinger();
       return;
     }
+    if (msg.type === 'playerJoined' && msg.players) {
+      window.__skyhopMpRoster = msg.players;
+      return;
+    }
     if (msg.type === 'playerProgress') {
       if (!mpProgress[msg.playerId]) mpProgress[msg.playerId] = { name: msg.name };
       var pr = mpProgress[msg.playerId];
       pr.name = msg.name;
+      if (msg.username) pr.username = msg.username;
       pr.stage = msg.stage0;
       pr.finished = false;
       if (msg.x != null && msg.y != null) {
@@ -325,6 +359,9 @@
           }
           if (msg.type === 'roomCreated') {
             window.__skyhopCollabPlayerId = msg.playerId;
+            window.__skyhopMyPlayerId = msg.playerId;
+            if (msg.players) window.__skyhopMpRoster = msg.players;
+            if (msg.name) window.__skyhopLocalDisplayName = msg.name;
             attachChat(msg.chat);
             if (el('collabRoomIdText')) el('collabRoomIdText').textContent = msg.roomId || '';
             if (el('collabHostPanel')) el('collabHostPanel').classList.remove('hidden');
@@ -364,6 +401,9 @@
           }
           if (msg.type === 'joined') {
             window.__skyhopCollabPlayerId = msg.playerId;
+            window.__skyhopMyPlayerId = msg.playerId;
+            if (msg.players) window.__skyhopMpRoster = msg.players;
+            if (msg.name) window.__skyhopLocalDisplayName = msg.name;
             attachChat(msg.chat);
             if (el('collabMpStatus')) el('collabMpStatus').textContent = 'Waiting for host to start…';
           } else handleMsg(msg);
@@ -382,13 +422,23 @@
           else if (scope === 'both') stageCount = window.SkyHopWorlds.bothStages().length;
           else stageCount = window.SkyHopWorlds.stageCount(1);
         }
-        send({
-          type: 'start',
-          worldScope: scope,
-          difficulty: 'hard',
-          stageCount: stageCount,
-          anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
-        });
+        var startPayload = pendingLevel
+          ? {
+              type: 'start',
+              level: pendingLevel.stage,
+              levelTitle: pendingLevel.title,
+              levelId: pendingLevel.levelId || '',
+              difficulty: 'normal',
+              anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+            }
+          : {
+              type: 'start',
+              worldScope: scope,
+              difficulty: 'hard',
+              stageCount: stageCount,
+              anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+            };
+        send(startPayload);
       });
     }
   }
@@ -406,6 +456,63 @@
     send(Object.assign({ type: 'progress' }, payload));
   };
   window.SkyHopDisconnectCollab = disconnect;
+  window.SkyHopHostLevelCollab = function (stage, title, levelId) {
+    pendingLevel = { stage: stage, title: title || 'Level', levelId: levelId || '' };
+    showScreen();
+    disconnect();
+    ws = new WebSocket(wsUrl());
+    connectHandlers();
+    ws.onopen = function () {
+      var prevKill = window.SkyHopRequestScriptKill;
+      window.SkyHopRequestScriptKill = function (playerId) {
+        if (ws && ws.readyState === 1) {
+          send({ type: 'scriptKill', playerId: playerId });
+          return;
+        }
+        if (typeof prevKill === 'function') prevKill(playerId);
+      };
+      send({
+        type: 'create',
+        mode: 'collab',
+        name: (el('collabName') && el('collabName').value) || 'Host',
+        levelSession: true,
+        levelTitle: pendingLevel.title,
+        anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+        public: !!collabPublic,
+        authToken: authToken(),
+      });
+    };
+    ws.onmessage = function (ev) {
+      var msg;
+      try {
+        msg = JSON.parse(String(ev.data));
+      } catch {
+        return;
+      }
+      if (msg.type === 'roomCreated') {
+        window.__skyhopCollabPlayerId = msg.playerId;
+        window.__skyhopMyPlayerId = msg.playerId;
+        if (msg.players) window.__skyhopMpRoster = msg.players;
+        if (msg.name) window.__skyhopLocalDisplayName = msg.name;
+        attachChat(msg.chat);
+        if (el('collabRoomIdText')) el('collabRoomIdText').textContent = msg.roomId || '';
+        if (el('collabHostPanel')) el('collabHostPanel').classList.remove('hidden');
+        if (el('collabMpStatus')) {
+          el('collabMpStatus').textContent = 'Hosting ' + pendingLevel.title + '. Share the session ID, then start.';
+        }
+      } else handleMsg(msg);
+    };
+  };
+
+  var prevCollabKill = window.SkyHopRequestScriptKill;
+  window.SkyHopRequestScriptKill = function (playerId) {
+    if (ws && ws.readyState === 1) {
+      send({ type: 'scriptKill', playerId: playerId });
+      return;
+    }
+    if (typeof prevCollabKill === 'function') prevCollabKill(playerId);
+  };
+
   window.SkyHopCollabReset = function () {
     disconnect();
     window.__skyhopCollabActive = false;

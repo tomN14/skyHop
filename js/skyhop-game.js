@@ -1009,6 +1009,11 @@
       is_player_jumping: splGet(stage, 'is_player_jumping'),
       is_double_jump: splGet(stage, 'is_double_jump'),
       is_collision: splGet(stage, 'is_collision'),
+      stage_time: splGet(stage, 'stage_time'),
+      total_stage_time: splGet(stage, 'total_stage_time'),
+      player_death_count: splGet(stage, 'player_death_count'),
+      player_pos_x: splGet(stage, 'player_pos_x'),
+      player_pos_y: splGet(stage, 'player_pos_y'),
     };
   }
 
@@ -1062,6 +1067,7 @@
       else if (cmd[0] === 'counter') spl.counterCreate(stage, cmd[1], cmd[2], cmd[3], cmd[4]);
       else if (cmd[0] === 'attr' && cmd[1] === 'jump_limit') setJumpLimitFromScript(cmd[2]);
       else if (cmd[0] === 'attr') spl.setToggleAttr(stage, cmd[1], cmd[2]);
+      else if (cmd[0] === 'kill') applyScriptKill(cmd);
     }
   }
 
@@ -1082,7 +1088,119 @@
     if (key === 'is_player_jumping') return jumpEdge ? 1 : 0;
     if (key === 'is_double_jump') return doubleJumpEdge ? 1 : 0;
     if (key === 'is_collision') return collisionSid || 0;
+    if (key === 'stage_time') {
+      if (!stageStartedAt) return 0;
+      return Math.max(0, (performance.now() - stageStartedAt) / 1000);
+    }
+    if (key === 'total_stage_time') return Math.max(0, getRunElapsedMs() / 1000);
+    if (key === 'player_death_count') return deaths;
+    if (key === 'player_pos_x') return player.x + player.w / 2;
+    if (key === 'player_pos_y') return player.y + player.h / 2;
     return 0;
+  }
+
+  function scriptNameMatch(want, displayName, username) {
+    const needle = String(want || '').trim().toLowerCase();
+    if (!needle) return false;
+    const shown = String(displayName || '').trim().toLowerCase();
+    const account = String(username || '').trim().toLowerCase();
+    return needle === shown || needle === account;
+  }
+
+  function localScriptNames() {
+    let username = '';
+    try {
+      username = localStorage.getItem('SKYHOP_USERNAME') || '';
+    } catch {
+      username = '';
+    }
+    return {
+      display: window.__skyhopLocalDisplayName || '',
+      username: username,
+    };
+  }
+
+  let lastRemoteScriptKillAt = 0;
+
+  function requestRemoteScriptKill(playerId) {
+    const now = performance.now();
+    if (!playerId || now - lastRemoteScriptKillAt < 200) return;
+    lastRemoteScriptKillAt = now;
+    if (typeof window.SkyHopRequestScriptKill === 'function') {
+      window.SkyHopRequestScriptKill(playerId);
+    }
+  }
+
+  function applyScriptKill(cmd) {
+    const mode = cmd.length < 2 || cmd[1] == null || cmd[1] === '' ? 'self' : String(cmd[1]);
+    if (mode === 'self') {
+      die();
+      return;
+    }
+    if (mode === 'closest' || mode === 'farthest') {
+      killScriptPlayerByDistance(mode, Number(cmd[2]), Number(cmd[3]));
+      return;
+    }
+    killScriptPlayerByName(mode);
+  }
+
+  function killScriptPlayerByName(want) {
+    const me = localScriptNames();
+    if (scriptNameMatch(want, me.display, me.username)) {
+      die();
+      return;
+    }
+    const roster = window.__skyhopMpRoster;
+    if (roster && roster.length) {
+      for (let i = 0; i < roster.length; i++) {
+        const row = roster[i];
+        if (!row || row.id === window.__skyhopMyPlayerId) continue;
+        if (scriptNameMatch(want, row.name, row.username)) {
+          requestRemoteScriptKill(row.id);
+          return;
+        }
+      }
+    }
+    const peers = window.__skyhopMpPeers;
+    if (!peers) return;
+    const ids = Object.keys(peers);
+    for (let i = 0; i < ids.length; i++) {
+      const peer = peers[ids[i]];
+      if (scriptNameMatch(want, peer && peer.name, peer && peer.username)) {
+        requestRemoteScriptKill(ids[i]);
+        return;
+      }
+    }
+  }
+
+  function killScriptPlayerByDistance(mode, x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const people = [{ self: true, x: player.x + player.w / 2, y: player.y + player.h / 2 }];
+    const peers = window.__skyhopMpPeers;
+    if (peers) {
+      const ids = Object.keys(peers);
+      for (let i = 0; i < ids.length; i++) {
+        const peer = peers[ids[i]];
+        if (!peer) continue;
+        const px = peer.rx != null ? Number(peer.rx) : Number(peer.lx);
+        const py = peer.ry != null ? Number(peer.ry) : Number(peer.ly);
+        if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+        people.push({ self: false, id: ids[i], x: px + player.w / 2, y: py + player.h / 2 });
+      }
+    }
+    let best = null;
+    let bestD = 0;
+    for (let i = 0; i < people.length; i++) {
+      const person = people[i];
+      const d = (person.x - x) * (person.x - x) + (person.y - y) * (person.y - y);
+      if (!best || (mode === 'farthest' ? d > bestD : d < bestD)) {
+        best = person;
+        bestD = d;
+      }
+    }
+    if (!best) return;
+    if (best.self) die();
+    else requestRemoteScriptKill(best.id);
   }
 
   function tickLevelScript(stage) {
@@ -1149,6 +1267,11 @@
         },
         counterRead: function (name, index) {
           return window.SkyHopSpl.counterRead(stage, name, index);
+        },
+        kill: function (args) {
+          const list = ['kill'].concat(args || []);
+          if (!list[1]) list.length = 1;
+          applyScriptKill(list);
         },
       });
       if (splSession.error && !splSession.errorShown) {
@@ -2625,6 +2748,136 @@
     updateSkipHud();
   }
 
+  function beginLevelSession(opts) {
+    const stage = opts && opts.stage;
+    if (!stage || typeof stage !== 'object') return;
+    const stages = [stage];
+    if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(stages);
+    window.SKYHOP_ACTIVE_STAGES = stages;
+    const title = (opts && opts.title) || 'Level';
+    const levelId = opts && typeof opts.levelId === 'string' ? opts.levelId : '';
+    window.SKYHOP_EXTERNAL_LEVEL = {
+      mode: 'play',
+      hudTitle: title,
+      levelTitle: title,
+      levelUuid: levelId || undefined,
+      sessionKind: opts && opts.kind === 'collab' ? 'collab' : 'race',
+      onCleared: levelId
+        ? function () {
+            if (typeof window.SkyHopClaimLevelClear === 'function') window.SkyHopClaimLevelClear(levelId);
+          }
+        : undefined,
+    };
+    if (opts && opts.kind === 'collab') {
+      inCollab = true;
+      inRace = true;
+    } else {
+      inCollab = false;
+      inRace = true;
+    }
+    if (opts && opts.difficulty === 'custom' && opts.customOpts && typeof opts.customOpts === 'object') {
+      menuDifficulty = 'custom';
+      runtimeOpts = window.SKYHOP_enrichRuntimeWithProjectileOpts(
+        window.SKYHOP_buildRuntimeOptions('custom', opts.customOpts)
+      );
+    } else if (opts && (opts.difficulty === 'easy' || opts.difficulty === 'normal' || opts.difficulty === 'hard')) {
+      menuDifficulty = opts.difficulty;
+      refreshRuntimeOptsFromMenu();
+    } else {
+      refreshRuntimeOptsFromMenu();
+    }
+    if (window.SkyHopRunAnticheat) {
+      window.SkyHopRunAnticheat.beginSession(!opts || opts.anticheatEnabled !== false);
+    }
+    hasWoodenSword = false;
+    hasShield = false;
+    woodenSwordReadyAt = 0;
+    shieldItemReadyAt = 0;
+    shieldInvincibleUntil = 0;
+    swordSwingAnim = null;
+    shieldRingAnim = null;
+    closeWeaponScreen();
+    gameState = 'playing';
+    stageIndex = 0;
+    deaths = 0;
+    portalWarpCount = 0;
+    resetRunClock();
+    syncNextStageButton();
+    if (screenMenu) {
+      screenMenu.classList.add('hidden');
+      screenMenu.classList.remove('flex');
+    }
+    if (screenRaceMenu) {
+      screenRaceMenu.classList.add('hidden');
+      screenRaceMenu.classList.remove('flex');
+    }
+    const collabMenu = document.getElementById('screenCollabMenu');
+    if (collabMenu) {
+      collabMenu.classList.add('hidden');
+      collabMenu.classList.remove('flex');
+    }
+    screenStageClear.classList.add('hidden');
+    screenStageClear.classList.remove('flex');
+    screenWin.classList.add('hidden');
+    screenWin.classList.remove('flex');
+    if (hud) hud.classList.remove('hidden');
+    loadStage(0);
+    syncWeaponHud(performance.now());
+    updateSkipHud();
+  }
+
+  function finishLevelSessionIfNeeded() {
+    if (hasMoreStagesAfterCurrent()) return false;
+    notifyExternalLevelClear(window.SKYHOP_EXTERNAL_LEVEL);
+    if (inCollab) {
+      sealRunClockSegment();
+      if (window.SkyHopCollabNotifyFinish) window.SkyHopCollabNotifyFinish(getRunElapsedMs(), deaths);
+      return true;
+    }
+    if (!inRace) return false;
+    const totalMs = getRunElapsedMs();
+    if (window.SkyHopRacingNotifyFinish) {
+      try {
+        window.SkyHopRacingNotifyFinish(totalMs, deaths);
+      } catch {
+        /* */
+      }
+    }
+    inRace = false;
+    window.SKYHOP_ACTIVE_STAGES = null;
+    window.SKYHOP_EXTERNAL_LEVEL = null;
+    if (window.SkyHopOnRaceOver) {
+      try {
+        window.SkyHopOnRaceOver({ success: true, timeMs: totalMs, deaths });
+      } catch {
+        /* */
+      }
+    }
+    if (!window.__skyhopRaceOnline && window.SkyHopSubmitRun) {
+      try {
+        void window.SkyHopSubmitRun(totalMs, deaths, 'race');
+      } catch {
+        /* */
+      }
+    }
+    gameState = 'menu';
+    hud.classList.add('hidden');
+    setTouchHudVisible(false);
+    syncLevelsTopNav();
+    syncRecordingUi();
+    return true;
+  }
+
+  function notifyExternalLevelClear(ext) {
+    if (!ext || ext.mode === 'test' || ext.clearNotified || typeof ext.onCleared !== 'function') return;
+    ext.clearNotified = true;
+    try {
+      ext.onCleared();
+    } catch {
+      /* */
+    }
+  }
+
   function die() {
     deaths++;
     hudDeaths.textContent = String(deaths);
@@ -3405,6 +3658,7 @@
     if (laserHit(stage)) die();
 
     if (stage.bossStage && bossDefeated()) {
+      if (finishLevelSessionIfNeeded()) return;
       const extBoss = window.SKYHOP_EXTERNAL_LEVEL;
       if (extBoss) {
         if (hasMoreStagesAfterCurrent()) {
@@ -3426,12 +3680,14 @@
         screenStageClear.classList.add('flex');
         setTouchHudVisible(false);
         syncLevelsTopNav();
-        if (extBoss.mode === 'test' && typeof extBoss.onTestCleared === 'function') {
+          if (extBoss.mode === 'test' && typeof extBoss.onTestCleared === 'function') {
           try {
             extBoss.onTestCleared();
           } catch {
             /* */
           }
+        } else {
+          notifyExternalLevelClear(extBoss);
         }
         return;
       }
@@ -3509,6 +3765,7 @@
     }
 
     if (goalReached(stage)) {
+      if (finishLevelSessionIfNeeded()) return;
       const extGoal = window.SKYHOP_EXTERNAL_LEVEL;
       if (extGoal) {
         if (hasMoreStagesAfterCurrent()) {
@@ -3534,6 +3791,7 @@
             }
           }
         } else {
+          notifyExternalLevelClear(extGoal);
           stageClearTitle.textContent = 'Level complete';
           stageClearSub.textContent = extGoal.levelTitle ? `“${extGoal.levelTitle}”` : '';
         }
@@ -4751,6 +5009,8 @@
   };
 
   window.SkyHopTriggerCollabWin = function (timeMs, deathsArg) {
+    window.SKYHOP_ACTIVE_STAGES = null;
+    window.SKYHOP_EXTERNAL_LEVEL = null;
     if (!inCollab && !inRace) return;
     inCollab = false;
     inRace = false;
@@ -4912,7 +5172,11 @@
   window.SKYHOP = {
     beginRacing,
     beginCollab,
+    beginLevelSession,
     startUserLevel,
+    dieFromScript: function () {
+      if (gameState === 'playing') die();
+    },
     ensureGameShellVisible,
     goToMenu,
     syncMenuCampaignCopy,

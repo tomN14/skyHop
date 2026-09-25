@@ -26,10 +26,12 @@ import {
   joinTosPagesForEditor,
   resolveBranding,
   resolveFeatureListHtml,
+  resolveScriptGuideHtml,
   resolveTosPages,
   splitTosPagesFromEditor,
   validateBranding,
   validateFeatureListHtml,
+  validateScriptGuideHtml,
   validateTosPages,
   TOS_PAGE_SEP,
 } from './site-content.js';
@@ -960,6 +962,16 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/site/script-guide' && req.method === 'GET') {
+    try {
+      const html = await resolveScriptGuideHtml(store);
+      json(res, 200, { html });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/site/branding' && req.method === 'GET') {
     try {
       json(res, 200, await resolveBranding(store));
@@ -1032,6 +1044,7 @@ export async function handleApi(req, res) {
     try {
       const pages = await resolveTosPages(store);
       const html = await resolveFeatureListHtml(store);
+      const scriptGuideHtml = await resolveScriptGuideHtml(store);
       const branding = await resolveBranding(store);
       const customTos =
         typeof store.getSiteContentPayload === 'function' &&
@@ -1046,6 +1059,7 @@ export async function handleApi(req, res) {
         tosPages: pages,
         tosEditorText: joinTosPagesForEditor(pages),
         featureListHtml: html,
+        scriptGuideHtml,
         branding,
         pageSeparator: TOS_PAGE_SEP,
         customTos: !!customTos,
@@ -1088,6 +1102,11 @@ export async function handleApi(req, res) {
         const html = String(body.featureListHtml);
         validateFeatureListHtml(html);
         await store.setSiteContentPayload('feature_list', { html });
+      }
+      if (body.scriptGuideHtml != null) {
+        const html = String(body.scriptGuideHtml);
+        validateScriptGuideHtml(html);
+        await store.setSiteContentPayload('script_guide', { html });
       }
       let brandingSaved = null;
       const brandingInput =
@@ -4223,6 +4242,61 @@ export async function handleApi(req, res) {
       }
       return true;
     }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/award$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess || effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Only the owner can award a level.' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const out = await UserLevels.levelsAward(m[1]);
+        json(res, 200, out);
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/clear-reward$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const out = await UserLevels.levelsClaimClearReward(uid, m[1]);
+        json(res, 200, out);
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/levels/awarded' && req.method === 'GET') {
+    const page = Number(u.searchParams.get('page') || '1') || 1;
+    try {
+      const out = await UserLevels.levelsListAwarded(page);
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
   }
 
   if (pathname === '/api/levels/search' && req.method === 'GET') {

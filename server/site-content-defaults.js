@@ -14,3 +14,8 @@ export function defaultFeatureListHtml() {
   const p = path.join(DEFAULTS_DIR, 'feature-list.html');
   return fs.readFileSync(p, 'utf8');
 }
+
+export function defaultScriptGuideHtml() {
+  const p = path.join(DEFAULTS_DIR, 'script-guide.html');
+  return fs.readFileSync(p, 'utf8');
+}

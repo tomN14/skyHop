@@ -97,6 +97,7 @@
 
   let raceHostWorld = 0;
   let racePublic = false;
+  let pendingLevel = null;
 
   function syncRaceVisibility() {
     var priv = document.getElementById('btnRacePrivate');
@@ -556,11 +557,19 @@
         /* */
       }
       attachChat(msg.chat);
+      if (msg.players) window.__skyhopMpRoster = msg.players;
+      if (msg.name) window.__skyhopLocalDisplayName = msg.name;
       if (el.roomIdText) el.roomIdText.textContent = roomId;
       if (el.hostPanel) el.hostPanel.classList.remove('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
       if (el.mpStatus) {
-        var createdWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+        var createdWorld = msg.levelTitle
+          ? msg.levelTitle
+          : msg.world === 2
+            ? 'World 2'
+            : msg.world === 1
+              ? 'World 1'
+              : '';
         el.mpStatus.textContent = createdWorld
           ? 'Hosting ' + createdWorld + '. Share the session ID, then start when everyone has joined.'
           : 'Share the session ID with friends. When they join, press Start race.';
@@ -578,6 +587,8 @@
         /* */
       }
       attachChat(msg.chat);
+      if (msg.players) window.__skyhopMpRoster = msg.players;
+      if (msg.name) window.__skyhopLocalDisplayName = msg.name;
       if (isHost) {
         if (el.roomIdText) el.roomIdText.textContent = roomId;
         if (el.hostPanel) el.hostPanel.classList.remove('hidden');
@@ -604,10 +615,89 @@
       return;
     }
     if (msg.type === 'playerJoined' && msg.players) {
+      window.__skyhopMpRoster = msg.players;
       if (el.mpStatus) {
         el.mpStatus.textContent = msg.players.length + ' player(s) in session.';
         el.mpStatus.classList.remove('hidden');
       }
+      return;
+    }
+    if (msg.type === 'scriptDie') {
+      if (window.SKYHOP && typeof window.SKYHOP.dieFromScript === 'function') window.SKYHOP.dieFromScript();
+      return;
+    }
+    if ((msg.type === 'raceStart' || msg.type === 'collabStart') && msg.level) {
+      if (!window.SKYHOP || !window.SKYHOP.beginLevelSession) return;
+      if (el.menu) {
+        el.menu.classList.add('hidden');
+        el.menu.classList.remove('flex');
+      }
+      if (mpPinger) {
+        clearInterval(mpPinger);
+        mpPinger = 0;
+      }
+      raceType = 'mp';
+      try {
+        window.__skyhopRaceOnline = true;
+      } catch {
+        /* */
+      }
+      for (const k of Object.keys(mpProgress)) delete mpProgress[k];
+      try {
+        window.__skyhopMpPeers = mpProgress;
+      } catch {
+        /* */
+      }
+      if (el.hud) el.hud.classList.remove('hidden');
+      if (el.mpStatus) el.mpStatus.classList.add('hidden');
+      if (el.hostPanel) el.hostPanel.classList.add('hidden');
+      if (el.joinPanel) el.joinPanel.classList.add('hidden');
+      pendingLevel = null;
+      window.SKYHOP.beginLevelSession({
+        kind: msg.type === 'collabStart' ? 'collab' : 'race',
+        stage: msg.level,
+        title: msg.levelTitle || 'Level',
+        levelId: msg.levelId || '',
+        difficulty: msg.difficulty,
+        customOpts: msg.customOpts,
+        anticheatEnabled: msg.anticheatEnabled !== false,
+      });
+      if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) {
+        window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
+      }
+      mpPinger = setInterval(function () {
+        if (!window.SKYHOP || !window.SKYHOP.isRacing || !window.SKYHOP.isRacing()) {
+          if (mpPinger) {
+            clearInterval(mpPinger);
+            mpPinger = 0;
+          }
+          return;
+        }
+        const st = getSnapshot();
+        if (ws && ws.readyState === 1) {
+          try {
+            const payload = {
+              type: 'progress',
+              stage0: st.stage0,
+              timeMs: performance.now() - raceT0,
+              deaths: st.deaths || 0,
+              warps: st.warps || 0,
+            };
+            if (st.x != null && st.y != null) {
+              payload.x = st.x;
+              payload.y = st.y;
+            }
+            if (st.g != null) payload.g = st.g;
+            if (st.vx != null) payload.vx = st.vx;
+            if (st.vy != null) payload.vy = st.vy;
+            if (st.og != null) payload.og = st.og;
+            Object.assign(payload, probeFields());
+            ws.send(JSON.stringify(payload));
+          } catch {
+            /* */
+          }
+        }
+      }, 100);
       return;
     }
     if (msg.type === 'raceStart') {
@@ -738,6 +828,7 @@
       const pr = mpProgress[msg.playerId];
       const prevStage = pr.stage;
       pr.name = msg.name;
+      if (msg.username) pr.username = msg.username;
       pr.finished = false;
       const nowRecv = performance.now();
       if (msg.x != null && msg.y != null) {
@@ -1082,12 +1173,20 @@
       el.btnStartRace.addEventListener('click', () => {
         if (ws && ws.readyState === 1) {
           try {
-            const payload = {
-              type: 'start',
-              world: raceHostWorld === 2 ? 2 : 1,
-              stageCount: raceWorldStageCount(raceHostWorld === 2 ? 2 : 1),
-              anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
-            };
+            const payload = pendingLevel
+              ? {
+                  type: 'start',
+                  level: pendingLevel.stage,
+                  levelTitle: pendingLevel.title,
+                  levelId: pendingLevel.levelId || '',
+                  anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+                }
+              : {
+                  type: 'start',
+                  world: raceHostWorld === 2 ? 2 : 1,
+                  stageCount: raceWorldStageCount(raceHostWorld === 2 ? 2 : 1),
+                  anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+                };
             try {
               if (window.SKYHOP && typeof window.SKYHOP.getRaceStartSettings === 'function') {
                 const s = window.SKYHOP.getRaceStartSettings();
@@ -1112,6 +1211,68 @@
       });
     }
   }
+
+  window.SkyHopHostLevelRace = function (stage, title, levelId) {
+    pendingLevel = { stage: stage, title: title || 'Level', levelId: levelId || '' };
+    if (el.menu) {
+      el.menu.classList.remove('hidden');
+      el.menu.classList.add('flex');
+    }
+    disconnectWs();
+    ws = connectWs();
+    ws.onmessage = onWsMessage;
+    bindWsUntilOpen(ws, function () {
+      const prevKill = window.SkyHopRequestScriptKill;
+      window.SkyHopRequestScriptKill = function (playerId) {
+        if (ws && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'scriptKill', playerId: playerId }));
+          } catch {
+            /* */
+          }
+          return;
+        }
+        if (typeof prevKill === 'function') prevKill(playerId);
+      };
+      ws.send(
+        JSON.stringify({
+          type: 'create',
+          name: (el.name && el.name.value) || 'Host',
+          mode: 'race',
+          levelSession: true,
+          levelTitle: pendingLevel.title,
+          public: !!racePublic,
+          anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
+          authToken: (function () {
+            try {
+              return localStorage.getItem('SKYHOP_AUTH_TOKEN') || undefined;
+            } catch {
+              return undefined;
+            }
+          })(),
+        })
+      );
+    });
+    if (el.joinPanel) el.joinPanel.classList.add('hidden');
+    if (el.hostPanel) el.hostPanel.classList.add('hidden');
+    if (el.mpStatus) {
+      el.mpStatus.textContent = 'Connecting to host ' + pendingLevel.title + '…';
+      el.mpStatus.classList.remove('hidden');
+    }
+  };
+
+  const prevRaceKill = window.SkyHopRequestScriptKill;
+  window.SkyHopRequestScriptKill = function (playerId) {
+    if (ws && ws.readyState === 1) {
+      try {
+        ws.send(JSON.stringify({ type: 'scriptKill', playerId: playerId }));
+      } catch {
+        /* */
+      }
+      return;
+    }
+    if (typeof prevRaceKill === 'function') prevRaceKill(playerId);
+  };
 
   function tryBind() {
     if (!window.SKYHOP || !window.SKYHOP.beginRacing) {

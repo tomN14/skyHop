@@ -239,6 +239,20 @@ def _toggle(sid):
     return 0
 
 
+def _kill(*args):
+    if not args:
+        _commands.append(["kill", "self"])
+        return 0
+    mode = str(args[0])
+    if mode == "closest" or mode == "farthest":
+        if len(args) < 3:
+            raise Exception('skyhop.kill("closest", x, y) or skyhop.kill("farthest", x, y)')
+        _commands.append(["kill", mode, float(args[1]), float(args[2])])
+        return 0
+    _commands.append(["kill", mode])
+    return 0
+
+
 def _skyhop_random(*args):
     if len(args) >= 2:
         lo, hi = int(args[0]), int(args[1])
@@ -288,6 +302,7 @@ class SandboxSession:
                     "move": _move,
                     "change_color": _color,
                     "toggle": _toggle,
+                    "kill": _kill,
                     "random": _skyhop_random,
                 }
                 return None

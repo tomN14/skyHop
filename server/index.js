@@ -219,11 +219,28 @@ function kickCheater(ws, room, reason) {
   }
 }
 
+function readSharedLevel(level) {
+  if (!level || typeof level !== 'object' || Array.isArray(level)) {
+    return { error: 'This session needs a level.' };
+  }
+  let raw;
+  try {
+    raw = JSON.stringify(level);
+  } catch {
+    return { error: 'This level could not be shared.' };
+  }
+  if (!raw || raw.length > 400000) return { error: 'That level is too large to race.' };
+  const copy = JSON.parse(raw);
+  if (typeof copy.spl === 'string') copy.spl = copy.spl.slice(0, 20000);
+  return { level: copy };
+}
+
 function progressPayload(room, playerId, msg, ev) {
   const out = {
     type: 'playerProgress',
     playerId,
     name: room.names[playerId] || '?',
+    username: room.usernames[playerId] || null,
     stage0: ev.stage,
     timeMs: ev.timeMs || 0,
   };
@@ -273,13 +290,14 @@ wss.on('connection', (ws) => {
         while (rooms.has(roomId)) roomId = makeRoomId();
         const name = (msg.name && String(msg.name).slice(0, 20)) || 'Host';
         const isCollab = String(msg.mode || '').toLowerCase() === 'collab';
+        const levelSession = msg.levelSession === true;
         const anticheatEnabled = !(
           msg.anticheatEnabled === false ||
           msg.anticheatOn === false ||
           msg.anticheat === false
         );
         let raceWorld = 0;
-        if (!isCollab) {
+        if (!isCollab && !levelSession) {
           const w = Number(msg.world);
           if (w !== 1 && w !== 2) {
             send(ws, { type: 'error', message: 'Pick World 1 or World 2 before hosting.' });
@@ -288,6 +306,11 @@ wss.on('connection', (ws) => {
           raceWorld = w;
         }
         const room = createRoom(roomId, ws, playerId, name, isCollab, anticheatEnabled);
+        if (levelSession) {
+          room.levelSession = true;
+          room.levelTitle = String(msg.levelTitle || 'Level').slice(0, 80);
+          room.maxStage0 = 0;
+        }
         if (!isCollab) room.raceWorld = raceWorld;
         room.public = msg.public === true || msg.visibility === 'public';
         const meta = socketMeta.get(ws);
@@ -307,6 +330,8 @@ wss.on('connection', (ws) => {
           chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
           world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          levelSession: !!room.levelSession,
+          levelTitle: room.levelTitle || null,
           public: !!room.public,
         });
       })();
@@ -361,6 +386,8 @@ wss.on('connection', (ws) => {
           chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
           world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          levelSession: !!room.levelSession,
+          levelTitle: room.levelTitle || null,
           public: !!room.public,
         });
         broadcastAll(room, { type: 'playerJoined', playerId, name, players }, ws);
@@ -464,6 +491,42 @@ wss.on('connection', (ws) => {
       room.started = true;
       const startAt = Date.now();
       room.startAt = startAt;
+      if (room.levelSession) {
+        const packed = readSharedLevel(msg.level);
+        if (packed.error) {
+          send(ws, { type: 'error', message: packed.error });
+          room.started = false;
+          room.startAt = 0;
+          return;
+        }
+        room.maxStage0 = 0;
+        const pack = {
+          type: room.collab ? 'collabStart' : 'raceStart',
+          startAt,
+          roomId: room.id,
+          levelSession: true,
+          levelTitle: room.levelTitle || 'Level',
+          levelId: typeof msg.levelId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(msg.levelId) ? msg.levelId : '',
+          level: packed.level,
+          difficulty: 'normal',
+          anticheatEnabled: room.anticheatEnabled !== false,
+        };
+        const diffRaw = msg.difficulty != null ? String(msg.difficulty).toLowerCase() : 'normal';
+        pack.difficulty = ['easy', 'normal', 'hard', 'custom'].includes(diffRaw) ? diffRaw : 'normal';
+        if (msg.anticheatEnabled === false || msg.anticheatOn === false || msg.anticheat === false) {
+          room.anticheatEnabled = false;
+          pack.anticheatEnabled = false;
+        }
+        if (pack.difficulty === 'custom' && msg.customOpts && typeof msg.customOpts === 'object') {
+          try {
+            if (JSON.stringify(msg.customOpts).length <= 32000) pack.customOpts = msg.customOpts;
+          } catch {
+            /* */
+          }
+        }
+        broadcastAll(room, pack);
+        return;
+      }
       if (msg.anticheatEnabled === false || msg.anticheatOn === false || msg.anticheat === false) {
         room.anticheatEnabled = false;
       } else if (msg.anticheatEnabled === true || msg.anticheatOn === true) {
@@ -544,6 +607,21 @@ wss.on('connection', (ws) => {
       if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
       room.bossHpByStage[key] = Math.max(0, room.bossHpByStage[key] - dmg);
       broadcastAll(room, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
+      return;
+    }
+
+    if (msg.type === 'scriptKill') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !room.started || (meta && meta.spectator)) return;
+      const targetId = msg.playerId != null ? String(msg.playerId) : '';
+      if (!targetId) return;
+      for (const client of room.clients) {
+        const who = socketMeta.get(client);
+        if (!who || who.spectator || who.playerId !== targetId) continue;
+        send(client, { type: 'scriptDie' });
+        return;
+      }
       return;
     }
 

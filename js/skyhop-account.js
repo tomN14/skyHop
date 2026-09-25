@@ -2885,6 +2885,7 @@
     var ownerSiteContentMsg = document.getElementById('ownerSiteContentMsg');
     var ownerTosEditor = document.getElementById('ownerTosEditor');
     var ownerFeatureListEditor = document.getElementById('ownerFeatureListEditor');
+    var ownerScriptGuideEditor = document.getElementById('ownerScriptGuideEditor');
     var ownerBrandTitle = document.getElementById('ownerBrandTitle');
     var ownerBrandVersion = document.getElementById('ownerBrandVersion');
     var ownerBrandUpdate = document.getElementById('ownerBrandUpdate');
@@ -2927,6 +2928,9 @@
         if (ownerFeatureListEditor && data.featureListHtml != null) {
           ownerFeatureListEditor.value = String(data.featureListHtml);
         }
+        if (ownerScriptGuideEditor && data.scriptGuideHtml != null) {
+          ownerScriptGuideEditor.value = String(data.scriptGuideHtml);
+        }
         if (data.branding) fillOwnerBrandingFields(data.branding);
       } catch (e) {
         setOwnerSiteContentMsg(String(e.message || e), true);
@@ -2956,12 +2960,16 @@
             body: JSON.stringify({
               tosEditorText: ownerTosEditor ? ownerTosEditor.value : '',
               featureListHtml: ownerFeatureListEditor ? ownerFeatureListEditor.value : '',
+              scriptGuideHtml: ownerScriptGuideEditor ? ownerScriptGuideEditor.value : '',
             }),
           });
-          setOwnerSiteContentMsg('Saved. New ToS applies on next login gate; feature list updates live.', false);
+          setOwnerSiteContentMsg('Saved. New ToS applies on next login gate; feature list and script guide update live.', false);
           if (typeof window.SkyHopTosPrefetch === 'function') void window.SkyHopTosPrefetch();
           if (typeof window.SkyHopRefreshFeatureListContent === 'function') {
             void window.SkyHopRefreshFeatureListContent();
+          }
+          if (typeof window.SkyHopRefreshScriptGuide === 'function') {
+            void window.SkyHopRefreshScriptGuide();
           }
         } catch (e) {
           setOwnerSiteContentMsg(String(e.message || e), true);

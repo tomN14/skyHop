@@ -1,4 +1,4 @@
-import { defaultFeatureListHtml, defaultTosPages } from './site-content-defaults.js';
+import { defaultFeatureListHtml, defaultScriptGuideHtml, defaultTosPages } from './site-content-defaults.js';
 
 const TOS_PAGE_SEP = '\n<<<SKYHOP_TOS_PAGE>>>\n';
 
@@ -27,6 +27,12 @@ export function validateFeatureListHtml(html) {
   if (s.length > 400_000) throw new Error('Feature list is too large.');
 }
 
+export function validateScriptGuideHtml(html) {
+  const s = String(html || '');
+  if (!s.trim()) throw new Error('Level script guide HTML cannot be empty.');
+  if (s.length > 400_000) throw new Error('Level script guide is too large.');
+}
+
 export async function resolveTosPages(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('tos');
@@ -35,12 +41,32 @@ export async function resolveTosPages(store) {
   return defaultTosPages();
 }
 
+const FEATURE_LIST_SUPPLEMENT = `
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Awarded levels &amp; scripts</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Awarded User Levels on the main menu, under Play and Racing. The owner awards a published level from Online Levels with the red Award button. The creator receives 300 coins once. A signed-in player receives 25 coins the first time they clear it, and nothing if they clear it again. Awarded level names are blue when you search that creator</li>
+            <li>Race and Collab any user level from My Levels, Online Levels, or the editor. Each player’s script sees that player</li>
+            <li>One script id can be shared by many objects. Rotate, move, color, and toggle apply to every match. Counters, jump-limit changes, double-jump and collision reads, stage time, run time, death count, and player position are available. skyhop.kill can kill you, a named player, or the closest or farthest player</li>
+            <li>The level script guide is the script button on the main menu, above custom keybinds. The owner can edit that guide from Account administration</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
-    if (row && typeof row.html === 'string' && row.html.trim()) return row.html;
+    if (row && typeof row.html === 'string' && row.html.trim()) {
+      if (row.html.includes('Awarded User Levels')) return row.html;
+      return row.html + FEATURE_LIST_SUPPLEMENT;
+    }
   }
   return defaultFeatureListHtml();
+}
+
+export async function resolveScriptGuideHtml(store) {
+  if (typeof store.getSiteContentPayload === 'function') {
+    const row = await store.getSiteContentPayload('script_guide');
+    if (row && typeof row.html === 'string' && row.html.trim()) return row.html;
+  }
+  return defaultScriptGuideHtml();
 }
 
 export const DEFAULT_BRANDING = Object.freeze({

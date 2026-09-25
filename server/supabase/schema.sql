@@ -54,12 +54,22 @@ create table if not exists public.skyhop_user_levels (
   play_count bigint not null default 0,
   beaten_verified boolean not null default false,
   published boolean not null default false,
+  awarded boolean not null default false,
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
 );
 
 create index if not exists skyhop_levels_author_id_idx on public.skyhop_user_levels (author_id);
 create index if not exists skyhop_levels_title_lower_idx on public.skyhop_user_levels (title_lower);
 create index if not exists skyhop_levels_published_play_idx on public.skyhop_user_levels (published, play_count desc);
+
+alter table public.skyhop_user_levels add column if not exists awarded boolean not null default false;
+
+create table if not exists public.skyhop_awarded_clears (
+  user_id bigint not null references public.skyhop_users (id) on delete cascade,
+  level_id uuid not null references public.skyhop_user_levels (id) on delete cascade,
+  created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint,
+  primary key (user_id, level_id)
+);
 
 -- Player reports (moderation). Run server/supabase/moderation.sql on existing DBs, or use this file for new projects.
 create table if not exists public.skyhop_reports (

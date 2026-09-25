@@ -51,13 +51,14 @@ function fileLoad() {
   const dir = path.dirname(LEVELS_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(LEVELS_PATH)) {
-    const empty = { levels: [] };
+    const empty = { levels: [], awardedClears: [] };
     fs.writeFileSync(LEVELS_PATH, JSON.stringify(empty), 'utf8');
     return empty;
   }
   try {
     const j = JSON.parse(fs.readFileSync(LEVELS_PATH, 'utf8'));
     if (!Array.isArray(j.levels)) j.levels = [];
+    if (!Array.isArray(j.awardedClears)) j.awardedClears = [];
     return j;
   } catch {
     return { levels: [] };
@@ -283,7 +284,7 @@ export async function levelsPublishedMetaById(id) {
     const sb = sbClient();
     const { data: row, error } = await sb
       .from('skyhop_user_levels')
-      .select('id, title, play_count, author_id, published')
+      .select('id, title, play_count, author_id, published, awarded')
       .eq('id', idStr)
       .maybeSingle();
     if (error) throw new Error(error.message);
@@ -301,6 +302,7 @@ export async function levelsPublishedMetaById(id) {
       author_username: userRow?.username || null,
       author_is_moderator: userIsModerator(userRow),
       author_role: authorRoleOf(userRow),
+      awarded: !!row.awarded,
     };
   }
 
@@ -317,6 +319,7 @@ export async function levelsPublishedMetaById(id) {
     author_username: u?.username || null,
     author_is_moderator: userIsModerator(u),
     author_role: authorRoleOf(u),
+    awarded: !!row.awarded,
   };
 }
 
@@ -381,7 +384,7 @@ export async function levelsListByUsername(usernameLower, page) {
     const author_role = authorRoleOf(user);
     const q = sb
       .from('skyhop_user_levels')
-      .select('id, title, play_count', { count: 'exact' })
+      .select('id, title, play_count, awarded', { count: 'exact' })
       .eq('author_id', user.id)
       .eq('published', true)
       .order('created_at', { ascending: false })
@@ -402,7 +405,7 @@ export async function levelsListByUsername(usernameLower, page) {
   const items = all
     .sort((a, b) => b.created_at - a.created_at)
     .slice(off, off + PAGE_SIZE)
-    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count }));
+    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, awarded: !!L.awarded }));
   return { items, total, page: p, author_is_moderator, author_role };
 }
 
@@ -418,7 +421,7 @@ export async function levelsSearchName(q, page) {
     const { count } = await sb.from('skyhop_user_levels').select('id', { count: 'exact', head: true }).eq('published', true).ilike('title_lower', like);
     const { data, error } = await sb
       .from('skyhop_user_levels')
-      .select('id, title, play_count, author_id')
+      .select('id, title, play_count, author_id, awarded')
       .eq('published', true)
       .ilike('title_lower', like)
       .order('play_count', { ascending: false })
@@ -434,7 +437,7 @@ export async function levelsSearchName(q, page) {
   const total = all.length;
   const slice = all
     .slice(off, off + PAGE_SIZE)
-    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, author_id: L.author_id }));
+    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, author_id: L.author_id, awarded: !!L.awarded }));
   const enriched = await enrichAuthorMeta(slice);
   return { items: enriched, total, page: p };
 }
@@ -543,4 +546,113 @@ export async function levelsStaffDelete(levelId) {
   db.levels.splice(idx, 1);
   fileSave(db);
   return { ok: true };
+}
+
+const CREATOR_AWARD_COINS = 300;
+const CLEAR_AWARD_COINS = 25;
+
+export async function levelsAward(levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: readErr } = await sb
+      .from('skyhop_user_levels')
+      .select('id, author_id, published, awarded')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!row || !row.published) throw new Error('Published level not found');
+    if (row.awarded) return { already: true, coins: 0 };
+    const { data: updated, error } = await sb
+      .from('skyhop_user_levels')
+      .update({ awarded: true })
+      .eq('id', levelId)
+      .eq('awarded', false)
+      .select('author_id');
+    if (error) throw new Error(error.message);
+    if (!updated || !updated.length) return { already: true, coins: 0 };
+    const { store } = await import('./store.js');
+    await store.incrementUserCoins(updated[0].author_id, CREATOR_AWARD_COINS);
+    return { already: false, coins: CREATOR_AWARD_COINS };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((L) => L.id === levelId);
+  if (!row || !row.published) throw new Error('Published level not found');
+  if (row.awarded) return { already: true, coins: 0 };
+  row.awarded = true;
+  fileSave(db);
+  const { store } = await import('./store.js');
+  await store.incrementUserCoins(row.author_id, CREATOR_AWARD_COINS);
+  return { already: false, coins: CREATOR_AWARD_COINS };
+}
+
+export async function levelsListAwarded(page) {
+  const p = Math.max(1, Math.floor(Number(page) || 1));
+  const off = (p - 1) * PAGE_SIZE;
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { count } = await sb
+      .from('skyhop_user_levels')
+      .select('id', { count: 'exact', head: true })
+      .eq('published', true)
+      .eq('awarded', true);
+    const { data, error } = await sb
+      .from('skyhop_user_levels')
+      .select('id, title, play_count, author_id, awarded')
+      .eq('published', true)
+      .eq('awarded', true)
+      .order('play_count', { ascending: false })
+      .range(off, off + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const enriched = await enrichAuthorMeta(data || []);
+    return { items: enriched, total: count || 0, page: p };
+  }
+  const db = fileLoad();
+  const all = db.levels.filter((L) => L.published && L.awarded);
+  all.sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
+  const slice = all.slice(off, off + PAGE_SIZE).map((L) => ({
+    id: L.id,
+    title: L.title,
+    play_count: L.play_count,
+    author_id: L.author_id,
+    awarded: true,
+  }));
+  const enriched = await enrichAuthorMeta(slice);
+  return { items: enriched, total: all.length, page: p };
+}
+
+export async function levelsClaimClearReward(userId, levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: readErr } = await sb
+      .from('skyhop_user_levels')
+      .select('id, published, awarded')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!row || !row.published || !row.awarded) return { coins: 0, already: false };
+    const { error } = await sb.from('skyhop_awarded_clears').insert({
+      user_id: userId,
+      level_id: levelId,
+      created_at: Date.now(),
+    });
+    if (error) {
+      if (error.code === '23505') return { coins: 0, already: true };
+      throw new Error(error.message);
+    }
+    const { store } = await import('./store.js');
+    await store.incrementUserCoins(userId, CLEAR_AWARD_COINS);
+    return { coins: CLEAR_AWARD_COINS, already: false };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((L) => L.id === levelId);
+  if (!row || !row.published || !row.awarded) return { coins: 0, already: false };
+  if (!Array.isArray(db.awardedClears)) db.awardedClears = [];
+  if (db.awardedClears.some((c) => c.user_id === userId && c.level_id === levelId)) {
+    return { coins: 0, already: true };
+  }
+  db.awardedClears.push({ user_id: userId, level_id: levelId, created_at: Date.now() });
+  fileSave(db);
+  const { store } = await import('./store.js');
+  await store.incrementUserCoins(userId, CLEAR_AWARD_COINS);
+  return { coins: CLEAR_AWARD_COINS, already: false };
 }

@@ -847,6 +847,11 @@
         api.toggle(args[0]);
         return 0;
       }
+      if (method === 'kill') {
+        if (!api.kill) throw new Error('skyhop.kill is unavailable');
+        api.kill(args);
+        return 0;
+      }
       if (method === 'random') {
         if (args.length >= 2) return randInt(args[0], args[1]);
         const n = Math.floor(Number(args[0]));

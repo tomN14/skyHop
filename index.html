@@ -405,6 +405,7 @@
             Racing
           </button>
         </div>
+        <button id="btnAwardedLevels" type="button" class="mt-2 w-full rounded-2xl border-2 border-blue-500/55 bg-blue-950/50 px-6 py-3 text-sm font-semibold text-blue-100 shadow-lg hover:bg-blue-900/60">Awarded User Levels</button>
         <button id="btnOpenCollabMenu" type="button" class="mt-2 w-full rounded-2xl border-2 border-teal-500/45 bg-teal-950/50 px-6 py-3 text-sm font-semibold text-teal-100 shadow-lg hover:bg-teal-900/60">Collab (both worlds)</button>
         <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Account &amp; cloud stats
@@ -706,13 +707,24 @@
             <li>Spikes, lava, goals, spawn points</li>
             <li>Teleport portals (green landing dot) and simple switches that move a linked object</li>
             <li>Collectible coins in stages</li>
+            <li>Invisibility, screen-black / blackout effects, color effects, and other advanced stage effects</li>
+            <li>Stage time limits and jump limits; -1 means unlimited</li>
             <li>Stage prep / normalization pipeline for bundled &amp; API stages</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">User levels &amp; editor</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>My Levels: draft, save, test play, beat-to-upload, publish</li>
             <li>Online levels list: browse, play, metadata</li>
-            <li>Visual level editor (platforms, spikes, lava, coins, movers, portals, switches, grapple / double-jump stage rules)</li>
+            <li>Visual level editor (platforms, hazards, coins, movers, portals, switches, advanced effects)</li>
+            <li>Stage time limit and jump limit controls; -1 means unlimited</li>
+            <li>JSON level viewer, export, editing, and import</li>
+            <li>Object center-coordinate inspection for precise scripting references</li>
+            <li>Editable mobile button layout for mobile gameplay</li>
+            <li>Level scripts using SPL with the restricted skyhop API. The guide is the script button on the main menu, above custom keybinds. The owner can edit that guide from Account administration</li>
+            <li>One script id can be shared by many objects. Rotate, move, color, and toggle apply to every match. Counters, jump-limit changes, double-jump and collision reads, stage time, run time, death count, and player position are available. skyhop.kill can kill you, a named player, or the closest or farthest player</li>
+            <li>Scripts are saved with levels and rerun when a stage is restarted. In a race or collab, each player’s script sees that player</li>
+            <li>Race and Collab any user level from My Levels, Online Levels, or the editor</li>
+            <li>Awarded User Levels on the main menu, under Play and Racing. The owner awards a published level from Online Levels with the red Award button. The creator receives 300 coins once. A signed-in player receives 25 coins the first time they clear it, and nothing if they clear it again. Awarded level names are blue when you search that creator</li>
             <li>Profanity filter on level titles (client NN + server censor)</li>
             <li>Staff can edit non-owner user levels from mod dashboard</li>
             <li>Admin (exactly one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
@@ -723,7 +735,7 @@
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Racing</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Race vs bots (offline)</li>
-            <li>Online race: host picks World 1 or World 2 before creating a session</li>
+            <li>Online race: host session ID, join, WebSocket sync. The host picks World 1 or World 2, or a user level</li>
             <li>In-session chat (lobby + during the run); profanity censored</li>
             <li>Server anti-cheat on online races (movement, timing, input); offline bot races stay local</li>
             <li>Live in-race top-5 leaderboard HUD; race over screen</li>
@@ -733,7 +745,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Host / join collab room; shared boss HP bar</li>
             <li>Everyone wins together; no catch-up teleport</li>
-            <li>World scope: W1, W2, or both stages in one run</li>
+            <li>World scope: W1, W2, or both stages in one run, or one user level</li>
             <li>In-session chat (lobby + during the run)</li>
           </ul>
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Account &amp; social</p>
@@ -791,7 +803,7 @@
             <li>Role powers: Report Advisor, moderator, and Admin each have a list of every power for that role. Only that role can open it. Admin can also open the Report Advisor and moderator lists. The owner can open all three</li>
             <li>Hosts can set a race or collab to public or private. Public sessions can be watched by anyone from the button above the shop. Moderators, Admin, and the owner can watch private sessions too</li>
             <li>Owner inbox: promote/demote moderators, gifts, built-in editor, ban dialog</li>
-            <li>Account administration page: disable, re-enable, delete user</li>
+            <li>Account administration page: disable, re-enable, delete user; edit terms, the feature list, and the level script guide</li>
             <li>Owner campaign leaderboard editor on admin page</li>
             <li>Review mod-approved runs (owner-only nav)</li>
             <li>Moderator red styling; owner cannot have levels edited by staff</li>
@@ -998,14 +1010,16 @@
           <p id="ownerBrandingMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
-          <p class="text-[11px] font-sem text-violet-200/90">Terms of Service &amp; feature list</p>
-          <p class="mt-1 text-[11px] text-slate-500">Edits apply to all players after save. ToS pages are split with the line <code class="text-[10px] text-slate-400">&lt;&lt;&lt;SKYHOP_TOS_PAGE&gt;&gt;&gt;</code> on its own line.</p>
+          <p class="text-[11px] font-sem text-violet-200/90">Terms of Service, feature list &amp; level scripts</p>
+          <p class="mt-1 text-[11px] text-slate-500">Edits apply to all players after save. ToS pages are split with the line <code class="text-[10px] text-slate-400">&lt;&lt;&lt;SKYHOP_TOS_PAGE&gt;&gt;&gt;</code> on its own line. The feature list and level script guide are the HTML inside those panels.</p>
           <button id="ownerBtnLoadSiteContent" type="button" class="mt-2 w-full rounded-xl border border-violet-500/45 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-950/40">Load current content</button>
           <label class="mt-3 block text-[11px] text-slate-500">Terms of Service (all pages)</label>
           <textarea id="ownerTosEditor" rows="8" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="true"></textarea>
           <label class="mt-3 block text-[11px] text-slate-500">Feature list (HTML inside the 📋 guide panel)</label>
           <textarea id="ownerFeatureListEditor" rows="10" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="false"></textarea>
-          <button id="ownerBtnSaveSiteContent" type="button" class="mt-3 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Save ToS &amp; feature list</button>
+          <label class="mt-3 block text-[11px] text-slate-500">Level script guide (HTML inside the script panel)</label>
+          <textarea id="ownerScriptGuideEditor" rows="10" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="false"></textarea>
+          <button id="ownerBtnSaveSiteContent" type="button" class="mt-3 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Save ToS, feature list &amp; script guide</button>
           <p id="ownerSiteContentMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
@@ -1370,7 +1384,7 @@
           </div>
           <button id="btnSplGuideClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
         </div>
-        <div class="mt-4 max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-left text-[11px] leading-relaxed text-slate-300">
+        <div id="splGuideBody" class="mt-4 max-h-[min(70vh,36rem)] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/50 p-4 text-left text-[11px] leading-relaxed text-slate-300">
           <div>
             <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Where the script goes</p>
             <ul class="mt-1 list-disc space-y-0.5 pl-4">
@@ -1403,6 +1417,11 @@
               <li><span class="font-mono">skyhop.get("is_player_jumping")</span> — <span class="font-mono">1</span> for one frame, the frame after a jump starts, then <span class="font-mono">0</span>. Read it inside the loop. Ground, double, and wall jumps all count.</li>
               <li><span class="font-mono">skyhop.get("is_double_jump")</span> — <span class="font-mono">1</span> for one frame, the frame after a double jump starts. Ground jumps and wall jumps stay <span class="font-mono">0</span>. The stage has to allow a double jump.</li>
               <li><span class="font-mono">skyhop.get("is_collision")</span> — the script id of a tagged platform or moving platform the player just started touching, or <span class="font-mono">0</span>. A side hit is chosen over standing on top. The id is reported for one frame, then <span class="font-mono">0</span> until the player leaves and touches again. Untagged floors do not count. The object has to be tagged first.</li>
+              <li><span class="font-mono">skyhop.get("stage_time")</span> — seconds since this attempt started. Dying resets it. This is not the time limit.</li>
+              <li><span class="font-mono">skyhop.get("total_stage_time")</span> — seconds on the run clock. Dying does not reset it.</li>
+              <li><span class="font-mono">skyhop.get("player_death_count")</span> — deaths on this run.</li>
+              <li><span class="font-mono">skyhop.get("player_pos_x")</span> and <span class="font-mono">skyhop.get("player_pos_y")</span> — the center of this player.</li>
+              <li>In a race or collab, each computer runs the script for its own player. If A is jumping and B is not, <span class="font-mono">is_player_jumping</span> is <span class="font-mono">1</span> for A and <span class="font-mono">0</span> for B. Position, deaths, and the timers work the same way.</li>
               <li>Any other name returns <span class="font-mono">0</span>.</li>
             </ul>
           </div>
@@ -1415,6 +1434,10 @@
               <li><span class="font-mono">skyhop.move(x, y, id)</span> shifts every object with that id. Positive x moves right and positive y moves down. Negative values move the opposite way.</li>
               <li><span class="font-mono">skyhop.change_color("#ff8800", id)</span> sets the color of every object with that id.</li>
               <li><span class="font-mono">skyhop.toggle(id)</span> flips every object with that id between there and not there. Not there removes the hitbox. Only objects marked Affected by toggle respond. Make invisible is separate and keeps the hitbox.</li>
+              <li><span class="font-mono">skyhop.kill()</span> kills this player.</li>
+              <li><span class="font-mono">skyhop.kill("name")</span> kills the racer with that username or display name.</li>
+              <li><span class="font-mono">skyhop.kill("closest", x, y)</span> and <span class="font-mono">skyhop.kill("farthest", x, y)</span> kill the player nearest to or farthest from that point, including you.</li>
+              <li>Race and Collab on a level, in My Levels, online levels, or the editor, start that level for everyone. Its script runs for each player.</li>
             </ul>
           </div>
           <div>
@@ -1691,6 +1714,17 @@ end;</pre>
       </div>
     </div>
 
+    <div id="screenAwardedLevels" class="absolute inset-0 z-[29] hidden flex-col overflow-hidden bg-slate-950/98 p-4 backdrop-blur-sm md:p-6">
+      <div class="mx-auto flex w-full max-w-2xl shrink-0 items-center gap-2 pb-3">
+        <button id="btnAwardedLevelsBack" type="button" class="rounded-xl border border-white/15 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-white/10">← Back</button>
+        <h2 class="flex-1 text-center text-lg font-bold text-white">Awarded User Levels</h2>
+        <span class="w-16"></span>
+      </div>
+      <p class="mx-auto mb-3 max-w-2xl text-center text-xs text-slate-500">The creator received 300 coins when the level was awarded. The first time you clear one, you receive 25 coins.</p>
+      <ul id="awardedLevelsList" class="mx-auto w-full max-w-2xl flex-1 list-none space-y-2 overflow-y-auto p-0"></ul>
+      <div id="awardedLevelsPager" class="mx-auto mt-3 flex w-full max-w-2xl items-center justify-center gap-3 text-sm text-slate-300"></div>
+    </div>
+
     <!-- User levels: Editor -->
     <div id="screenLevelEditor" class="absolute inset-0 z-[30] hidden flex flex-col bg-slate-950 text-slate-100">
       <div class="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900/95 px-3 py-2">
@@ -1722,6 +1756,8 @@ end;</pre>
         <button id="btnLvlEdDelete" type="button" class="rounded-lg border border-rose-500/40 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-950/40">Delete</button>
         <button id="btnLvlEdSave" type="button" class="rounded-lg bg-violet-600 px-2 py-1 text-xs font-semibold text-white hover:bg-violet-500">Save</button>
         <button id="btnLvlEdTest" type="button" class="rounded-lg border border-cyan-500/50 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Test play</button>
+        <button id="btnLvlEdRace" type="button" class="rounded-lg border border-amber-500/50 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/40">Race</button>
+        <button id="btnLvlEdCollab" type="button" class="rounded-lg border border-teal-500/50 px-2 py-1 text-xs font-semibold text-teal-100 hover:bg-teal-950/40">Collab</button>
         <button id="btnLvlEdUpload" type="button" class="rounded-lg border border-emerald-500/50 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40">Upload</button>
         <button id="btnLvlEdJson" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60">JSON</button>
         <button id="btnLvlEdSpl" type="button" class="rounded-lg border border-fuchsia-400/50 px-2 py-1 font-mono text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">&lt;/&gt;</button>
