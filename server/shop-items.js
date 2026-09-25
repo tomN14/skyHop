@@ -77,6 +77,7 @@ function mapOwnerRow(r) {
     id,
     texture,
     label: r.label || texture,
+    creator: r.creator || '',
     price,
     sellPrice,
     page: Number(r.page) || 1,
@@ -95,6 +96,7 @@ function publicShopItem(it) {
     id: it.id,
     texture: it.texture,
     label: it.label,
+    creator: it.creator || '',
     price: it.price,
     sellPrice: it.sellPrice,
     page: it.page,
@@ -113,6 +115,7 @@ function mapBundled(x) {
     id: x.id,
     texture: x.texture,
     label: x.label || x.texture,
+    creator: x.creator || '',
     price,
     sellPrice: x.sellPrice != null ? Math.floor(Number(x.sellPrice) || 0) : 0,
     page: x.page != null ? Number(x.page) : 1,
@@ -142,12 +145,14 @@ function applyOverride(item, ov) {
   const price = ov.price != null ? Math.floor(Number(ov.price)) : item.price;
   const sellPrice = ov.sellPrice != null ? Math.floor(Number(ov.sellPrice)) : item.sellPrice;
   const label = ov.label != null && String(ov.label).trim() ? String(ov.label).trim().slice(0, 80) : item.label;
+  const creator = ov.creator != null ? String(ov.creator).trim().slice(0, 40) : item.creator || '';
   const tier = shopTierFromPrice(price);
   const page = ov.page != null ? Number(ov.page) : item.page;
   const slot = ov.slot != null ? Number(ov.slot) : item.slot;
   return {
     ...item,
     label,
+    creator,
     price,
     sellPrice,
     page,
@@ -228,16 +233,18 @@ export async function getShopItemById(id) {
   return items.find((x) => x.id === want) || null;
 }
 
-export async function updateShopListing(id, { label, price, sellPrice }) {
+export async function updateShopListing(id, { label, price, sellPrice, creator }) {
   const item = await getShopItemById(id);
   if (!item) throw new Error('Unknown shop item.');
   const prices = validatePrices(price, sellPrice);
   const name = String(label || '').trim().slice(0, 80) || item.label || 'Shop item';
+  const author = String(creator == null ? item.creator || '' : creator).trim().slice(0, 40);
   const overrides = await loadOverrides();
   const prev = overrides[item.id] && typeof overrides[item.id] === 'object' ? overrides[item.id] : {};
   overrides[item.id] = {
     ...prev,
     label: name,
+    creator: author,
     price: prices.price,
     sellPrice: prices.sellPrice,
   };
@@ -324,13 +331,14 @@ async function ensureShopBucket() {
   }
 }
 
-export async function createOwnerShopItem({ label, price, sellPrice, buffer, contentType }) {
+export async function createOwnerShopItem({ label, price, sellPrice, creator, buffer, contentType }) {
   if (!buffer || !buffer.length) throw new Error('Image is required.');
   if (buffer.length > MAX_SHOP_IMAGE_BYTES) throw new Error('Image must be 1.5 MB or smaller.');
   const ext = extFromContentType(contentType) || sniffImageExt(buffer);
   if (!ext) throw new Error('File must be PNG, JPEG, WebP, or GIF.');
   const mime = contentType && String(contentType).startsWith('image/') ? String(contentType).split(';')[0] : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
   const name = String(label || '').trim().slice(0, 80) || 'Shop item';
+  const author = String(creator || '').trim().slice(0, 40);
   const prices = validatePrices(price, sellPrice);
   const current = await listShopItems(null);
   const pos = nextFreeSlot(current.items);
@@ -367,7 +375,15 @@ export async function createOwnerShopItem({ label, price, sellPrice, buffer, con
       }
       throw new Error(error.message);
     }
-    return publicShopItem(mapOwnerRow(row));
+    const made = mapOwnerRow(row);
+    if (author) {
+      const overrides = await loadOverrides();
+      const prev = overrides[id] && typeof overrides[id] === 'object' ? overrides[id] : {};
+      overrides[id] = { ...prev, creator: author };
+      await saveOverrides(overrides);
+      return publicShopItem(applyOverride(made, overrides[id]));
+    }
+    return publicShopItem(made);
   }
 
   const db = fileLoad();
@@ -376,6 +392,7 @@ export async function createOwnerShopItem({ label, price, sellPrice, buffer, con
   const rec = {
     id,
     label: name,
+    creator: author,
     texture,
     price: prices.price,
     sellPrice: prices.sellPrice,

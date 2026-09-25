@@ -58,6 +58,10 @@
     }
   }
 
+  function skinDisplayName(raw) {
+    return String(raw || '').replace(/\.(png|jpe?g|webp|gif)$/i, '');
+  }
+
   function skinImageUrl(tex) {
     if (!tex) return '';
     if (String(tex).indexOf('shop-') === 0) {
@@ -180,7 +184,7 @@
       tier.textContent = tierLabel;
       var label = document.createElement('p');
       label.className = 'mt-1 text-center text-xs font-medium text-slate-300';
-      label.textContent = it.label || it.texture;
+      label.textContent = skinDisplayName(it.label || it.texture);
       var has = owned.has(it.texture);
       var btn = document.createElement('button');
       btn.type = 'button';
@@ -243,6 +247,12 @@
       cell.appendChild(img);
       cell.appendChild(tier);
       cell.appendChild(label);
+      if (it.creator) {
+        var by = document.createElement('p');
+        by.className = 'text-center text-[10px] text-slate-500';
+        by.textContent = 'by ' + it.creator;
+        cell.appendChild(by);
+      }
       if (!has) {
         var price = document.createElement('p');
         price.className = 'mt-0.5 text-[11px] text-amber-200/90';
@@ -356,9 +366,9 @@
     wrap.textContent = labelText;
     var input = document.createElement('input');
     input.className = 'mt-0.5 block w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-    if (labelText === 'Name') {
+    if (labelText === 'Name' || labelText === 'Creator') {
       input.type = 'text';
-      input.maxLength = 80;
+      input.maxLength = labelText === 'Creator' ? 40 : 80;
       input.value = value || '';
     } else {
       input.type = 'number';
@@ -422,9 +432,13 @@
     li.appendChild(top);
     if (!isHidden) {
       var name = ownerField('Name', it.label || '');
+      var creator = ownerField('Creator', it.creator || '');
       var buy = ownerField('Buy', it.price);
       var sell = ownerField('Sell', it.sellPrice);
       name.wrap.className += ' mt-2';
+      creator.wrap.className += ' mt-2';
+      li.appendChild(name.wrap);
+      li.appendChild(creator.wrap);
       var prices = document.createElement('div');
       prices.className = 'mt-2 grid grid-cols-2 gap-2';
       prices.appendChild(buy.wrap);
@@ -445,6 +459,7 @@
           body: JSON.stringify({
             id: it.id,
             label: name.input.value,
+            creator: creator.input.value,
             price: Number(buy.input.value),
             sellPrice: Number(sell.input.value),
           }),
@@ -481,7 +496,6 @@
       var actions = document.createElement('div');
       actions.appendChild(save);
       actions.appendChild(remove);
-      li.appendChild(name.wrap);
       li.appendChild(prices);
       li.appendChild(actions);
     } else {
@@ -549,6 +563,7 @@
     }
     var fileEl = document.getElementById('ownerShopImage');
     var labelEl = document.getElementById('ownerShopLabel');
+    var creatorEl = document.getElementById('ownerShopCreator');
     var priceEl = document.getElementById('ownerShopPrice');
     var sellEl = document.getElementById('ownerShopSell');
     var btn = document.getElementById('ownerShopSubmit');
@@ -574,6 +589,7 @@
           Authorization: 'Bearer ' + tok,
           'Content-Type': file.type || 'application/octet-stream',
           'X-Shop-Label': encodeURIComponent(String((labelEl && labelEl.value) || 'Shop item').slice(0, 80)),
+          'X-Shop-Creator': encodeURIComponent(String((creatorEl && creatorEl.value) || '').slice(0, 40)),
           'X-Shop-Price': String((priceEl && priceEl.value) || ''),
           'X-Shop-Sell-Price': String((sellEl && sellEl.value) || ''),
         },
@@ -592,6 +608,7 @@
       var item = data && data.item;
       if (fileEl) fileEl.value = '';
       if (labelEl) labelEl.value = '';
+      if (creatorEl) creatorEl.value = '';
       if (priceEl) priceEl.value = '';
       if (sellEl) sellEl.value = '';
       updateOwnerTierPreview();

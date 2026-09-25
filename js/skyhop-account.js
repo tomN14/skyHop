@@ -1351,6 +1351,17 @@
       if (!sel) return;
       sel.innerHTML = '<option value="">Default look</option>';
       var list = [];
+      var shopByTex = {};
+      try {
+        var catalog = await api('/api/shop/items', { method: 'GET', noAuth: true });
+        var shopItems = (catalog && catalog.items) || [];
+        for (var si = 0; si < shopItems.length; si++) {
+          var shopItem = shopItems[si];
+          if (shopItem && shopItem.texture) shopByTex[shopItem.texture] = shopItem;
+        }
+      } catch {
+        shopByTex = {};
+      }
       if (me && me.role === 'owner') {
         try {
           const tok = getToken();
@@ -1368,7 +1379,11 @@
         var f = list[fi];
         var o = document.createElement('option');
         o.value = f;
-        o.textContent = f;
+        var named = shopByTex[f];
+        var rawName = named && named.label ? named.label : f;
+        var shown = String(rawName).replace(/\.(png|jpe?g|webp|gif)$/i, '');
+        if (named && named.creator) shown += ' · ' + named.creator;
+        o.textContent = shown;
         sel.appendChild(o);
       }
       if (me && me.skinTexture) sel.value = me.skinTexture;

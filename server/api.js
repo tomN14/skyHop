@@ -1420,8 +1420,10 @@ export async function handleApi(req, res) {
     }
     try {
       const label = censorProfanity(String(body.label || '')).text.slice(0, 80);
+      const creator = censorProfanity(String(body.creator || '')).text.slice(0, 40);
       const item = await ShopItems.updateShopListing(body.id, {
         label,
+        creator,
         price: body.price,
         sellPrice: body.sellPrice,
       });
@@ -1481,10 +1483,18 @@ export async function handleApi(req, res) {
         /* keep */
       }
       label = censorProfanity(label).text.slice(0, 80) || 'Shop item';
+      let creator = String(req.headers['x-shop-creator'] || '');
+      try {
+        creator = decodeURIComponent(creator);
+      } catch {
+        /* keep */
+      }
+      creator = censorProfanity(creator).text.slice(0, 40);
       const price = Number(req.headers['x-shop-price']);
       const sellPrice = Number(req.headers['x-shop-sell-price']);
       const item = await ShopItems.createOwnerShopItem({
         label,
+        creator,
         price,
         sellPrice,
         buffer: buf,

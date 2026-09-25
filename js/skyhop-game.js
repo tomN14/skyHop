@@ -566,9 +566,19 @@
     return activePlayWorldId() === 2;
   }
 
+  function hudHintStorageKey() {
+    return activePlayWorldId() === 2 ? LS_W2_HIDE_HUD_HINT : 'SKYHOP_W1_HIDE_HUD_HINT';
+  }
+
+  function campaignHudControls() {
+    if (window.SKYHOP_EXTERNAL_LEVEL) return false;
+    const id = activePlayWorldId();
+    return id === 1 || id === 2;
+  }
+
   function world2HudHintHidden() {
     try {
-      return localStorage.getItem(LS_W2_HIDE_HUD_HINT) === '1';
+      return localStorage.getItem(hudHintStorageKey()) === '1';
     } catch {
       return false;
     }
@@ -576,8 +586,8 @@
 
   function setWorld2HudHintHidden(on) {
     try {
-      if (on) localStorage.setItem(LS_W2_HIDE_HUD_HINT, '1');
-      else localStorage.removeItem(LS_W2_HIDE_HUD_HINT);
+      if (on) localStorage.setItem(hudHintStorageKey(), '1');
+      else localStorage.removeItem(hudHintStorageKey());
     } catch {
       /* */
     }
@@ -587,10 +597,10 @@
 
   function syncPauseHideHudHintUi() {
     if (!pauseHideHudHintWrap) return;
-    const w2 = isWorld2Play();
-    pauseHideHudHintWrap.classList.toggle('hidden', !w2);
-    pauseHideHudHintWrap.classList.toggle('flex', w2);
-    if (pauseHideHudHint && w2) pauseHideHudHint.checked = world2HudHintHidden();
+    const show = campaignHudControls();
+    pauseHideHudHintWrap.classList.toggle('hidden', !show);
+    pauseHideHudHintWrap.classList.toggle('flex', show);
+    if (pauseHideHudHint && show) pauseHideHudHint.checked = world2HudHintHidden();
   }
 
   function escapeHudText(s) {
@@ -694,7 +704,8 @@
     const list = stagesNow();
     const stage = list[stageIdx];
     const w2 = isWorld2Play();
-    const hidden = w2 && world2HudHintHidden();
+    const campaign = campaignHudControls();
+    const hidden = campaign && world2HudHintHidden();
     let html = buildHudControlsHtml(stage);
     if (!w2) {
       const mechanic = world1MechanicHtml(stageIdx);
@@ -709,10 +720,10 @@
       hudHint.classList.toggle('hidden', hidden);
     }
     if (btnHudHintHide) {
-      btnHudHintHide.classList.toggle('hidden', !w2 || hidden);
+      btnHudHintHide.classList.toggle('hidden', !campaign || hidden);
     }
     if (btnHudHintShow) {
-      btnHudHintShow.classList.toggle('hidden', !w2 || !hidden);
+      btnHudHintShow.classList.toggle('hidden', !campaign || !hidden);
     }
   }
 
@@ -1750,6 +1761,7 @@
 
   let skinImg = /** @type {HTMLImageElement|null} */ (null);
   let skinImgSrc = '';
+  let skinTexName = '';
   function skinTextureUrl(tex) {
     if (!tex) return '';
     if (typeof window.SkyHopSkinImageUrl === 'function') return window.SkyHopSkinImageUrl(tex);
@@ -1767,8 +1779,9 @@
       tex = '';
     }
     const url = skinTextureUrl(tex);
-    if (url === skinImgSrc) return;
+    if (url === skinImgSrc && tex === skinTexName) return;
     skinImgSrc = url;
+    skinTexName = tex;
     skinImg = null;
     if (!tex) return;
     const im = new Image();
@@ -4495,17 +4508,27 @@
     const pw = player.w;
     const ph = player.h;
     if (skinImg && skinImg.complete && skinImg.naturalWidth > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(px + r, py);
-      ctx.arcTo(px + pw, py, px + pw, py + ph, r);
-      ctx.arcTo(px + pw, py + ph, px, py + ph, r);
-      ctx.arcTo(px, py + ph, px, py, r);
-      ctx.arcTo(px, py, px + pw, py, r);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(skinImg, px, py, pw, ph);
-      ctx.restore();
+      const shopSkin = String(skinTexName).indexOf('shop-') === 0;
+      const scale = shopSkin ? 1.35 : 1;
+      const dw = pw * scale;
+      const dh = ph * scale;
+      const dx = px + (pw - dw) / 2;
+      const dy = py + (ph - dh) / 2;
+      if (!shopSkin) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(px + r, py);
+        ctx.arcTo(px + pw, py, px + pw, py + ph, r);
+        ctx.arcTo(px + pw, py + ph, px, py + ph, r);
+        ctx.arcTo(px, py + ph, px, py, r);
+        ctx.arcTo(px, py, px + pw, py, r);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(skinImg, px, py, pw, ph);
+        ctx.restore();
+      } else {
+        ctx.drawImage(skinImg, dx, dy, dw, dh);
+      }
     } else {
       ctx.fillStyle = '#fbbf24';
       ctx.strokeStyle = '#f59e0b';
