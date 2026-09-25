@@ -105,15 +105,153 @@
       throw new Error('No object at center (' + formatCoord(tx) + ', ' + formatCoord(ty) + ')');
     }
     best.sid = id;
+    applyStickyToggle(stage, best);
     return id;
   }
 
-  function findBySid(stage, sid) {
-    const want = Number(sid);
-    let found = null;
+  function applyStickyToggle(stage, obj) {
+    const sticky = stage && stage.splAttrSticky;
+    if (!sticky || !obj || obj.sid == null || obj.sid === '') return;
+    if (sticky.is_affect_by_toggle != null) {
+      if (Number(sticky.is_affect_by_toggle) === 0) delete obj.affectByToggle;
+      else obj.affectByToggle = true;
+    }
+    if (sticky.default_toggle_state != null) {
+      obj.defaultToggleState = Number(sticky.default_toggle_state) === 0 ? 0 : 1;
+    }
+    if (obj.affectByToggle && Number(obj.defaultToggleState) === 0) obj.toggleOff = true;
+    else delete obj.toggleOff;
+  }
+
+  function applyToggleDefaults(stage) {
+    if (!stage) return;
+    delete stage.splAttrSticky;
     eachObject(stage, function (_kind, obj) {
-      if (found) return;
-      if (Number(obj.sid) === want) found = obj;
+      delete obj.toggleOff;
+      if (obj.affectByToggle && Number(obj.defaultToggleState) === 0) obj.toggleOff = true;
+    });
+  }
+
+  const runtimeCounters = new WeakMap();
+
+  function clearCounters(stage) {
+    if (stage) runtimeCounters.delete(stage);
+  }
+
+  function countersOf(stage) {
+    return stage ? runtimeCounters.get(stage) || null : null;
+  }
+
+  function counterMap(stage) {
+    let map = runtimeCounters.get(stage);
+    if (!map) {
+      map = Object.create(null);
+      runtimeCounters.set(stage, map);
+    }
+    return map;
+  }
+
+  function counterSlot(stage, name, index) {
+    const box = counterMap(stage)[String(name)];
+    if (!box) throw new Error('No counter named ' + name);
+    const idx = index == null ? 0 : Math.trunc(Number(index));
+    if (!Number.isFinite(idx) || idx < 0 || idx >= box.values.length) {
+      throw new Error('counter ' + name + ' has no value at index ' + idx);
+    }
+    return { box: box, idx: idx };
+  }
+
+  function counterCreate(stage, name, x, y, values) {
+    const key = String(name || '');
+    if (!key) throw new Error('skyhop.counter needs a name');
+    const px = Number(x);
+    const py = Number(y);
+    if (!Number.isFinite(px) || !Number.isFinite(py)) throw new Error('skyhop.counter expects a position');
+    const src = values && values.length ? values : [0];
+    const nums = [];
+    for (let i = 0; i < src.length; i++) {
+      const n = Number(src[i]);
+      if (!Number.isFinite(n)) throw new Error('skyhop.counter values must be numbers');
+      nums.push(n);
+    }
+    counterMap(stage)[key] = { x: px, y: py, values: nums };
+    return 0;
+  }
+
+  function counterAdd(stage, name, inc, indexes) {
+    const amount = Number(inc);
+    if (!Number.isFinite(amount)) throw new Error('counter increment must be a number');
+    const slots = indexes && indexes.length ? indexes : [0];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = counterSlot(stage, name, slots[i]);
+      slot.box.values[slot.idx] += amount;
+    }
+    return 0;
+  }
+
+  function counterSet(stage, name, value, index) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new Error('counter value must be a number');
+    const slot = counterSlot(stage, name, index == null ? 0 : index);
+    slot.box.values[slot.idx] = n;
+    return 0;
+  }
+
+  function counterRead(stage, name, index) {
+    const slot = counterSlot(stage, name, index == null ? 0 : index);
+    return slot.box.values[slot.idx];
+  }
+
+  function scriptContacts(stage, body, resolveRect) {
+    const side = [];
+    const other = [];
+    const seen = Object.create(null);
+    if (!stage || !body) return side;
+    const pad = 6;
+    const probe = {
+      x: body.x - pad,
+      y: body.y - pad,
+      w: body.w + pad * 2,
+      h: body.h + pad * 2,
+    };
+    const midY = body.y + body.h / 2;
+    eachObject(stage, function (kind, obj) {
+      if (kind !== 'platform' && kind !== 'mover') return;
+      if (obj.sid == null || obj.sid === '') return;
+      if (obj.affectByToggle && obj.toggleOff) return;
+      let rect = resolveRect ? resolveRect(kind, obj) : null;
+      if (!rect) rect = { x: Number(obj.x), y: Number(obj.y), w: Number(obj.w), h: Number(obj.h) };
+      if (!Number.isFinite(rect.x) || !Number.isFinite(rect.y) || !Number.isFinite(rect.w) || !Number.isFinite(rect.h)) return;
+      if (probe.x + probe.w <= rect.x || probe.x >= rect.x + rect.w) return;
+      if (probe.y + probe.h <= rect.y || probe.y >= rect.y + rect.h) return;
+      const sid = Number(obj.sid);
+      if (!Number.isFinite(sid) || seen[sid]) return;
+      seen[sid] = 1;
+      const sideHit = midY > rect.y + 4 && midY < rect.y + rect.h - 4;
+      if (sideHit) side.push(sid);
+      else other.push(sid);
+    });
+    return side.concat(other);
+  }
+
+  function setToggleAttr(stage, name, value) {
+    if (name !== 'is_affect_by_toggle' && name !== 'default_toggle_state') {
+      throw new Error('Unknown toggle attribute ' + name);
+    }
+    if (!stage.splAttrSticky) stage.splAttrSticky = {};
+    stage.splAttrSticky[name] = Number(value) === 0 ? 0 : 1;
+    eachObject(stage, function (_kind, obj) {
+      if (obj.sid == null || obj.sid === '') return;
+      applyStickyToggle(stage, obj);
+    });
+    return 0;
+  }
+
+  function objectsWithSid(stage, sid) {
+    const want = Number(sid);
+    const found = [];
+    eachObject(stage, function (_kind, obj) {
+      if (Number(obj.sid) === want) found.push(obj);
     });
     return found;
   }
@@ -136,14 +274,64 @@
   }
 
   function rotateObject(stage, sid, deg) {
-    const obj = findBySid(stage, sid);
-    if (!obj) throw new Error('No object with script id ' + sid);
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
     const steps = Math.round(Number(deg) / 90);
     if (!Number.isFinite(steps) || steps === 0) return 0;
     const n = Math.abs(steps);
     const dir = steps < 0 ? -1 : 1;
-    for (let i = 0; i < n; i++) rotate90(obj, dir);
+    for (let k = 0; k < objs.length; k++) {
+      for (let i = 0; i < n; i++) rotate90(objs[k], dir);
+    }
     return steps * 90;
+  }
+
+  function moveObjects(stage, dx, dy, sid) {
+    const mx = Number(dx);
+    const my = Number(dy);
+    if (!Number.isFinite(mx) || !Number.isFinite(my)) throw new Error('skyhop.move expects (x, y, id)');
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    for (let i = 0; i < objs.length; i++) {
+      const obj = objs[i];
+      if (obj.x != null && obj.x !== '') obj.x = Number(obj.x) + mx;
+      if (obj.y != null && obj.y !== '') obj.y = Number(obj.y) + my;
+      if (obj.pos != null && obj.from) {
+        if (obj.from === 'left' || obj.from === 'right') obj.pos = Number(obj.pos) + my;
+        else obj.pos = Number(obj.pos) + mx;
+      }
+    }
+    return 0;
+  }
+
+  function colorObjects(stage, hex, sid) {
+    let raw = String(hex == null ? '' : hex).trim();
+    if (/^[0-9a-fA-F]{6}$/.test(raw)) raw = '#' + raw;
+    if (!/^#[0-9a-fA-F]{6}$/.test(raw)) {
+      throw new Error('skyhop.change_color expects a hex color like #ff8800');
+    }
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    for (let i = 0; i < objs.length; i++) {
+      objs[i].color = raw;
+      delete objs[i].rainbow;
+    }
+    return 0;
+  }
+
+  function toggleObjects(stage, sid) {
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    let any = false;
+    for (let i = 0; i < objs.length; i++) {
+      const obj = objs[i];
+      if (!obj.affectByToggle) continue;
+      any = true;
+      if (obj.toggleOff) delete obj.toggleOff;
+      else obj.toggleOff = true;
+    }
+    if (!any) throw new Error('Script id ' + sid + ' is not affected by toggle');
+    return 0;
   }
 
   function tokenize(src) {
@@ -537,9 +725,60 @@
     return value;
   }
 
+  function rewriteCounterCalls(src) {
+    return String(src || '').replace(/skyhop\s*\.\s*counter\s*\.\s*(update|read)\s*\(/g, function (_all, which) {
+      return 'skyhop.counter' + which.charAt(0).toUpperCase() + which.slice(1) + '(';
+    });
+  }
+
+  function evalCounter(session, method, rawArgs) {
+    const api = session.api || {};
+    if (method === 'counter') {
+      const name = bareName(rawArgs[0]);
+      if (!name) throw new Error('skyhop.counter name must be a variable name');
+      const values = [];
+      for (let i = 3; i < rawArgs.length; i++) values.push(evalExpr(session, rawArgs[i]));
+      if (!api.counter) throw new Error('skyhop.counter is unavailable');
+      api.counter(name, evalExpr(session, rawArgs[1]), evalExpr(session, rawArgs[2]), values);
+      return 0;
+    }
+    if (method === 'counterRead') {
+      const name = bareName(rawArgs[0]);
+      if (!name) throw new Error('skyhop.counter.read starts with the counter name');
+      const index = rawArgs.length > 1 ? evalExpr(session, rawArgs[1]) : 0;
+      if (!api.counterRead) throw new Error('skyhop.counter.read is unavailable');
+      return api.counterRead(name, index);
+    }
+    if (method === 'counterUpdate') {
+      const only = rawArgs.length === 1 ? rawArgs[0] : null;
+      if (only && only.kind === 'call' && only.obj === 'math' && only.method === 'add') {
+        const addArgs = only.args || [];
+        const name = bareName(addArgs[0]);
+        if (!name) throw new Error('skyhop.counter.update(math.add(name, increment, indexes...))');
+        const inc = evalExpr(session, addArgs[1]);
+        const indexes = [];
+        for (let i = 2; i < addArgs.length; i++) indexes.push(evalExpr(session, addArgs[i]));
+        if (!api.counterAdd) throw new Error('skyhop.counter.update is unavailable');
+        api.counterAdd(name, inc, indexes);
+        return 0;
+      }
+      const name = bareName(rawArgs[0]);
+      if (!name) throw new Error('skyhop.counter.update starts with the counter name');
+      const value = evalExpr(session, rawArgs[1]);
+      const index = rawArgs.length > 2 ? evalExpr(session, rawArgs[2]) : 0;
+      if (!api.counterSet) throw new Error('skyhop.counter.update is unavailable');
+      api.counterSet(name, value, index);
+      return 0;
+    }
+    throw new Error('Unknown skyhop.' + method);
+  }
+
   function evalCall(session, obj, method, argExprs) {
     if (BLOCKED[obj]) throw new Error(obj + '.' + method + ' is blocked in the SkyHop sandbox');
     const rawArgs = argExprs || [];
+    if (obj === 'skyhop' && (method === 'counter' || method === 'counterUpdate' || method === 'counterRead')) {
+      return evalCounter(session, method, rawArgs);
+    }
     if (obj === 'list' && method === 'createList') {
       const items = evalExpr(session, rawArgs[0]);
       if (!Array.isArray(items)) throw new Error('list.createList first argument must be a list literal');
@@ -568,7 +807,21 @@
     const api = session.api || {};
     const args = evalArgs(session, rawArgs);
     if (obj === 'skyhop') {
-      if (method === 'get') return api.get ? api.get(String(args[0])) : 0;
+      if (method === 'get') {
+        const key = String(args[0]);
+        if (key === 'is_affect_by_toggle' || key === 'default_toggle_state') return { splAttr: key };
+        if (key === 'jump_limit') {
+          const value = api.get ? api.get(key) : 0;
+          return {
+            splAttr: key,
+            value: value,
+            valueOf: function () {
+              return Number(this.value);
+            },
+          };
+        }
+        return api.get ? api.get(key) : 0;
+      }
       if (method === 'tag') {
         if (!api.tag) throw new Error('skyhop.tag is unavailable');
         api.tag(args[0], args[1], args[2]);
@@ -577,6 +830,21 @@
       if (method === 'rotate') {
         if (!api.rotate) throw new Error('skyhop.rotate is unavailable');
         api.rotate(args[0], args[1]);
+        return 0;
+      }
+      if (method === 'move') {
+        if (!api.move) throw new Error('skyhop.move is unavailable');
+        api.move(args[0], args[1], args[2]);
+        return 0;
+      }
+      if (method === 'change_color') {
+        if (!api.color) throw new Error('skyhop.change_color is unavailable');
+        api.color(args[0], args[1]);
+        return 0;
+      }
+      if (method === 'toggle') {
+        if (!api.toggle) throw new Error('skyhop.toggle is unavailable');
+        api.toggle(args[0]);
         return 0;
       }
       if (method === 'random') {
@@ -764,7 +1032,7 @@
   }
 
   function open(src) {
-    const text = String(src || '');
+    const text = rewriteCounterCalls(src);
     if (!text.trim()) return null;
     try {
       const ast = parse(text);
@@ -880,7 +1148,13 @@
       return;
     }
     if (stmt.kind === 'assign') {
-      session.vars[stmt.name] = evalExpr(session, stmt.expr);
+      const prev = session.vars[stmt.name];
+      const value = evalExpr(session, stmt.expr);
+      if (prev && prev.splAttr) {
+        if (!session.api || !session.api.attr) throw new Error('skyhop attribute write is unavailable');
+        session.api.attr(prev.splAttr, value);
+      }
+      session.vars[stmt.name] = value;
       return;
     }
     if (stmt.kind === 'func') {
@@ -983,5 +1257,17 @@
     objectCenter: objectCenter,
     tagObject: tagObject,
     rotateObject: rotateObject,
+    moveObjects: moveObjects,
+    colorObjects: colorObjects,
+    toggleObjects: toggleObjects,
+    setToggleAttr: setToggleAttr,
+    applyToggleDefaults: applyToggleDefaults,
+    clearCounters: clearCounters,
+    countersOf: countersOf,
+    counterCreate: counterCreate,
+    counterAdd: counterAdd,
+    counterSet: counterSet,
+    counterRead: counterRead,
+    scriptContacts: scriptContacts,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

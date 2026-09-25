@@ -347,9 +347,20 @@
     for (const L of d.lava || []) ensureObjId(d, L);
     for (const a of d.gravityArrows) ensureObjId(d, a);
     for (const c of d.coins || []) ensureObjId(d, c);
-    for (const p of d.portals) normalizePortal(d, p);
-    for (const sw of d.switches) normalizeSwitch(d, sw);
-    for (const b of d.blackouts) normalizeBlackout(d, b);
+    for (const p of d.portals) {
+      normalizePortal(d, p);
+      normalizeToggleFields(p);
+    }
+    for (const sw of d.switches) {
+      normalizeSwitch(d, sw);
+      normalizeToggleFields(sw);
+    }
+    for (const b of d.blackouts) {
+      normalizeBlackout(d, b);
+      normalizeToggleFields(b);
+    }
+    for (const e of d.fireballEmitters) normalizeToggleFields(e);
+    normalizeToggleFields(d.spawn);
     for (const p of d.movingPlatforms) normalizeMoverMotion(p);
     for (const p of d.platforms) {
       if (p && p.move) normalizeMoverMotion(p);
@@ -580,9 +591,20 @@
     else delete obj.invisible;
     if (obj.rainbow) obj.rainbow = true;
     else delete obj.rainbow;
+    normalizeToggleFields(obj);
     const rot = normalizeRot(obj.rot);
     if (rot) obj.rot = rot;
     else delete obj.rot;
+  }
+
+  function normalizeToggleFields(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.affectByToggle) obj.affectByToggle = true;
+    else delete obj.affectByToggle;
+    if (obj.affectByToggle) obj.defaultToggleState = Number(obj.defaultToggleState) === 0 ? 0 : 1;
+    else delete obj.defaultToggleState;
+    delete obj.toggleOff;
+    delete obj.splAttrSticky;
   }
 
   function editorFill(obj, fallback) {
@@ -725,6 +747,14 @@
         '#4338ca';
     }
     if (inv && document.activeElement !== inv) inv.checked = !!t.invisible;
+    const tog = document.getElementById('lvlEdOptToggle');
+    const togWrap = document.getElementById('lvlEdToggleDefaultWrap');
+    const togDef = document.getElementById('lvlEdToggleDefault');
+    if (tog && document.activeElement !== tog) tog.checked = !!t.affectByToggle;
+    if (togWrap) togWrap.classList.toggle('hidden', !t.affectByToggle);
+    if (togDef && document.activeElement !== togDef) {
+      togDef.value = Number(t.defaultToggleState) === 0 ? '0' : '1';
+    }
     const rain = document.getElementById('lvlEdOptRainbow');
     if (rain && document.activeElement !== rain) rain.checked = !!t.rainbow;
   }
@@ -743,6 +773,24 @@
     const t = selectedLookTarget();
     const inv = document.getElementById('lvlEdOptInvisible');
     if (t && inv) t.invisible = !!inv.checked;
+    scheduleEditorRedraw();
+  }
+
+  function applySelectedToggleFromUi() {
+    const t = selectedLookTarget();
+    const tog = document.getElementById('lvlEdOptToggle');
+    const togDef = document.getElementById('lvlEdToggleDefault');
+    const togWrap = document.getElementById('lvlEdToggleDefaultWrap');
+    if (!t) return;
+    if (tog && tog.checked) {
+      t.affectByToggle = true;
+      t.defaultToggleState = togDef && togDef.value === '0' ? 0 : 1;
+    } else {
+      delete t.affectByToggle;
+      delete t.defaultToggleState;
+    }
+    delete t.toggleOff;
+    if (togWrap) togWrap.classList.toggle('hidden', !(tog && tog.checked));
     scheduleEditorRedraw();
   }
 
@@ -1825,10 +1873,15 @@
     const fmt = window.SkyHopSpl ? window.SkyHopSpl.formatCoord : String;
     const id = obj.id != null && obj.id !== '' ? ' ' + obj.id : '';
     const sid = obj.sid != null && obj.sid !== '' ? ' · script id ' + obj.sid : '';
+    const togNote = obj.affectByToggle
+      ? Number(obj.defaultToggleState) === 0
+        ? ' · toggle, starts absent'
+        : ' · toggle, starts there'
+      : '';
     return {
       x: center.x,
       y: center.y,
-      text: hit.kind + id + sid + ' · Center: (' + fmt(center.x) + ', ' + fmt(center.y) + ')',
+      text: hit.kind + id + sid + togNote + ' · Center: (' + fmt(center.x) + ', ' + fmt(center.y) + ')',
     };
   }
 
@@ -3724,6 +3777,10 @@
     }
     const invEl = document.getElementById('lvlEdOptInvisible');
     if (invEl) invEl.addEventListener('change', applySelectedInvisibleFromUi);
+    const togEl = document.getElementById('lvlEdOptToggle');
+    if (togEl) togEl.addEventListener('change', applySelectedToggleFromUi);
+    const togDefEl = document.getElementById('lvlEdToggleDefault');
+    if (togDefEl) togDefEl.addEventListener('change', applySelectedToggleFromUi);
     const rainEl = document.getElementById('lvlEdOptRainbow');
     if (rainEl) rainEl.addEventListener('change', applySelectedRainbowFromUi);
     ['lvlEdBlackSec', 'lvlEdBlackAfter'].forEach(function (id) {

@@ -1398,9 +1398,11 @@
             <ul class="mt-1 list-disc space-y-0.5 pl-4">
               <li><span class="font-mono">skyhop.get("stage_time_limit")</span> — the limit for this stage. <span class="font-mono">-1</span> means no timer.</li>
               <li><span class="font-mono">skyhop.get("stage_time_left")</span> — seconds left on this attempt. <span class="font-mono">-1</span> if unlimited. At 0 the player dies and the stage restarts.</li>
-              <li><span class="font-mono">skyhop.get("jump_limit")</span> — the jump cap. <span class="font-mono">-1</span> means unlimited.</li>
+              <li><span class="font-mono">skyhop.get("jump_limit")</span> — the jump cap. <span class="font-mono">-1</span> means unlimited. Assigning a number to the variable that holds it changes the cap for this attempt. Dying puts the stage’s original cap back, then the script runs again.</li>
               <li><span class="font-mono">skyhop.get("jumps_remaining")</span> — jumps left this attempt. <span class="font-mono">-1</span> if unlimited. Ground, double, and wall jumps all count.</li>
-              <li><span class="font-mono">skyhop.get("is_player_jumping")</span> — <span class="font-mono">1</span> for one frame, the frame after a jump starts, then <span class="font-mono">0</span>. Read it inside the loop.</li>
+              <li><span class="font-mono">skyhop.get("is_player_jumping")</span> — <span class="font-mono">1</span> for one frame, the frame after a jump starts, then <span class="font-mono">0</span>. Read it inside the loop. Ground, double, and wall jumps all count.</li>
+              <li><span class="font-mono">skyhop.get("is_double_jump")</span> — <span class="font-mono">1</span> for one frame, the frame after a double jump starts. Ground jumps and wall jumps stay <span class="font-mono">0</span>. The stage has to allow a double jump.</li>
+              <li><span class="font-mono">skyhop.get("is_collision")</span> — the script id of a tagged platform or moving platform the player just started touching, or <span class="font-mono">0</span>. A side hit is chosen over standing on top. The id is reported for one frame, then <span class="font-mono">0</span> until the player leaves and touches again. Untagged floors do not count. The object has to be tagged first.</li>
               <li>Any other name returns <span class="font-mono">0</span>.</li>
             </ul>
           </div>
@@ -1409,9 +1411,32 @@
             <ul class="mt-1 list-disc space-y-0.5 pl-4">
               <li><span class="font-mono">skyhop.tag(x, y, id)</span> gives that id to the object whose center is at <span class="font-mono">(x, y)</span>. The center has to be within a pixel. Platforms use the middle of the box. Coins and the spawn use their point.</li>
               <li>The same id can be given to more than one object.</li>
-              <li><span class="font-mono">skyhop.rotate(id, degrees)</span> turns the first object with that id. Use 90, 180, 270, or a negative amount. Each 90° swaps width and height around the center.</li>
-              <li>Rotate searches in this order and stops at the first match: spawn, goal, platforms in list order, movers, spikes, lava, coins, gravity arrows, portals, switches, blackouts, fireball emitters.</li>
+              <li><span class="font-mono">skyhop.rotate(id, degrees)</span> turns every object with that id. Use 90, 180, 270, or a negative amount. Each 90° swaps width and height around the center.</li>
+              <li><span class="font-mono">skyhop.move(x, y, id)</span> shifts every object with that id. Positive x moves right and positive y moves down. Negative values move the opposite way.</li>
+              <li><span class="font-mono">skyhop.change_color("#ff8800", id)</span> sets the color of every object with that id.</li>
+              <li><span class="font-mono">skyhop.toggle(id)</span> flips every object with that id between there and not there. Not there removes the hitbox. Only objects marked Affected by toggle respond. Make invisible is separate and keeps the hitbox.</li>
             </ul>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Toggle from the script</p>
+            <p class="mt-1">Tag the object first. The names <span class="font-mono">is_affect_by_toggle</span> and <span class="font-mono">default_toggle_state</span> have to be exact. The variable on the left can be anything. Assigning a number to that variable writes the attribute. <span class="font-mono">1</span> means affected by toggle, or starts there. <span class="font-mono">0</span> means not affected, or starts absent until toggled on.</p>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">skyhop.tag(108, 564, 1);
+affect_by_toggle &lt;- skyhop.get("is_affect_by_toggle");
+affect_by_toggle &lt;- 1;
+default &lt;- skyhop.get("default_toggle_state");
+default &lt;- 0;</pre>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Counters</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.counter(name, x, y, v1, v2, ...)</span> shows a counter at that world point. The name is written like a variable, the same way as the name in <span class="font-mono">test.forLoop</span>. One value, two, or as many as you want. Index <span class="font-mono">0</span> is the first value. If you leave the values off, it starts at <span class="font-mono">0</span>.</li>
+              <li><span class="font-mono">skyhop.counter.update(math.add(name, increment, index, ...))</span> adds the increment to those indexes. Leave the indexes off and it adds to the first value.</li>
+              <li><span class="font-mono">skyhop.counter.update(name, value)</span> or <span class="font-mono">skyhop.counter.update(name, value, index)</span> sets that slot to any value. The index defaults to the first value.</li>
+              <li><span class="font-mono">skyhop.counter.read(name)</span> or <span class="font-mono">skyhop.counter.read(name, index)</span> returns that slot. The index defaults to the first value.</li>
+            </ul>
+            <p class="mt-2">To copy a jump count into the stage’s jump cap, store the cap and then assign the read:</p>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">limit &lt;- skyhop.get("jump_limit");
+limit &lt;- skyhop.counter.read(jumps, 0);</pre>
           </div>
           <div>
             <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Random and limits</p>
@@ -1433,6 +1458,39 @@ test.while(1):
         test.break;
     end;
 end;</pre>
+          </div>
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Jump, confirm, add</p>
+            <p class="mt-1">Jump any number of times, then walk into the first wall. Jump again, then walk into the second wall. The first counter shows both jump counts. The second counter becomes their sum. Replace the tag centers with the walls you placed. Hover a wall to see its center. Give the walls different ids from anything else you tag.</p>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">use skyhop;
+skyhop.tag(180, 500, 1);
+skyhop.tag(420, 500, 2);
+skyhop.counter(jumps, 80, 70, 0, 0);
+skyhop.counter(total, 80, 130, 0);
+phase &lt;- 0;
+test.while(1):
+    test.ifTrue(test.isEqualNumber(phase, 0)):
+        test.ifTrue(skyhop.get("is_player_jumping")):
+            skyhop.counter.update(math.add(jumps, 1, 0));
+        end;
+        test.ifTrue(test.isEqualNumber(skyhop.get("is_collision"), 1)):
+            phase &lt;- 1;
+        end;
+    end;
+    test.ifTrue(test.isEqualNumber(phase, 1)):
+        test.ifTrue(skyhop.get("is_player_jumping")):
+            skyhop.counter.update(math.add(jumps, 1, 1));
+        end;
+        test.ifTrue(test.isEqualNumber(skyhop.get("is_collision"), 2)):
+            phase &lt;- 2;
+        end;
+    end;
+    test.ifTrue(test.isEqualNumber(phase, 2)):
+        skyhop.counter.update(total, math.add(skyhop.counter.read(jumps, 0), skyhop.counter.read(jumps, 1)));
+        phase &lt;- 3;
+    end;
+end;</pre>
+            <p class="mt-2">Swap <span class="font-mono">is_player_jumping</span> for <span class="font-mono">is_double_jump</span> if only a double jump should count. Put the jump-limit lines inside the loop if the cap should follow the first count.</p>
           </div>
         </div>
       </div>
@@ -1721,6 +1779,17 @@ end;</pre>
         <label class="inline-flex items-center gap-1.5">
           <input id="lvlEdOptInvisible" type="checkbox" class="rounded border-white/20 bg-slate-950" />
           Make invisible
+        </label>
+        <label class="inline-flex items-center gap-1.5">
+          <input id="lvlEdOptToggle" type="checkbox" class="rounded border-white/20 bg-slate-950" />
+          Affected by toggle
+        </label>
+        <label id="lvlEdToggleDefaultWrap" class="hidden inline-flex items-center gap-1">
+          Starts
+          <select id="lvlEdToggleDefault" class="rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white">
+            <option value="1">There</option>
+            <option value="0">Not there</option>
+          </select>
         </label>
         <label class="inline-flex items-center gap-1.5">
           <input id="lvlEdOptRainbow" type="checkbox" class="rounded border-white/20 bg-slate-950" />

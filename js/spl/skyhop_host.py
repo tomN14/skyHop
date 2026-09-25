@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import sys
 
 try:
@@ -27,6 +28,9 @@ BLOCKED = ("file", "network", "sql", "user", "cli", "json", "pkg")
 _session = None
 _state = {}
 _commands = []
+_counters = {}
+_overrides = {}
+_COUNTER_DOT = re.compile(r"skyhop\s*\.\s*counter\s*\.\s*(update|read)\s*\(")
 
 
 def _stub_module(name):
@@ -74,8 +78,137 @@ def _import_spl():
     }
 
 
+class _AttrRef:
+    """Handle from skyhop.get("is_affect_by_toggle") or default_toggle_state.
+
+    Assigning a number to the variable that holds this writes that attribute.
+    """
+
+    def __init__(self, name):
+        self.name = name
+
+
+class _NumAttr(_AttrRef):
+    """Numeric skyhop.get handle. Comparisons see the number. A later assignment writes it."""
+
+    def __init__(self, name, value):
+        super().__init__(name)
+        self.value = value
+
+    def __float__(self):
+        return float(self.value)
+
+    def __int__(self):
+        return int(self.value)
+
+
+def _rewrite_counter_calls(code):
+    """skyhop.counter.update(...) is not a chain the SPL parser accepts."""
+
+    def repl(match):
+        which = match.group(1)
+        return "skyhop.counter" + which[:1].upper() + which[1:] + "("
+
+    return _COUNTER_DOT.sub(repl, str(code))
+
+
+def _bare_name(node):
+    if getattr(node, "t", None) == "ID" and isinstance(getattr(node, "v", None), str):
+        return node.v
+    raise Exception("counter name must be a variable name, not a value")
+
+
+def _as_number(value, what):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise Exception(what + " must be a number")
+    if number != number or number in (float("inf"), float("-inf")):
+        raise Exception(what + " must be a number")
+    return number
+
+
+def _counter_box(name):
+    box = _counters.get(name)
+    if not box:
+        raise Exception("No counter named " + str(name))
+    return box
+
+
+def _counter_index(box, name, index):
+    if index is None:
+        idx = 0
+    else:
+        idx = int(_as_number(index, "counter index"))
+    if idx < 0 or idx >= len(box["values"]):
+        raise Exception("counter " + name + " has no value at index " + str(idx))
+    return idx
+
+
+def _sync_counter(name):
+    box = _counters[name]
+    _commands.append(["counter", name, box["x"], box["y"], list(box["values"])])
+
+
+def _counter_call(interp, node):
+    method = node.method
+    args = node.arg or []
+    if method == "counter":
+        if len(args) < 3:
+            raise Exception("skyhop.counter(name, x, y, values...)")
+        name = _bare_name(args[0])
+        x = _as_number(interp.evaluate(args[1]), "counter x")
+        y = _as_number(interp.evaluate(args[2]), "counter y")
+        values = [_as_number(interp.evaluate(arg), "counter value") for arg in args[3:]] or [0.0]
+        _counters[name] = {"x": x, "y": y, "values": values}
+        _sync_counter(name)
+        return 0
+    if method == "counterRead":
+        if not args:
+            raise Exception("skyhop.counter.read(name, index)")
+        name = _bare_name(args[0])
+        box = _counter_box(name)
+        index = interp.evaluate(args[1]) if len(args) > 1 else None
+        return box["values"][_counter_index(box, name, index)]
+    if method == "counterUpdate":
+        if (
+            len(args) == 1
+            and getattr(args[0], "obj", None) == "math"
+            and getattr(args[0], "method", None) == "add"
+        ):
+            add_args = args[0].arg or []
+            if len(add_args) < 2:
+                raise Exception("skyhop.counter.update(math.add(name, increment, indexes...))")
+            name = _bare_name(add_args[0])
+            inc = _as_number(interp.evaluate(add_args[1]), "counter increment")
+            raw_indexes = [interp.evaluate(arg) for arg in add_args[2:]] or [None]
+            box = _counter_box(name)
+            for raw in raw_indexes:
+                slot = _counter_index(box, name, raw)
+                box["values"][slot] = box["values"][slot] + inc
+            _sync_counter(name)
+            return 0
+        if len(args) < 2:
+            raise Exception("skyhop.counter.update(name, value) or skyhop.counter.update(math.add(name, increment, indexes...))")
+        name = _bare_name(args[0])
+        value = _as_number(interp.evaluate(args[1]), "counter value")
+        index = interp.evaluate(args[2]) if len(args) > 2 else None
+        box = _counter_box(name)
+        box["values"][_counter_index(box, name, index)] = value
+        _sync_counter(name)
+        return 0
+    raise Exception("Unknown skyhop." + str(method))
+
+
 def _get(key):
-    value = _state.get(str(key), 0)
+    key = str(key)
+    if key in ("is_affect_by_toggle", "default_toggle_state"):
+        return _AttrRef(key)
+    if key == "jump_limit":
+        if key in _overrides:
+            return _NumAttr(key, _overrides[key])
+        return _NumAttr(key, _state.get(key, -1))
+    value = _state.get(key, 0)
     if isinstance(value, bool):
         return 1 if value else 0
     return value
@@ -88,6 +221,21 @@ def _tag(x, y, sid):
 
 def _rotate(sid, deg):
     _commands.append(["rotate", sid, deg])
+    return 0
+
+
+def _move(dx, dy, sid):
+    _commands.append(["move", dx, dy, sid])
+    return 0
+
+
+def _color(hex_color, sid):
+    _commands.append(["color", hex_color, sid])
+    return 0
+
+
+def _toggle(sid):
+    _commands.append(["toggle", sid])
     return 0
 
 
@@ -112,7 +260,7 @@ class SandboxSession:
             interp.library.pop(name, None)
         self.interp = interp
         self._install_import_gate()
-        self.nodes = spl["Parser"](spl["tokenize"](code)).parse()
+        self.nodes = spl["Parser"](spl["tokenize"](_rewrite_counter_calls(code))).parse()
         self.ip = 0
         self.done = False
         self.error = None
@@ -137,9 +285,33 @@ class SandboxSession:
                     "get": _get,
                     "tag": _tag,
                     "rotate": _rotate,
+                    "move": _move,
+                    "change_color": _color,
+                    "toggle": _toggle,
                     "random": _skyhop_random,
                 }
                 return None
+            if isinstance(node, spl["MethodCallNode"]) and node.method == "setVar":
+                name = node.obj
+                new_val = interp.evaluate(node.arg[0]) if node.arg else None
+                old = None
+                try:
+                    old = interp._scope_get(name, getattr(node, "line", 0))
+                except Exception:
+                    old = None
+                if isinstance(old, _AttrRef):
+                    written = new_val.value if isinstance(new_val, _NumAttr) else new_val
+                    if old.name == "jump_limit":
+                        _overrides["jump_limit"] = written
+                    _commands.append(["attr", old.name, written])
+                interp._scope_assign(name, new_val)
+                return None
+            if (
+                isinstance(node, spl["MethodCallNode"])
+                and node.obj == "skyhop"
+                and node.method in ("counter", "counterUpdate", "counterRead")
+            ):
+                return _counter_call(interp, node)
             if isinstance(node, (spl["MethodCallNode"], spl["BlockNode"])) and node.obj in BLOCKED:
                 raise Exception(node.obj + "." + node.method + " is blocked in the SkyHop sandbox")
             return original(node, as_statement)
@@ -191,8 +363,10 @@ class SandboxSession:
 
 
 def skyhop_open(code):
-    global _session, _commands
+    global _session, _commands, _counters, _overrides
     _commands = []
+    _counters = {}
+    _overrides = {}
     try:
         _session = SandboxSession(str(code))
     except Exception as exc:

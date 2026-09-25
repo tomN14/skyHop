@@ -4,6 +4,12 @@
       return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     },
 
+    /** False when a toggle has removed the object. Invisible objects stay solid. */
+    isPresent(obj) {
+      if (!obj || !obj.affectByToggle) return true;
+      return !obj.toggleOff;
+    },
+
     circleRectOverlap(cx, cy, r, rx, ry, rw, rh) {
       const nx = Math.max(rx, Math.min(cx, rx + rw));
       const ny = Math.max(ry, Math.min(cy, ry + rh));
@@ -18,15 +24,6 @@
       const off = Math.sin(tSec * m.omega + (m.phase || 0)) * m.amp;
       if (m.axis === 'y') return { x: p.x, y: p.y + off, w: p.w, h: p.h };
       return { x: p.x + off, y: p.y, w: p.w, h: p.h };
-    },
-
-    moverAxisVelocity(p, tSec) {
-      const m = p.move;
-      if (!m) return { vx: 0, vy: 0 };
-      const phase = tSec * m.omega + (m.phase || 0);
-      const v = Math.cos(phase) * m.omega * m.amp;
-      if (m.axis === 'y') return { vx: 0, vy: v };
-      return { vx: v, vy: 0 };
     },
 
     rectsMatch(a, b) {
@@ -60,10 +57,10 @@
       const skip = [];
       const list = [];
       for (const p of stage.platforms || []) {
-        if (p.move && p.move.axis === 'y') list.push(p);
+        if (P.isPresent(p) && p.move && p.move.axis === 'y') list.push(p);
       }
       for (const p of stage.movingPlatforms || []) {
-        if (p.move && p.move.axis === 'y') list.push(p);
+        if (P.isPresent(p) && p.move && p.move.axis === 'y') list.push(p);
       }
       for (const p of list) {
         const r = P.resolveMovingRect(p, tSec);
@@ -76,11 +73,13 @@
     buildSolidRects(stage, tSec) {
       const out = [];
       for (const p of stage.platforms || []) {
+        if (!P.isPresent(p)) continue;
         out.push(P.resolveMovingRect(p, tSec));
       }
       const mp = stage.movingPlatforms;
       if (mp) {
         for (const p of mp) {
+          if (!P.isPresent(p)) continue;
           out.push(P.resolveMovingRect(p, tSec));
         }
       }
@@ -91,13 +90,13 @@
     buildBossSolidRects(stage, tSec) {
       const out = [];
       for (const p of stage.platforms || []) {
-        if (p.bossPassThrough) continue;
+        if (!P.isPresent(p) || p.bossPassThrough) continue;
         out.push(P.resolveMovingRect(p, tSec));
       }
       const mp = stage.movingPlatforms;
       if (mp) {
         for (const p of mp) {
-          if (p.bossPassThrough) continue;
+          if (!P.isPresent(p) || p.bossPassThrough) continue;
           out.push(P.resolveMovingRect(p, tSec));
         }
       }
@@ -108,13 +107,13 @@
     buildWallJumpRects(stage, tSec) {
       const out = [];
       for (const p of stage.platforms) {
-        if (p.noWallJump) continue;
+        if (!P.isPresent(p) || p.noWallJump) continue;
         out.push(P.resolveMovingRect(p, tSec));
       }
       const mp = stage.movingPlatforms;
       if (mp) {
         for (const p of mp) {
-          if (p.noWallJump) continue;
+          if (!P.isPresent(p) || p.noWallJump) continue;
           out.push(P.resolveMovingRect(p, tSec));
         }
       }
@@ -153,10 +152,10 @@
       const midx = playerX + pw / 2;
       const list = [];
       for (const p of stage.platforms) {
-        if (p.move) list.push(p);
+        if (p.move && P.isPresent(p)) list.push(p);
       }
       for (const p of stage.movingPlatforms || []) {
-        list.push(p);
+        if (P.isPresent(p)) list.push(p);
       }
       for (const p of list) {
         const r0 = P.resolveMovingRect(p, t0);
@@ -196,7 +195,7 @@
       const ph = player.h;
       const edge = 2;
       const tryRider = (p) => {
-        if (!p.move || p.move.axis !== 'y') return false;
+        if (!P.isPresent(p) || !p.move || p.move.axis !== 'y') return false;
         const r1 = P.resolveMovingRect(p, tSec);
         if (!P.isRidingTopOfYMoverRect(player, r1, 14, 16, 8)) return false;
         player.y = r1.y - ph - 0.01;
@@ -206,10 +205,7 @@
           if (player.x < xMin) player.x = xMin;
           else if (player.x > xMax) player.x = xMax;
         }
-        if (player.vy * gDir >= -8) {
-          const mv = P.moverAxisVelocity(p, tSec);
-          if (mv.vy !== 0) player.vy = mv.vy;
-        }
+        if (player.vy * gDir >= -8) player.vy = 0;
         player.onGround = true;
         return true;
       };

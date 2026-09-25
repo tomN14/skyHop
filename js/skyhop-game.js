@@ -863,6 +863,7 @@
       const already = claimed && claimed.has(i);
       stageCoinStates.push({
         i,
+        src: c,
         x: Number(c.x),
         y: Number(c.y),
         r: Number.isFinite(Number(c.r)) && Number(c.r) > 0 ? Number(c.r) : 14,
@@ -882,7 +883,10 @@
     const pr = Math.max(player.w, player.h) * 0.35;
     for (const c of stageCoinStates) {
       if (c.collected || c.dim) continue;
-      if (Math.hypot(px - c.x, py - c.y) < pr + c.r) {
+      if (c.src && !objectLive(c.src)) continue;
+      const cx = c.src ? Number(c.src.x) : c.x;
+      const cy = c.src ? Number(c.src.y) : c.y;
+      if (Math.hypot(px - cx, py - cy) < pr + c.r) {
         c.collected = true;
         campaignCoinsThisRun += 1;
         if (ext && ext.levelUuid && ext.mode === 'play' && typeof ext.onCoinCollected === 'function') {
@@ -897,6 +901,9 @@
   let jumpLimit = -1;
   let jumpsUsed = 0;
   let jumpEdge = 0;
+  let doubleJumpEdge = 0;
+  let collisionSid = 0;
+  let collisionWas = Object.create(null);
   let splSession = null;
   let splReal = null;
   let splGen = 0;
@@ -942,10 +949,17 @@
 
   function beginStageRules(stage) {
     restoreStageForAttempt(stage);
+    if (window.SkyHopSpl && window.SkyHopSpl.applyToggleDefaults) {
+      window.SkyHopSpl.applyToggleDefaults(stage);
+    }
+    if (window.SkyHopSpl && window.SkyHopSpl.clearCounters) {
+      window.SkyHopSpl.clearCounters(stage);
+    }
     stageTimeLeft = readLimit(stage.stage_time_limit, false);
     jumpLimit = readLimit(stage.jump_limit, true);
     jumpsUsed = 0;
-    jumpEdge = 0;
+    clearScriptPulses();
+    collisionWas = Object.create(null);
     hideSplError();
     splSession = null;
     splReal = null;
@@ -993,7 +1007,45 @@
       stage_time_left: splGet(stage, 'stage_time_left'),
       jumps_remaining: splGet(stage, 'jumps_remaining'),
       is_player_jumping: splGet(stage, 'is_player_jumping'),
+      is_double_jump: splGet(stage, 'is_double_jump'),
+      is_collision: splGet(stage, 'is_collision'),
     };
+  }
+
+  function clearScriptPulses() {
+    jumpEdge = 0;
+    doubleJumpEdge = 0;
+    collisionSid = 0;
+  }
+
+  function setJumpLimitFromScript(value) {
+    jumpLimit = readLimit(value, true);
+  }
+
+  function noteCollision(stage, tSec) {
+    const spl = window.SkyHopSpl;
+    if (!spl || !spl.scriptContacts) {
+      collisionSid = 0;
+      return;
+    }
+    const ids = spl.scriptContacts(
+      stage,
+      { x: player.x, y: player.y, w: player.w, h: player.h },
+      function (_kind, obj) {
+        return PHY.resolveMovingRect ? PHY.resolveMovingRect(obj, tSec) : null;
+      }
+    );
+    let fresh = 0;
+    for (let i = 0; i < ids.length; i++) {
+      if (!collisionWas[ids[i]]) {
+        fresh = ids[i];
+        break;
+      }
+    }
+    if (fresh) collisionSid = fresh;
+    const next = Object.create(null);
+    for (let i = 0; i < ids.length; i++) next[ids[i]] = 1;
+    collisionWas = next;
   }
 
   function applySplCommands(stage, commands) {
@@ -1004,7 +1056,19 @@
       if (!cmd || !cmd.length) continue;
       if (cmd[0] === 'tag') spl.tagObject(stage, cmd[1], cmd[2], cmd[3]);
       else if (cmd[0] === 'rotate') spl.rotateObject(stage, cmd[1], cmd[2]);
+      else if (cmd[0] === 'move') spl.moveObjects(stage, cmd[1], cmd[2], cmd[3]);
+      else if (cmd[0] === 'color') spl.colorObjects(stage, cmd[1], cmd[2]);
+      else if (cmd[0] === 'toggle') spl.toggleObjects(stage, cmd[1]);
+      else if (cmd[0] === 'counter') spl.counterCreate(stage, cmd[1], cmd[2], cmd[3], cmd[4]);
+      else if (cmd[0] === 'attr' && cmd[1] === 'jump_limit') setJumpLimitFromScript(cmd[2]);
+      else if (cmd[0] === 'attr') spl.setToggleAttr(stage, cmd[1], cmd[2]);
     }
+  }
+
+  function objectLive(obj) {
+    if (!obj) return false;
+    if (!PHY.isPresent) return true;
+    return PHY.isPresent(obj);
   }
 
   function splGet(stage, key) {
@@ -1016,6 +1080,8 @@
       return Math.max(0, jumpLimit - jumpsUsed);
     }
     if (key === 'is_player_jumping') return jumpEdge ? 1 : 0;
+    if (key === 'is_double_jump') return doubleJumpEdge ? 1 : 0;
+    if (key === 'is_collision') return collisionSid || 0;
     return 0;
   }
 
@@ -1038,10 +1104,10 @@
           splReal.done = true;
           showSplError(String((err && err.message) || err));
         }
-        jumpEdge = 0;
+        clearScriptPulses();
         return;
       } else {
-        jumpEdge = 0;
+        clearScriptPulses();
         return;
       }
     }
@@ -1056,6 +1122,34 @@
         rotate: function (sid, deg) {
           window.SkyHopSpl.rotateObject(stage, sid, deg);
         },
+        move: function (dx, dy, sid) {
+          window.SkyHopSpl.moveObjects(stage, dx, dy, sid);
+        },
+        color: function (hex, sid) {
+          window.SkyHopSpl.colorObjects(stage, hex, sid);
+        },
+        toggle: function (sid) {
+          window.SkyHopSpl.toggleObjects(stage, sid);
+        },
+        attr: function (name, value) {
+          if (name === 'jump_limit') {
+            setJumpLimitFromScript(value);
+            return;
+          }
+          window.SkyHopSpl.setToggleAttr(stage, name, value);
+        },
+        counter: function (name, x, y, values) {
+          window.SkyHopSpl.counterCreate(stage, name, x, y, values);
+        },
+        counterAdd: function (name, inc, indexes) {
+          window.SkyHopSpl.counterAdd(stage, name, inc, indexes);
+        },
+        counterSet: function (name, value, index) {
+          window.SkyHopSpl.counterSet(stage, name, value, index);
+        },
+        counterRead: function (name, index) {
+          return window.SkyHopSpl.counterRead(stage, name, index);
+        },
       });
       if (splSession.error && !splSession.errorShown) {
         splSession.errorShown = true;
@@ -1063,7 +1157,7 @@
         console.error('SkyHop SPL', splSession.error);
       }
     }
-    jumpEdge = 0;
+    clearScriptPulses();
   }
 
   function spendJump() {
@@ -1291,7 +1385,7 @@
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       const st = blackoutStates[i];
-      if (!b || !st) continue;
+      if (!b || !st || !objectLive(b)) continue;
       if (b.onTouch) {
         const inside = PHY.rectsOverlap(body, b);
         if (!st.armed && inside && !st.wasInside) {
@@ -1310,7 +1404,7 @@
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
       const st = blackoutStates[i];
-      if (!b || !st || !st.armed) continue;
+      if (!b || !st || !st.armed || !objectLive(b)) continue;
       const after = Number(b.afterSec);
       const dur = Number(b.blackSec);
       const delay = Number.isFinite(after) ? after : 0;
@@ -1441,6 +1535,10 @@
     const switches = stage.switches || [];
     for (let i = 0; i < switches.length; i++) {
       const sw = switches[i];
+      if (!objectLive(sw)) {
+        switchWasInside[i] = false;
+        continue;
+      }
       const inside = PHY.rectsOverlap(body, sw);
       if (inside && !switchWasInside[i]) activateSwitch(stage, sw, now);
       switchWasInside[i] = inside;
@@ -1449,6 +1547,10 @@
     const portals = stage.portals || [];
     for (let i = 0; i < portals.length; i++) {
       const p = portals[i];
+      if (!objectLive(p)) {
+        portalWasInside[i] = false;
+        continue;
+      }
       const inside = PHY.rectsOverlap(body, p);
       if (inside && !portalWasInside[i]) {
         const dest = portalDestWorld(p);
@@ -1887,11 +1989,13 @@
     if (performance.now() < player.hazardIFrameUntil) return false;
     const body = { x: player.x, y: player.y, w: player.w, h: player.h };
     for (const sp of stage.spikes || []) {
+      if (!objectLive(sp)) continue;
       if (PHY.rectsOverlap(body, spikeLethalRect(sp))) return true;
     }
     const ms = stage.movingSpikes;
     if (ms) {
       for (const sp of ms) {
+        if (!objectLive(sp)) continue;
         const r = resolveSpikeRect(sp, tSec);
         if (PHY.rectsOverlap(body, spikeLethalRect({ x: r.x, y: r.y, w: r.w, h: r.h, rot: sp.rot }))) return true;
       }
@@ -1914,6 +2018,7 @@
     if (!lava || !lava.length) return false;
     const body = { x: player.x, y: player.y, w: player.w, h: player.h };
     for (const Lv of lava) {
+      if (!objectLive(Lv)) continue;
       if (PHY.rectsOverlap(body, Lv)) return true;
     }
     return false;
@@ -1927,7 +2032,7 @@
     const h = stage.worldH;
     const R = C.FIREBALL_RADIUS;
     for (const e of emitters) {
-      if (Math.random() < 0.28) continue;
+      if (!objectLive(e) || Math.random() < 0.28) continue;
       const speed =
         e.speed * (0.68 + Math.random() * 0.58) * projectileSpeedScale();
       const jitter = e.jitter != null ? e.jitter : 44;
@@ -2541,7 +2646,7 @@
   }
 
   function goalReached(stage) {
-    if (stage.bossStage) return false;
+    if (stage.bossStage || !objectLive(stage.goal)) return false;
     return PHY.rectsOverlap(
       { x: player.x, y: player.y, w: player.w, h: player.h },
       stage.goal
@@ -2923,12 +3028,12 @@
   function buildEpicPotionDropLandRects(stage, tSec) {
     const out = [];
     for (const p of stage.platforms || []) {
-      if (!p.bossPassThrough) continue;
+      if (!objectLive(p) || !p.bossPassThrough) continue;
       out.push(PHY.resolveMovingRect(p, tSec));
     }
     if (stage.movingPlatforms) {
       for (const p of stage.movingPlatforms) {
-        if (!p.bossPassThrough) continue;
+        if (!objectLive(p) || !p.bossPassThrough) continue;
         out.push(PHY.resolveMovingRect(p, tSec));
       }
     }
@@ -3114,44 +3219,24 @@
     let yIter = 0;
     while (hitY && yIter < 28) {
       yIter++;
+      const penB = player.y + player.h - hitY.y;
+      const penA = hitY.y + hitY.h - player.y;
+      if (penB <= 0 || penA <= 0) break;
+      const fromTop = penB <= penA;
       if (gravityDir > 0) {
-        if (player.vy > 0) {
+        if (player.vy > 0 || fromTop) {
           player.y = hitY.y - player.h - 0.01;
           player.onGround = true;
           player.coyoteUntil = now + C.COYOTE_MS;
-        } else if (player.vy < 0) {
-          player.y = hitY.y + hitY.h + 0.01;
         } else {
-          const penB = player.y + player.h - hitY.y;
-          const penA = hitY.y + hitY.h - player.y;
-          if (penB <= 0 || penA <= 0) break;
-          if (penB <= penA) {
-            player.y = hitY.y - player.h - 0.01;
-            player.onGround = true;
-            player.coyoteUntil = now + C.COYOTE_MS;
-          } else {
-            player.y = hitY.y + hitY.h + 0.01;
-          }
+          player.y = hitY.y + hitY.h + 0.01;
         }
+      } else if (player.vy < 0 || !fromTop) {
+        player.y = hitY.y + hitY.h + 0.01;
+        player.onGround = true;
+        player.coyoteUntil = now + C.COYOTE_MS;
       } else {
-        if (player.vy < 0) {
-          player.y = hitY.y + hitY.h + 0.01;
-          player.onGround = true;
-          player.coyoteUntil = now + C.COYOTE_MS;
-        } else if (player.vy > 0) {
-          player.y = hitY.y - player.h - 0.01;
-        } else {
-          const penB = player.y + player.h - hitY.y;
-          const penA = hitY.y + hitY.h - player.y;
-          if (penB <= 0 || penA <= 0) break;
-          if (penB <= penA) {
-            player.y = hitY.y - player.h - 0.01;
-          } else {
-            player.y = hitY.y + hitY.h + 0.01;
-            player.onGround = true;
-            player.coyoteUntil = now + C.COYOTE_MS;
-          }
-        }
+        player.y = hitY.y - player.h - 0.01;
       }
       player.vy = 0;
       hitY = PHY.solidCollide(solidRects, player.x, player.y, player.w, player.h);
@@ -3167,6 +3252,7 @@
       const cy = player.y + player.h / 2;
       for (let i = 0; i < arrows.length; i++) {
         const a = arrows[i];
+        if (!objectLive(a)) continue;
         const inside = cx >= a.x && cx <= a.x + a.w && cy >= a.y && cy <= a.y + a.h;
         if (inside && !gravityArrowWasInside[i]) gravityDir = a.targetDir >= 0 ? 1 : -1;
         gravityArrowWasInside[i] = inside;
@@ -3208,6 +3294,7 @@
         player.airJumpsUsed++;
         lastJumpPress = -9999;
         handledMidairJump = true;
+        doubleJumpEdge = 1;
         player.noMoverSnapUntil = now + 100;
       }
     }
@@ -3530,6 +3617,7 @@
       }
     }
 
+    noteCollision(stage, tSec);
     smoothMpRemotePeers(dt);
     updateCamera(stage, dt);
   }
@@ -3608,7 +3696,7 @@
     const lava = stage.lava;
     if (lava) {
       for (const Lv of lava) {
-        if (Lv.invisible) continue;
+        if (!objectLive(Lv) || Lv.invisible) continue;
         const top = objectDrawColor(Lv, '#f97316');
         const g = ctx.createLinearGradient(Lv.x, Lv.y, Lv.x, Lv.y + Lv.h);
         g.addColorStop(0, top);
@@ -3675,11 +3763,13 @@
     }
 
     for (const p of stage.platforms || []) {
+      if (!objectLive(p)) continue;
       drawPlatformRect(PHY.resolveMovingRect(p, tSec), p);
     }
     const mp = stage.movingPlatforms;
     if (mp) {
       for (const p of mp) {
+        if (!objectLive(p)) continue;
         drawPlatformRect(PHY.resolveMovingRect(p, tSec), p);
       }
     }
@@ -3726,10 +3816,12 @@
     }
 
     for (const s of stage.spikes || []) {
+      if (!objectLive(s)) continue;
       drawSpikeShape(s, s);
     }
     if (stage.movingSpikes) {
       for (const s of stage.movingSpikes) {
+        if (!objectLive(s)) continue;
         drawSpikeShape(PHY.resolveMovingRect(s, tSec), s);
       }
     }
@@ -3760,7 +3852,7 @@
 
     if (stage.gravityArrows) {
       for (const a of stage.gravityArrows) {
-        if (a.invisible) continue;
+        if (!objectLive(a) || a.invisible) continue;
         const gc = objectDrawColor(a, '#fbbf24');
         ctx.fillStyle = hexToRgba(gc, 0.35) || 'rgba(251, 191, 36, 0.35)';
         ctx.fillRect(a.x, a.y, a.w, a.h);
@@ -3787,7 +3879,7 @@
 
     if (stage.switches) {
       for (const sw of stage.switches) {
-        if (sw.invisible) continue;
+        if (!objectLive(sw) || sw.invisible) continue;
         const sc = objectDrawColor(sw, '#65a30d');
         ctx.fillStyle = shadeHex(sc, -0.25);
         ctx.fillRect(sw.x, sw.y, sw.w, sw.h);
@@ -3801,7 +3893,7 @@
 
     if (stage.portals) {
       for (const p of stage.portals) {
-        if (p.invisible) continue;
+        if (!objectLive(p) || p.invisible) continue;
         const pc = objectDrawColor(p, '#059669');
         const cx = p.x + p.w / 2;
         const cy = p.y + p.h / 2;
@@ -3825,7 +3917,7 @@
 
     if (stage.blackouts) {
       for (const b of stage.blackouts) {
-        if (!b.onTouch || b.invisible) continue;
+        if (!objectLive(b) || !b.onTouch || b.invisible) continue;
         const bc = objectDrawColor(b, '#111827');
         ctx.fillStyle = hexToRgba(bc, 0.72) || 'rgba(15, 23, 42, 0.72)';
         ctx.fillRect(b.x, b.y, b.w, b.h);
@@ -4012,10 +4104,14 @@
 
     for (const c of stageCoinStates) {
       if (c.collected) continue;
+      if (c.src && !objectLive(c.src)) continue;
       const dim = c.dim;
+      const coinX = c.src ? Number(c.src.x) : c.x;
+      const coinY = c.src ? Number(c.src.y) : c.y;
+      const coinSrc = c.src || c;
       ctx.beginPath();
-      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-      const coinCol = objectDrawColor(c, '#fbbf24');
+      ctx.arc(coinX, coinY, c.r, 0, Math.PI * 2);
+      const coinCol = objectDrawColor(coinSrc, '#fbbf24');
       ctx.fillStyle = dim ? 'rgba(100,116,139,0.45)' : coinCol;
       ctx.fill();
       ctx.strokeStyle = dim ? 'rgba(148,163,184,0.5)' : shadeHex(coinCol, -0.2);
@@ -4025,15 +4121,15 @@
         ctx.strokeStyle = 'rgba(148,163,184,0.85)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(c.x - c.r * 0.5, c.y - c.r * 0.5);
-        ctx.lineTo(c.x + c.r * 0.5, c.y + c.r * 0.5);
+        ctx.moveTo(coinX - c.r * 0.5, coinY - c.r * 0.5);
+        ctx.lineTo(coinX + c.r * 0.5, coinY + c.r * 0.5);
         ctx.stroke();
       }
     }
 
     if (!stage.bossStage) {
       const g = stage.goal;
-      if (g && !g.invisible) {
+      if (g && objectLive(g) && !g.invisible) {
         const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
         const gc = objectDrawColor(g, '#34d399');
         ctx.fillStyle = hexToRgba(gc, 0.35 + 0.25 * pulse) || `rgba(52, 211, 153, ${0.35 + 0.25 * pulse})`;
@@ -4255,6 +4351,47 @@
       }
     }
 
+    drawSplCounters(stage);
+    ctx.restore();
+  }
+
+  function formatCounterValue(n) {
+    const value = Number(n);
+    if (!Number.isFinite(value)) return '0';
+    if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+    return String(Math.round(value * 1000) / 1000);
+  }
+
+  function drawSplCounters(stage) {
+    const map = window.SkyHopSpl && window.SkyHopSpl.countersOf ? window.SkyHopSpl.countersOf(stage) : null;
+    if (!map) return;
+    const names = Object.keys(map);
+    if (!names.length) return;
+    ctx.save();
+    ctx.textBaseline = 'top';
+    for (let i = 0; i < names.length; i++) {
+      const box = map[names[i]];
+      const label = names[i];
+      const text = (box.values || []).map(formatCounterValue).join('   ') || '0';
+      ctx.font = '600 12px ui-monospace, monospace';
+      const labelW = ctx.measureText(label).width;
+      ctx.font = '700 20px ui-monospace, monospace';
+      const valueW = ctx.measureText(text).width;
+      const w = Math.max(labelW, valueW) + 16;
+      const x = Number(box.x) || 0;
+      const y = Number(box.y) || 0;
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+      ctx.fillRect(x, y, w, 46);
+      ctx.strokeStyle = 'rgba(232, 121, 249, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, w - 2, 44);
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.95)';
+      ctx.font = '600 12px ui-monospace, monospace';
+      ctx.fillText(label, x + 8, y + 4);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = '700 20px ui-monospace, monospace';
+      ctx.fillText(text, x + 8, y + 20);
+    }
     ctx.restore();
   }
 
