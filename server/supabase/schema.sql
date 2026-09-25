@@ -55,6 +55,7 @@ create table if not exists public.skyhop_user_levels (
   beaten_verified boolean not null default false,
   published boolean not null default false,
   awarded boolean not null default false,
+  award_paid boolean not null default false,
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
 );
 
@@ -63,6 +64,7 @@ create index if not exists skyhop_levels_title_lower_idx on public.skyhop_user_l
 create index if not exists skyhop_levels_published_play_idx on public.skyhop_user_levels (published, play_count desc);
 
 alter table public.skyhop_user_levels add column if not exists awarded boolean not null default false;
+alter table public.skyhop_user_levels add column if not exists award_paid boolean not null default false;
 
 create table if not exists public.skyhop_awarded_clears (
   user_id bigint not null references public.skyhop_users (id) on delete cascade,

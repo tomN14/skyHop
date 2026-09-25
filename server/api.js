@@ -4267,6 +4267,28 @@ export async function handleApi(req, res) {
   }
 
   {
+    const m = /^\/api\/levels\/([^/]+)\/unaward$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess || effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Only the owner can remove an awarded level.' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      try {
+        const out = await UserLevels.levelsUnaward(m[1]);
+        json(res, 200, out);
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
     const m = /^\/api\/levels\/([^/]+)\/clear-reward$/.exec(pathname);
     if (m && req.method === 'POST') {
       const uid = await bearerUserId(req);

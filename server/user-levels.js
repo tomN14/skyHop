@@ -556,20 +556,22 @@ export async function levelsAward(levelId) {
     const sb = sbClient();
     const { data: row, error: readErr } = await sb
       .from('skyhop_user_levels')
-      .select('id, author_id, published, awarded')
+      .select('id, author_id, published, awarded, award_paid')
       .eq('id', levelId)
       .maybeSingle();
     if (readErr) throw new Error(readErr.message);
     if (!row || !row.published) throw new Error('Published level not found');
     if (row.awarded) return { already: true, coins: 0 };
+    const pay = !row.award_paid;
     const { data: updated, error } = await sb
       .from('skyhop_user_levels')
-      .update({ awarded: true })
+      .update({ awarded: true, award_paid: true })
       .eq('id', levelId)
       .eq('awarded', false)
       .select('author_id');
     if (error) throw new Error(error.message);
     if (!updated || !updated.length) return { already: true, coins: 0 };
+    if (!pay) return { already: false, coins: 0 };
     const { store } = await import('./store.js');
     await store.incrementUserCoins(updated[0].author_id, CREATOR_AWARD_COINS);
     return { already: false, coins: CREATOR_AWARD_COINS };
@@ -578,11 +580,43 @@ export async function levelsAward(levelId) {
   const row = db.levels.find((L) => L.id === levelId);
   if (!row || !row.published) throw new Error('Published level not found');
   if (row.awarded) return { already: true, coins: 0 };
+  const pay = !row.award_paid;
   row.awarded = true;
+  row.award_paid = true;
   fileSave(db);
+  if (!pay) return { already: false, coins: 0 };
   const { store } = await import('./store.js');
   await store.incrementUserCoins(row.author_id, CREATOR_AWARD_COINS);
   return { already: false, coins: CREATOR_AWARD_COINS };
+}
+
+export async function levelsUnaward(levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: readErr } = await sb
+      .from('skyhop_user_levels')
+      .select('id, awarded')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!row) throw new Error('Level not found');
+    if (!row.awarded) return { removed: false };
+    const { data: updated, error } = await sb
+      .from('skyhop_user_levels')
+      .update({ awarded: false })
+      .eq('id', levelId)
+      .eq('awarded', true)
+      .select('id');
+    if (error) throw new Error(error.message);
+    return { removed: !!(updated && updated.length) };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((L) => L.id === levelId);
+  if (!row) throw new Error('Level not found');
+  if (!row.awarded) return { removed: false };
+  row.awarded = false;
+  fileSave(db);
+  return { removed: true };
 }
 
 export async function levelsListAwarded(page) {

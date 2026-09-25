@@ -2420,7 +2420,7 @@
               author: items[i].author_username || '—',
               authorRole: items[i].author_role || 'player',
               awarded: true,
-              canAward: false,
+              canAward: onlineIsOwner,
               returnTo: 'awarded',
             })
           );
@@ -3471,7 +3471,9 @@
     const awardBtn =
       extra.canAward && !extra.awarded
         ? '<button type="button" class="lvl-award rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">Award</button>'
-        : '';
+        : extra.canAward && extra.awarded
+          ? '<button type="button" class="lvl-unaward rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">Remove</button>'
+          : '';
     li.innerHTML =
       titleHtml +
       '<div class="mt-1 font-mono text-[10px] text-slate-500">' +
@@ -3496,6 +3498,21 @@
           })
           .catch(function (err) {
             award.disabled = false;
+            alert(String(err.message || err));
+          });
+      });
+    }
+    const unaward = li.querySelector('.lvl-unaward');
+    if (unaward) {
+      unaward.addEventListener('click', () => {
+        unaward.disabled = true;
+        api('/api/levels/' + encodeURIComponent(id) + '/unaward', { method: 'POST', body: '{}' })
+          .then(function () {
+            if (extra.returnTo === 'awarded') fetchAwardedList();
+            else fetchOnlineList();
+          })
+          .catch(function (err) {
+            unaward.disabled = false;
             alert(String(err.message || err));
           });
       });
@@ -3635,7 +3652,10 @@
       awardedBtn.addEventListener('click', () => {
         showAwarded(true);
         awardedPage = 1;
-        void fetchAwardedList();
+        const ready = refreshOnlineOwner();
+        Promise.resolve(ready).then(function () {
+          fetchAwardedList();
+        });
       });
     }
     if (awardedBack) awardedBack.addEventListener('click', () => showAwarded(false));
