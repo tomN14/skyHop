@@ -4652,7 +4652,19 @@
         ctx.arcTo(px, py, px + pw, py, r);
         ctx.closePath();
         ctx.clip();
-        ctx.drawImage(skinImg, px, py, pw, ph);
+        if (facing < 0) {
+          ctx.translate(px + pw, py);
+          ctx.scale(-1, 1);
+          ctx.drawImage(skinImg, 0, 0, pw, ph);
+        } else {
+          ctx.drawImage(skinImg, px, py, pw, ph);
+        }
+        ctx.restore();
+      } else if (facing < 0) {
+        ctx.save();
+        ctx.translate(dx + dw, dy);
+        ctx.scale(-1, 1);
+        ctx.drawImage(skinImg, 0, 0, dw, dh);
         ctx.restore();
       } else {
         ctx.drawImage(skinImg, dx, dy, dw, dh);
