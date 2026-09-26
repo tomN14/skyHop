@@ -67,6 +67,8 @@
       ['spike', 'spikes'],
       ['lava', 'lava'],
       ['coin', 'coins'],
+      ['number', 'numbers'],
+      ['text', 'texts'],
       ['gravity', 'gravityArrows'],
       ['portal', 'portals'],
       ['switch', 'switches'],

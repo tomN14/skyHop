@@ -781,6 +781,7 @@
   }
   let campaignCoinsThisRun = 0;
   let stageCoinStates = [];
+  let stageNumberStates = [];
   let pbAntiFarm = null;
   let pbAttestSeq = 0;
   let pbLastCheckpointActiveMs = 0;
@@ -904,6 +905,42 @@
           ext.onCoinCollected(c.i);
         }
       }
+    }
+  }
+
+  function symbolSize(value, fallback, min, max) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function numberPickupRadius(obj) {
+    return Math.max(10, symbolSize(obj && obj.size, 48, 12, 400) * 0.55);
+  }
+
+  function initStageNumbers(stage) {
+    stageNumberStates = [];
+    const list = stage && stage.numbers;
+    if (!list || !list.length) return;
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (!n) continue;
+      stageNumberStates.push({ i: i, src: n, collected: false });
+    }
+  }
+
+  function tryCollectStageNumbers() {
+    if (!stageNumberStates.length) return;
+    const px = player.x + player.w / 2;
+    const py = player.y + player.h / 2;
+    const pr = Math.max(player.w, player.h) * 0.35;
+    for (const n of stageNumberStates) {
+      if (n.collected) continue;
+      if (n.src && !objectLive(n.src)) continue;
+      const src = n.src;
+      const cx = src ? Number(src.x) : 0;
+      const cy = src ? Number(src.y) : 0;
+      if (Math.hypot(px - cx, py - cy) < pr + numberPickupRadius(src)) n.collected = true;
     }
   }
 
@@ -2673,6 +2710,7 @@
       pbAntiFarm.lastPy = player.y;
     }
     initStageCoins(s);
+    initStageNumbers(s);
     initBlackouts(s);
     syncHudHint(i);
     syncWeaponHud(performance.now());
@@ -3689,6 +3727,7 @@
 
     pbStep(dt);
     tryCollectStageCoins();
+    tryCollectStageNumbers();
 
     if (tryCollectItemPickups()) return;
 
@@ -4408,6 +4447,33 @@
       ctx.restore();
     }
 
+    const texts = stage.texts;
+    if (texts) {
+      for (let ti = 0; ti < texts.length; ti++) {
+        const box = texts[ti];
+        if (!box || !objectLive(box) || box.invisible) continue;
+        const bw = Math.max(8, Number(box.w) || 160);
+        const bh = Math.max(8, Number(box.h) || 48);
+        const fontPx = symbolSize(box.size, 22, 10, 160);
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+        ctx.fillRect(box.x, box.y, bw, bh);
+        const label = objectDrawColor(box, '#f8fafc');
+        ctx.strokeStyle = label;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, bh - 1);
+        ctx.beginPath();
+        ctx.rect(box.x + 6, box.y + 4, Math.max(0, bw - 12), Math.max(0, bh - 8));
+        ctx.clip();
+        ctx.fillStyle = label;
+        ctx.font = `600 ${fontPx}px "Space Grotesk", system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(box.text || ''), box.x + bw / 2, box.y + bh / 2);
+        ctx.restore();
+      }
+    }
+
     for (const c of stageCoinStates) {
       if (c.collected) continue;
       if (c.src && !objectLive(c.src)) continue;
@@ -4431,6 +4497,25 @@
         ctx.lineTo(coinX + c.r * 0.5, coinY + c.r * 0.5);
         ctx.stroke();
       }
+    }
+
+    for (const n of stageNumberStates) {
+      if (n.collected) continue;
+      const src = n.src;
+      if (!src || !objectLive(src) || src.invisible) continue;
+      const digit = Math.floor(Number(src.digit));
+      const glyph = digit >= 0 && digit <= 9 ? String(digit) : '1';
+      const size = symbolSize(src.size, 48, 12, 400);
+      ctx.save();
+      ctx.font = `700 ${size}px "Space Grotesk", system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = Math.max(2, size * 0.08);
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeText(glyph, Number(src.x) || 0, Number(src.y) || 0);
+      ctx.fillStyle = objectDrawColor(src, '#e0f2fe');
+      ctx.fillText(glyph, Number(src.x) || 0, Number(src.y) || 0);
+      ctx.restore();
     }
 
     if (!stage.bossStage) {
@@ -4671,11 +4756,47 @@
     ctx.restore();
   }
 
+  function counterGcd(a, b) {
+    let x = Math.abs(Math.round(a));
+    let y = Math.abs(Math.round(b));
+    while (y) {
+      const t = x % y;
+      x = y;
+      y = t;
+    }
+    return x || 1;
+  }
+
   function formatCounterValue(n) {
     const value = Number(n);
     if (!Number.isFinite(value)) return '0';
-    if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
-    return String(Math.round(value * 1000) / 1000);
+    const neg = value < 0;
+    const abs = Math.abs(value);
+    const sign = neg ? '-' : '';
+    if (Math.abs(abs - Math.round(abs)) < 1e-8) return sign + String(Math.round(abs));
+    let bestN = 0;
+    let bestD = 1;
+    let bestErr = abs;
+    for (let d = 1; d <= 20; d++) {
+      const num = Math.round(abs * d);
+      const err = Math.abs(abs - num / d);
+      if (err < bestErr) {
+        bestN = num;
+        bestD = d;
+        bestErr = err;
+      }
+    }
+    if (bestErr <= 1e-6 && bestD > 1) {
+      const g = counterGcd(bestN, bestD);
+      bestN /= g;
+      bestD /= g;
+      const whole = Math.floor(bestN / bestD);
+      const rem = bestN % bestD;
+      if (whole && rem) return sign + whole + ' ' + rem + '/' + bestD;
+      if (!rem) return sign + String(whole);
+      return sign + bestN + '/' + bestD;
+    }
+    return sign + abs.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
   }
 
   function drawSplCounters(stage) {

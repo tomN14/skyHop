@@ -73,12 +73,22 @@ const SCRIPT_GUIDE_SUPPLEMENT = `
             </ul>
           </div>`;
 
+const COUNTER_DISPLAY_NOTE = `
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Counter numbers</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li>A counter can show a negative, a decimal, or a simple fraction such as 1/2 or -3/2.</li>
+            </ul>
+          </div>`;
+
 export async function resolveScriptGuideHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('script_guide');
     if (row && typeof row.html === 'string' && row.html.trim()) {
-      if (row.html.includes('skyhop.hazard')) return row.html;
-      return row.html + SCRIPT_GUIDE_SUPPLEMENT;
+      let html = row.html;
+      if (!html.includes('skyhop.hazard')) html += SCRIPT_GUIDE_SUPPLEMENT;
+      if (!html.includes('simple fraction')) html += COUNTER_DISPLAY_NOTE;
+      return html;
     }
   }
   return defaultScriptGuideHtml();

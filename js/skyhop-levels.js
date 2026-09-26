@@ -58,6 +58,8 @@
       lava: [],
       fireballEmitters: [],
       coins: [],
+      numbers: [],
+      texts: [],
       movingPlatforms: [],
       gravityArrows: [],
       portals: [],
@@ -245,6 +247,8 @@
       { kind: 'lava', list: d.lava || [] },
       { kind: 'gravity', list: d.gravityArrows || [] },
       { kind: 'coin', list: d.coins || [] },
+      { kind: 'number', list: d.numbers || [] },
+      { kind: 'text', list: d.texts || [] },
     ];
   }
 
@@ -258,6 +262,8 @@
     if (sel.kind === 'lava') return (d.lava || [])[sel.index] || null;
     if (sel.kind === 'gravity') return (d.gravityArrows || [])[sel.index] || null;
     if (sel.kind === 'coin') return (d.coins || [])[sel.index] || null;
+    if (sel.kind === 'number') return (d.numbers || [])[sel.index] || null;
+    if (sel.kind === 'text') return (d.texts || [])[sel.index] || null;
     if (sel.kind === 'blackout') return (d.blackouts || [])[sel.index] || null;
     if (sel.kind === 'fireball') return (d.fireballEmitters || [])[sel.index] || null;
     if (sel.kind === 'goal') return d.goal || null;
@@ -284,6 +290,8 @@
     if (!raw.fireballEmitters) raw.fireballEmitters = [];
     if (!raw.platforms) raw.platforms = [];
     if (!Array.isArray(raw.coins)) raw.coins = [];
+    if (!Array.isArray(raw.numbers)) raw.numbers = [];
+    if (!Array.isArray(raw.texts)) raw.texts = [];
     if (!Array.isArray(raw.movingPlatforms)) raw.movingPlatforms = [];
     if (!Array.isArray(raw.spikes)) raw.spikes = [];
     if (!Array.isArray(raw.gravityArrows)) raw.gravityArrows = [];
@@ -336,6 +344,8 @@
     if (!Array.isArray(d.spikes)) d.spikes = [];
     if (!Array.isArray(d.fireballEmitters)) d.fireballEmitters = [];
     if (!Array.isArray(d.coins)) d.coins = [];
+    if (!Array.isArray(d.numbers)) d.numbers = [];
+    if (!Array.isArray(d.texts)) d.texts = [];
     if (!Array.isArray(d.movingPlatforms)) d.movingPlatforms = [];
     if (!Array.isArray(d.gravityArrows)) d.gravityArrows = [];
     if (!Array.isArray(d.portals)) d.portals = [];
@@ -347,6 +357,8 @@
     for (const L of d.lava || []) ensureObjId(d, L);
     for (const a of d.gravityArrows) ensureObjId(d, a);
     for (const c of d.coins || []) ensureObjId(d, c);
+    for (const n of d.numbers || []) ensureObjId(d, n);
+    for (const t of d.texts || []) ensureObjId(d, t);
     for (const p of d.portals) {
       normalizePortal(d, p);
       normalizeToggleFields(p);
@@ -371,6 +383,8 @@
     for (const s of d.spikes) normalizeLook(s);
     for (const a of d.gravityArrows) normalizeGravityArrow(a);
     for (const c of d.coins) normalizeLook(c);
+    for (const n of d.numbers) normalizeNumber(n);
+    for (const t of d.texts) normalizeTextBox(t);
     normalizeLook(d.goal);
     const bg = validHexColor(d.bgColor);
     if (bg) d.bgColor = bg;
@@ -582,6 +596,56 @@
     return typeof c === 'string' && /^#[0-9a-fA-F]{6}$/.test(c.trim()) ? c.trim() : null;
   }
 
+  function clampDigit(v) {
+    const n = Math.floor(Number(v));
+    if (!Number.isFinite(n) || n < 0 || n > 9) return 1;
+    return n;
+  }
+
+  function clampSymbolSize(v, fallback, min, max) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  }
+
+  function numberRadius(obj) {
+    return Math.max(10, clampSymbolSize(obj && obj.size, 48, 12, 400) * 0.55);
+  }
+
+  function normalizeNumber(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    let x = Number(obj.x);
+    let y = Number(obj.y);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    obj.x = x;
+    obj.y = y;
+    obj.digit = clampDigit(obj.digit);
+    obj.size = clampSymbolSize(obj.size, 48, 12, 400);
+    normalizeLook(obj);
+  }
+
+  function normalizeTextBox(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    let x = Number(obj.x);
+    let y = Number(obj.y);
+    let w = Number(obj.w);
+    let h = Number(obj.h);
+    if (!Number.isFinite(x)) x = 0;
+    if (!Number.isFinite(y)) y = 0;
+    if (!Number.isFinite(w) || w < 8) w = 160;
+    if (!Number.isFinite(h) || h < 8) h = 48;
+    obj.x = x;
+    obj.y = y;
+    obj.w = Math.min(4000, w);
+    obj.h = Math.min(4000, h);
+    let text = String(obj.text == null ? 'Text' : obj.text).replace(/[\r\n]+/g, ' ').slice(0, 80);
+    if (!text.trim()) text = 'Text';
+    obj.text = text;
+    obj.size = clampSymbolSize(obj.size, 22, 10, 160);
+    normalizeLook(obj);
+  }
+
   function normalizeLook(obj) {
     if (!obj || typeof obj !== 'object') return;
     const c = validHexColor(obj.color);
@@ -693,6 +757,13 @@
         return !(c.x + r > cut.x && c.x - r < cut.x + cut.w && c.y + r > cut.y && c.y - r < cut.y + cut.h);
       });
     }
+    if (d.numbers && d.numbers.length) {
+      d.numbers = d.numbers.filter(function (n) {
+        const r = numberRadius(n);
+        return !(n.x + r > cut.x && n.x - r < cut.x + cut.w && n.y + r > cut.y && n.y - r < cut.y + cut.h);
+      });
+    }
+    removeOverlappingRects(d.texts, cut);
     editorSelection = null;
   }
 
@@ -708,6 +779,8 @@
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'coin') return (d.coins || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'number') return (d.numbers || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'text') return (d.texts || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
     return null;
   }
@@ -722,6 +795,8 @@
     if (kind === 'switch') return '#65a30d';
     if (kind === 'blackout') return '#111827';
     if (kind === 'coin') return '#f59e0b';
+    if (kind === 'number') return '#e0f2fe';
+    if (kind === 'text') return '#f8fafc';
     return '#4338ca';
   }
 
@@ -856,6 +931,7 @@
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
+    if (editorSelection.kind === 'text') return (d.texts || [])[editorSelection.index] || null;
     return null;
   }
 
@@ -891,6 +967,83 @@
     scheduleEditorRedraw();
   }
 
+  function selectedNumber() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'number') return null;
+    return (d.numbers || [])[editorSelection.index] || null;
+  }
+
+  function selectedTextBox() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'text') return null;
+    return (d.texts || [])[editorSelection.index] || null;
+  }
+
+  function syncSymbolUi() {
+    const wrap = document.getElementById('lvlEdSymbolProps');
+    if (!wrap) return;
+    const num = selectedNumber();
+    const box = selectedTextBox();
+    const placing = editorTool === 'number' && !num && !box;
+    const show = !!(num || box || placing);
+    wrap.classList.toggle('hidden', !show);
+    wrap.classList.toggle('flex', show);
+    const digitWrap = document.getElementById('lvlEdDigitWrap');
+    const sizeWrap = document.getElementById('lvlEdSymbolSizeWrap');
+    const textWrap = document.getElementById('lvlEdTextWrap');
+    const fontWrap = document.getElementById('lvlEdTextSizeWrap');
+    const hint = document.getElementById('lvlEdSymbolHint');
+    if (digitWrap) digitWrap.classList.toggle('hidden', !(num || placing));
+    if (sizeWrap) sizeWrap.classList.toggle('hidden', !(num || placing));
+    if (textWrap) textWrap.classList.toggle('hidden', !box);
+    if (fontWrap) fontWrap.classList.toggle('hidden', !box);
+    if (hint) {
+      hint.textContent = box
+        ? 'Text stays in the level. Width and Height resize the box.'
+        : 'Numbers disappear when the player touches them.';
+    }
+    const digitEl = document.getElementById('lvlEdDigit');
+    const sizeEl = document.getElementById('lvlEdSymbolSize');
+    const textEl = document.getElementById('lvlEdTextValue');
+    const fontEl = document.getElementById('lvlEdTextSize');
+    if (num) {
+      if (digitEl && document.activeElement !== digitEl) digitEl.value = String(clampDigit(num.digit));
+      if (sizeEl && document.activeElement !== sizeEl) sizeEl.value = String(clampSymbolSize(num.size, 48, 12, 400));
+    } else if (placing) {
+      if (digitEl && document.activeElement !== digitEl) digitEl.value = String(editorNumberDigit);
+      if (sizeEl && document.activeElement !== sizeEl) sizeEl.value = String(editorNumberSize);
+    }
+    if (box) {
+      if (textEl && document.activeElement !== textEl) textEl.value = box.text || 'Text';
+      if (fontEl && document.activeElement !== fontEl) fontEl.value = String(clampSymbolSize(box.size, 22, 10, 160));
+    }
+  }
+
+  function applySymbolFromUi() {
+    const num = selectedNumber();
+    const box = selectedTextBox();
+    const digitEl = document.getElementById('lvlEdDigit');
+    const sizeEl = document.getElementById('lvlEdSymbolSize');
+    const textEl = document.getElementById('lvlEdTextValue');
+    const fontEl = document.getElementById('lvlEdTextSize');
+    if (num) {
+      num.digit = clampDigit(digitEl && digitEl.value);
+      num.size = clampSymbolSize(sizeEl && sizeEl.value, 48, 12, 400);
+      editorNumberDigit = num.digit;
+      editorNumberSize = num.size;
+    } else if (editorTool === 'number') {
+      editorNumberDigit = clampDigit(digitEl && digitEl.value);
+      editorNumberSize = clampSymbolSize(sizeEl && sizeEl.value, 48, 12, 400);
+    }
+    if (box) {
+      let text = String(textEl && textEl.value != null ? textEl.value : box.text).replace(/[\r\n]+/g, ' ').slice(0, 80);
+      if (!text.trim() && document.activeElement !== textEl) text = 'Text';
+      box.text = text;
+      box.size = clampSymbolSize(fontEl && fontEl.value, 22, 10, 160);
+    }
+    scheduleEditorRedraw();
+  }
+
   function selectedContainsPoint(wx, wy) {
     const d = editorState.data;
     if (!d || !editorSelection) return false;
@@ -909,6 +1062,15 @@
       if (!c) return false;
       const r = Number(c.r) > 0 ? Number(c.r) : 14;
       return Math.hypot(wx - c.x, wy - c.y) < r + 10;
+    }
+    if (k === 'number') {
+      const n = (d.numbers || [])[i];
+      if (!n) return false;
+      return Math.hypot(wx - n.x, wy - n.y) < numberRadius(n) + 8;
+    }
+    if (k === 'text') {
+      const t = (d.texts || [])[i];
+      return !!(t && wx >= t.x && wx <= t.x + t.w && wy >= t.y && wy <= t.y + t.h);
     }
     if (k === 'fireball') {
       const e = (d.fireballEmitters || [])[i];
@@ -962,6 +1124,12 @@
     } else if (drag.sel.kind === 'coin') {
       const c = d.coins[drag.sel.index];
       drag.startCoin = { x: c.x, y: c.y };
+    } else if (drag.sel.kind === 'number') {
+      const n = d.numbers[drag.sel.index];
+      drag.startNumber = { x: n.x, y: n.y };
+    } else if (drag.sel.kind === 'text') {
+      const t = d.texts[drag.sel.index];
+      drag.startText = { x: t.x, y: t.y };
     } else if (drag.sel.kind === 'mover') {
       const p = d.movingPlatforms[drag.sel.index];
       drag.startMover = { x: p.x, y: p.y };
@@ -1061,6 +1229,18 @@
       if (c) {
         c.x = snap4(c.x);
         c.y = snap4(c.y);
+      }
+    } else if (k === 'number') {
+      const n = d.numbers[drag.sel.index];
+      if (n) {
+        n.x = snap4(n.x);
+        n.y = snap4(n.y);
+      }
+    } else if (k === 'text') {
+      const t = d.texts[drag.sel.index];
+      if (t) {
+        t.x = snap4(t.x);
+        t.y = snap4(t.y);
       }
     }
   }
@@ -1199,6 +1379,8 @@
 
   /* ---------- Editor canvas ---------- */
   let editorTool = 'select';
+  let editorNumberDigit = 1;
+  let editorNumberSize = 48;
   let editorSelection = null;
   let editorHover = null;
   let drag = null;
@@ -1255,6 +1437,16 @@
       const c = coins[i];
       const r = Number(c.r) > 0 ? Number(c.r) : 14;
       if (Math.hypot(wx - c.x, wy - c.y) < r + 10) return { kind: 'coin', index: i };
+    }
+    const numbers = d.numbers || [];
+    for (let i = numbers.length - 1; i >= 0; i--) {
+      const n = numbers[i];
+      if (Math.hypot(wx - n.x, wy - n.y) < numberRadius(n) + 8) return { kind: 'number', index: i };
+    }
+    const texts = d.texts || [];
+    for (let i = texts.length - 1; i >= 0; i--) {
+      const t = texts[i];
+      if (wx >= t.x && wx <= t.x + t.w && wy >= t.y && wy <= t.y + t.h) return { kind: 'text', index: i };
     }
     const grav = d.gravityArrows || [];
     for (let i = grav.length - 1; i >= 0; i--) {
@@ -1326,6 +1518,9 @@
       const r = (Number(obj.r) > 0 ? Number(obj.r) : 14) + pad;
       return Math.hypot(wx - obj.x, wy - obj.y) <= r;
     }
+    if (kind === 'number') {
+      return Math.hypot(wx - obj.x, wy - obj.y) <= numberRadius(obj) + pad;
+    }
     const w = Number(obj.w);
     const h = Number(obj.h);
     if (!Number.isFinite(w) || !Number.isFinite(h)) return false;
@@ -1346,11 +1541,13 @@
         const area =
           kind === 'coin'
             ? Math.PI * Math.pow(Number(obj.r) > 0 ? Number(obj.r) : 14, 2)
-            : Math.max(1, (obj.w || 1) * (obj.h || 1));
+            : kind === 'number'
+              ? Math.PI * Math.pow(numberRadius(obj), 2)
+              : Math.max(1, (obj.w || 1) * (obj.h || 1));
         const dist =
-          kind === 'coin'
+          kind === 'coin' || kind === 'number'
             ? Math.hypot(wx - obj.x, wy - obj.y)
-            : Math.hypot(wx - (obj.x + obj.w / 2), wy - (obj.y + obj.h / 2));
+            : Math.hypot(wx - (obj.x + (obj.w || 0) / 2), wy - (obj.y + (obj.h || 0) / 2));
         const score = area + dist * 0.25;
         if (score < bestScore) {
           bestScore = score;
@@ -1500,6 +1697,10 @@
         ctx.fill();
         ctx.strokeStyle = editorFill(obj, '#f59e0b');
         ctx.stroke();
+      } else if (kind === 'number') {
+        paintEditorNumber(ctx, obj, wx, wy, 1);
+      } else if (kind === 'text') {
+        paintEditorText(ctx, obj, wx, wy);
       } else if (kind === 'portal') {
         const pw = obj.w * cam.s;
         const ph = obj.h * cam.s;
@@ -1615,6 +1816,47 @@
       ctx.fillText(p.move && p.move.axis === 'y' ? '↕' : '↔', a.x + 4, a.y + 14 * cam.s);
     }
 
+    function paintEditorNumber(ctx2, obj, wx, wy, alpha) {
+      if (!obj) return;
+      const size = clampSymbolSize(obj.size, 48, 12, 400) * cam.s;
+      const pt = toScreen(wx, wy);
+      ctx2.save();
+      if (obj.invisible) ctx2.globalAlpha *= 0.35;
+      if (alpha != null) ctx2.globalAlpha *= alpha;
+      ctx2.font = `700 ${Math.max(10, size)}px "Space Grotesk", system-ui, sans-serif`;
+      ctx2.textAlign = 'center';
+      ctx2.textBaseline = 'middle';
+      ctx2.lineWidth = Math.max(2, size * 0.08);
+      ctx2.strokeStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx2.strokeText(String(clampDigit(obj.digit)), pt.x, pt.y);
+      ctx2.fillStyle = editorFill(obj, '#e0f2fe');
+      ctx2.fillText(String(clampDigit(obj.digit)), pt.x, pt.y);
+      ctx2.restore();
+    }
+
+    function paintEditorText(ctx2, obj, wx, wy) {
+      if (!obj) return;
+      const pt = toScreen(wx, wy);
+      const bw = Math.max(8, Number(obj.w) || 160) * cam.s;
+      const bh = Math.max(8, Number(obj.h) || 48) * cam.s;
+      const fontPx = Math.max(8, clampSymbolSize(obj.size, 22, 10, 160) * cam.s);
+      ctx2.save();
+      if (obj.invisible) ctx2.globalAlpha *= 0.35;
+      ctx2.fillStyle = 'rgba(15, 23, 42, 0.78)';
+      ctx2.fillRect(pt.x, pt.y, bw, bh);
+      ctx2.strokeStyle = editorFill(obj, 'rgba(226, 232, 240, 0.8)');
+      ctx2.strokeRect(pt.x + 0.5, pt.y + 0.5, bw - 1, bh - 1);
+      ctx2.beginPath();
+      ctx2.rect(pt.x + 4, pt.y + 2, Math.max(0, bw - 8), Math.max(0, bh - 4));
+      ctx2.clip();
+      ctx2.fillStyle = editorFill(obj, '#f8fafc');
+      ctx2.font = `600 ${fontPx}px "Space Grotesk", system-ui, sans-serif`;
+      ctx2.textAlign = 'center';
+      ctx2.textBaseline = 'middle';
+      ctx2.fillText(String(obj.text || 'Text'), pt.x + bw / 2, pt.y + bh / 2);
+      ctx2.restore();
+    }
+
     for (const c of d.coins || []) {
       const r = (Number(c.r) > 0 ? Number(c.r) : 14) * cam.s;
       const a = toScreen(c.x, c.y);
@@ -1625,6 +1867,9 @@
       ctx.strokeStyle = editorFill(c, '#f59e0b');
       ctx.stroke();
     }
+
+    for (const n of d.numbers || []) paintEditorNumber(ctx, n, n.x, n.y, 1);
+    for (const t of d.texts || []) paintEditorText(ctx, t, t.x, t.y);
 
     for (const b of d.blackouts || []) {
       const a = toScreen(b.x, b.y);
@@ -1785,6 +2030,17 @@
         ctx.beginPath();
         ctx.arc(a.x, a.y, r + 3, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (editorSelection.kind === 'number') {
+        const n = d.numbers[editorSelection.index];
+        const a = toScreen(n.x, n.y);
+        const r = numberRadius(n) * cam.s;
+        ctx.beginPath();
+        ctx.arc(a.x, a.y, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (editorSelection.kind === 'text') {
+        const t = d.texts[editorSelection.index];
+        const a = toScreen(t.x, t.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, t.w * cam.s + 4, t.h * cam.s + 4);
       } else if (editorSelection.kind === 'mover') {
         const p = d.movingPlatforms[editorSelection.index];
         const a = toScreen(p.x, p.y);
@@ -1856,6 +2112,12 @@
         ctx.lineWidth = 3;
         if (switchLinkHover.kind === 'coin') {
           const r = (Number(hov.r) > 0 ? Number(hov.r) : 14) * cam.s;
+          const a = toScreen(hov.x, hov.y);
+          ctx.beginPath();
+          ctx.arc(a.x, a.y, r + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (switchLinkHover.kind === 'number') {
+          const r = numberRadius(hov) * cam.s;
           const a = toScreen(hov.x, hov.y);
           ctx.beginPath();
           ctx.arc(a.x, a.y, r + 4, 0, Math.PI * 2);
@@ -1949,6 +2211,8 @@
       d.switches,
       d.blackouts,
       d.coins,
+      d.numbers,
+      d.texts,
       d.goal ? [d.goal] : [],
     ];
     for (let i = 0; i < lists.length; i++) {
@@ -1979,6 +2243,7 @@
         syncSizeInspector();
         syncStageFlagsUi();
         syncAppearanceUi();
+        syncSymbolUi();
       } finally {
         editorRedrawScheduled = false;
         if (editorHasRainbow()) scheduleEditorRedraw();
@@ -2108,6 +2373,30 @@
         if (!d.coins) d.coins = [];
         d.coins.push({ id: nextEditorId(d), x: Math.round(w.x / 4) * 4, y: Math.round(w.y / 4) * 4, r: 14 });
         editorSelection = { kind: 'coin', index: d.coins.length - 1 };
+      } else if (editorTool === 'number') {
+        if (!d.numbers) d.numbers = [];
+        d.numbers.push({
+          id: nextEditorId(d),
+          x: Math.round(w.x / 4) * 4,
+          y: Math.round(w.y / 4) * 4,
+          digit: editorNumberDigit,
+          size: editorNumberSize,
+        });
+        editorSelection = { kind: 'number', index: d.numbers.length - 1 };
+      } else if (editorTool === 'text') {
+        if (!d.texts) d.texts = [];
+        d.texts.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - 80) / 4) * 4,
+            y: Math.round((w.y - 24) / 4) * 4,
+            w: 160,
+            h: 48,
+            text: 'Text',
+            size: 22,
+          })
+        );
+        editorSelection = { kind: 'text', index: d.texts.length - 1 };
       } else if (editorTool === 'spike') {
         if (!d.spikes) d.spikes = [];
         d.spikes.push(
@@ -2270,6 +2559,14 @@
         const c = d.coins[drag.sel.index];
         c.x += dx;
         c.y += dy;
+      } else if (drag.sel.kind === 'number') {
+        const n = d.numbers[drag.sel.index];
+        n.x += dx;
+        n.y += dy;
+      } else if (drag.sel.kind === 'text') {
+        const t = d.texts[drag.sel.index];
+        t.x += dx;
+        t.y += dy;
       } else if (drag.sel.kind === 'mover') {
         const p = d.movingPlatforms[drag.sel.index];
         p.x += dx;
@@ -4064,6 +4361,12 @@
       bgEl.addEventListener('input', applyBgFromUi);
       bgEl.addEventListener('change', applyBgFromUi);
     }
+    ['lvlEdDigit', 'lvlEdSymbolSize', 'lvlEdTextValue', 'lvlEdTextSize'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', applySymbolFromUi);
+      el.addEventListener('change', applySymbolFromUi);
+    });
     document.getElementById('btnLvlEdDelete').addEventListener('click', () => {
       if (!editorSelection) return;
       const d = editorState.data;
@@ -4071,6 +4374,8 @@
       if (editorSelection.kind === 'lava') d.lava.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'fireball') d.fireballEmitters.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'coin') d.coins.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'number' && d.numbers) d.numbers.splice(editorSelection.index, 1);
+      if (editorSelection.kind === 'text' && d.texts) d.texts.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'spike') d.spikes.splice(editorSelection.index, 1);
       if (editorSelection.kind === 'gravity') d.gravityArrows.splice(editorSelection.index, 1);
