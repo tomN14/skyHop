@@ -432,8 +432,11 @@
   }
   const hud = document.getElementById('hud');
   const hudStage = document.getElementById('hudStage');
+  const hudStageChip = document.getElementById('hudStageChip');
   const hudDeaths = document.getElementById('hudDeaths');
+  const hudDeathsChip = document.getElementById('hudDeathsChip');
   const hudTimer = document.getElementById('hudTimer');
+  const hudTimerChip = document.getElementById('hudTimerChip');
   const hudStageLimit = document.getElementById('hudStageLimit');
   const hudStageLimitVal = document.getElementById('hudStageLimitVal');
   const hudJumps = document.getElementById('hudJumps');
@@ -567,13 +570,26 @@
   }
 
   function hudHintStorageKey() {
+    if (window.SKYHOP_EXTERNAL_LEVEL) return 'SKYHOP_USER_HIDE_HUD';
     return activePlayWorldId() === 2 ? LS_W2_HIDE_HUD_HINT : 'SKYHOP_W1_HIDE_HUD_HINT';
   }
 
   function campaignHudControls() {
-    if (window.SKYHOP_EXTERNAL_LEVEL) return false;
+    if (window.SKYHOP_EXTERNAL_LEVEL) return true;
     const id = activePlayWorldId();
     return id === 1 || id === 2;
+  }
+
+  function playHudChromeHidden() {
+    return campaignHudControls() && world2HudHintHidden();
+  }
+
+  function syncPlayHudChips(hidden) {
+    const off = hidden != null ? !!hidden : playHudChromeHidden();
+    if (hudStageChip) hudStageChip.classList.toggle('hidden', off);
+    if (hudDeathsChip) hudDeathsChip.classList.toggle('hidden', off);
+    if (hudTimerChip) hudTimerChip.classList.toggle('hidden', off);
+    if (off && hudStageLimit) hudStageLimit.classList.add('hidden');
   }
 
   function world2HudHintHidden() {
@@ -700,12 +716,13 @@
   }
 
   function syncHudHint(stageIdx) {
+    const campaign = campaignHudControls();
+    const hidden = campaign && world2HudHintHidden();
+    syncPlayHudChips(hidden);
     if (!hudHint) return;
     const list = stagesNow();
     const stage = list[stageIdx];
     const w2 = isWorld2Play();
-    const campaign = campaignHudControls();
-    const hidden = campaign && world2HudHintHidden();
     let html = buildHudControlsHtml(stage);
     if (!w2) {
       const mechanic = world1MechanicHtml(stageIdx);
@@ -4456,16 +4473,7 @@
         const bh = Math.max(8, Number(box.h) || 48);
         const fontPx = symbolSize(box.size, 22, 10, 160);
         ctx.save();
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
-        ctx.fillRect(box.x, box.y, bw, bh);
-        const label = objectDrawColor(box, '#f8fafc');
-        ctx.strokeStyle = label;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(box.x + 0.5, box.y + 0.5, bw - 1, bh - 1);
-        ctx.beginPath();
-        ctx.rect(box.x + 6, box.y + 4, Math.max(0, bw - 12), Math.max(0, bh - 8));
-        ctx.clip();
-        ctx.fillStyle = label;
+        ctx.fillStyle = objectDrawColor(box, '#f8fafc');
         ctx.font = `600 ${fontPx}px "Space Grotesk", system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -4858,8 +4866,9 @@
       hudTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
     }
     const showRules = gameState === 'playing' || gameState === 'paused';
+    const hideChrome = playHudChromeHidden();
     if (hudStageLimit) {
-      const showTime = showRules && stageTimeLeft >= 0;
+      const showTime = showRules && stageTimeLeft >= 0 && !hideChrome;
       hudStageLimit.classList.toggle('hidden', !showTime);
       if (showTime && hudStageLimitVal) hudStageLimitVal.textContent = formatStageLeft(stageTimeLeft);
     }

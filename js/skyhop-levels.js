@@ -999,7 +999,7 @@
     if (fontWrap) fontWrap.classList.toggle('hidden', !box);
     if (hint) {
       hint.textContent = box
-        ? 'Text stays in the level. Width and Height resize the box.'
+        ? 'Only the words show. Width and Height set the space around them.'
         : 'Numbers disappear when the player touches them.';
     }
     const digitEl = document.getElementById('lvlEdDigit');
@@ -1109,6 +1109,7 @@
       drag = null;
       return;
     }
+    beginHistoryGesture();
     const d = editorState.data;
     drag = { sel: editorSelection, last: w };
     if (drag.sel.kind === 'platform') {
@@ -1383,7 +1384,99 @@
   let editorNumberSize = 48;
   let editorSelection = null;
   let editorHover = null;
+  let editorClipboard = null;
   let drag = null;
+  let undoStack = [];
+  let redoStack = [];
+  let historyPause = false;
+  let historyLock = false;
+  let historySnap = null;
+
+  function editorHistoryJson() {
+    return editorState.data ? JSON.stringify(editorState.data) : '';
+  }
+
+  function syncHistoryButtons() {
+    const undoBtn = document.getElementById('btnLvlEdUndo');
+    const redoBtn = document.getElementById('btnLvlEdRedo');
+    const pasteBtn = document.getElementById('btnLvlEdPaste');
+    if (undoBtn) undoBtn.disabled = !undoStack.length;
+    if (redoBtn) redoBtn.disabled = !redoStack.length;
+    if (pasteBtn) pasteBtn.disabled = !editorClipboard;
+  }
+
+  function resetEditorHistory() {
+    undoStack = [];
+    redoStack = [];
+    historyPause = false;
+    historyLock = false;
+    historySnap = editorHistoryJson();
+    syncHistoryButtons();
+  }
+
+  function noteEditorChange() {
+    if (historyPause || historyLock || !editorState.data) return;
+    const now = editorHistoryJson();
+    if (historySnap == null) {
+      historySnap = now;
+      syncHistoryButtons();
+      return;
+    }
+    if (now === historySnap) return;
+    undoStack.push(historySnap);
+    if (undoStack.length > 80) undoStack.shift();
+    historySnap = now;
+    redoStack = [];
+    syncHistoryButtons();
+  }
+
+  function beginHistoryGesture() {
+    historyPause = true;
+  }
+
+  function endHistoryGesture() {
+    if (!historyPause) return;
+    historyPause = false;
+    noteEditorChange();
+  }
+
+  function applyHistoryJson(raw) {
+    historyLock = true;
+    editorState.data = JSON.parse(raw);
+    editorSelection = null;
+    editorHover = null;
+    historySnap = editorHistoryJson();
+    historyLock = false;
+    scheduleEditorRedraw();
+    syncHistoryButtons();
+  }
+
+  function undoEditor() {
+    if (historyPause || !undoStack.length || !editorState.data) return;
+    const current = editorHistoryJson();
+    const prev = undoStack.pop();
+    redoStack.push(current);
+    applyHistoryJson(prev);
+  }
+
+  function redoEditor() {
+    if (historyPause || !redoStack.length || !editorState.data) return;
+    const current = editorHistoryJson();
+    const next = redoStack.pop();
+    undoStack.push(current);
+    applyHistoryJson(next);
+  }
+
+  function editorTextTarget(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  }
+
+  function editorScreenOpen() {
+    const ed = document.getElementById('screenLevelEditor');
+    return !!(ed && !ed.classList.contains('hidden'));
+  }
   let cam = { s: 1, ox: 0, oy: 0 };
 
   function syncEditorCanvasLayout() {
@@ -1842,13 +1935,6 @@
       const fontPx = Math.max(8, clampSymbolSize(obj.size, 22, 10, 160) * cam.s);
       ctx2.save();
       if (obj.invisible) ctx2.globalAlpha *= 0.35;
-      ctx2.fillStyle = 'rgba(15, 23, 42, 0.78)';
-      ctx2.fillRect(pt.x, pt.y, bw, bh);
-      ctx2.strokeStyle = editorFill(obj, 'rgba(226, 232, 240, 0.8)');
-      ctx2.strokeRect(pt.x + 0.5, pt.y + 0.5, bw - 1, bh - 1);
-      ctx2.beginPath();
-      ctx2.rect(pt.x + 4, pt.y + 2, Math.max(0, bw - 8), Math.max(0, bh - 4));
-      ctx2.clip();
       ctx2.fillStyle = editorFill(obj, '#f8fafc');
       ctx2.font = `600 ${fontPx}px "Space Grotesk", system-ui, sans-serif`;
       ctx2.textAlign = 'center';
@@ -2234,6 +2320,7 @@
     editorRedrawScheduled = true;
     requestAnimationFrame(() => {
       try {
+        noteEditorChange();
         drawEditor(canvas, ctx);
         syncMoverInspector();
         syncGravityInspector();
@@ -2305,6 +2392,7 @@
       const selPortal = selectedPortal();
       if (selPortal && portalDestHit(w.x, w.y, selPortal)) {
         editorSelection = { kind: 'portal', index: editorSelection.index };
+        beginHistoryGesture();
         drag = { sel: { kind: 'portal-dest', index: editorSelection.index }, last: w };
         canvas.style.cursor = 'grabbing';
         scheduleEditorRedraw();
@@ -2312,6 +2400,7 @@
       }
 
       if (editorTool === 'eraser') {
+        beginHistoryGesture();
         eraserDrag = true;
         eraseAt(w.x, w.y);
         scheduleEditorRedraw();
@@ -2604,6 +2693,7 @@
       if (drag) snapDraggedObject();
       drag = null;
       eraserDrag = false;
+      endHistoryGesture();
       scheduleEditorRedraw();
     }
 
@@ -3130,6 +3220,7 @@
       editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
+      resetEditorHistory();
       document.getElementById('lvlEdTitle').value = editorState.title;
       var dash = document.getElementById('screenModDashboard');
       if (dash) {
@@ -3160,6 +3251,7 @@
       editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
+      resetEditorHistory();
       document.getElementById('lvlEdTitle').value = editorState.title;
       showMine(false);
       showOnline(false);
@@ -3179,6 +3271,7 @@
     editorState.beatenOk = false;
     editorState.readOnly = false;
     editorState.data = defaultLevelData();
+    resetEditorHistory();
     document.getElementById('lvlEdTitle').value = editorState.title;
     lvlEdStatus.textContent = '';
     showMine(false);
@@ -3372,6 +3465,7 @@
     editorState.title = 'Builtin ' + n;
     editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
     normalizeEditorLevelInPlace(editorState.data);
+    resetEditorHistory();
     const titEl = document.getElementById('lvlEdTitle');
     if (titEl) titEl.value = 'Builtin ' + n;
     showMine(false);
@@ -3510,6 +3604,7 @@
         ownerBuiltinIdx = ownerBuiltinArr.length - 1;
         editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
         normalizeEditorLevelInPlace(editorState.data);
+        resetEditorHistory();
         const titAdd = document.getElementById('lvlEdTitle');
         if (titAdd) titAdd.value = 'Builtin ' + (ownerBuiltinIdx + 1);
         scheduleEditorRedraw();
@@ -3524,6 +3619,7 @@
       ownerBuiltinIdx = n - 1;
       editorState.data = JSON.parse(JSON.stringify(ownerBuiltinArr[ownerBuiltinIdx]));
       normalizeEditorLevelInPlace(editorState.data);
+      resetEditorHistory();
       const titEl = document.getElementById('lvlEdTitle');
       if (titEl) titEl.value = 'Builtin ' + n;
       scheduleEditorRedraw();
@@ -4300,14 +4396,42 @@
       });
     }
     document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-      const ed = document.getElementById('screenLevelEditor');
-      if (!ed || ed.classList.contains('hidden')) return;
-      if (!switchLinkMode) return;
-      switchLinkMode = false;
-      switchLinkHover = null;
-      if (lvlEdStatus) lvlEdStatus.textContent = 'Switch link cancelled.';
-      scheduleEditorRedraw();
+      if (!editorScreenOpen() || editorTextTarget(e.target)) return;
+      const key = e.key;
+      const mod = e.metaKey || e.ctrlKey;
+      if (key === 'Escape') {
+        if (!switchLinkMode) return;
+        switchLinkMode = false;
+        switchLinkHover = null;
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Switch link cancelled.';
+        scheduleEditorRedraw();
+        return;
+      }
+      if (mod && (key === 'z' || key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) redoEditor();
+        else undoEditor();
+        return;
+      }
+      if (mod && (key === 'y' || key === 'Y')) {
+        e.preventDefault();
+        redoEditor();
+        return;
+      }
+      if (mod && (key === 'c' || key === 'C')) {
+        e.preventDefault();
+        copyEditorSelection();
+        return;
+      }
+      if (mod && (key === 'v' || key === 'V')) {
+        e.preventDefault();
+        pasteEditorClipboard();
+        return;
+      }
+      if (key === 'Delete' || key === 'Backspace') {
+        e.preventDefault();
+        deleteEditorSelection();
+      }
     });
     ['lvlEdSizeW', 'lvlEdSizeH'].forEach(function (id) {
       const el = document.getElementById(id);
@@ -4367,24 +4491,85 @@
       el.addEventListener('input', applySymbolFromUi);
       el.addEventListener('change', applySymbolFromUi);
     });
-    document.getElementById('btnLvlEdDelete').addEventListener('click', () => {
-      if (!editorSelection) return;
+    function editorListForKind(d, kind) {
+      const names = {
+        platform: 'platforms',
+        lava: 'lava',
+        fireball: 'fireballEmitters',
+        coin: 'coins',
+        number: 'numbers',
+        text: 'texts',
+        mover: 'movingPlatforms',
+        spike: 'spikes',
+        gravity: 'gravityArrows',
+        portal: 'portals',
+        switch: 'switches',
+        blackout: 'blackouts',
+      };
+      const key = names[kind];
+      if (!key) return null;
+      if (!Array.isArray(d[key])) d[key] = [];
+      return d[key];
+    }
+
+    function copyEditorSelection() {
       const d = editorState.data;
-      if (editorSelection.kind === 'platform') d.platforms.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'lava') d.lava.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'fireball') d.fireballEmitters.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'coin') d.coins.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'number' && d.numbers) d.numbers.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'text' && d.texts) d.texts.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'mover') d.movingPlatforms.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'spike') d.spikes.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'gravity') d.gravityArrows.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'portal') d.portals.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'switch') d.switches.splice(editorSelection.index, 1);
-      if (editorSelection.kind === 'blackout' && d.blackouts) d.blackouts.splice(editorSelection.index, 1);
-      editorSelection = null;
+      if (!d || !editorSelection) {
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Select an object to copy.';
+        return;
+      }
+      if (editorSelection.kind === 'spawn' || editorSelection.kind === 'goal') {
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Spawn and the goal cannot be copied.';
+        return;
+      }
+      const obj = objectFromSel(d, editorSelection);
+      if (!obj) return;
+      editorClipboard = { kind: editorSelection.kind, obj: JSON.parse(JSON.stringify(obj)) };
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Copied.';
+      syncHistoryButtons();
+    }
+
+    function pasteEditorClipboard() {
+      const d = editorState.data;
+      if (!d || !editorClipboard) return;
+      const list = editorListForKind(d, editorClipboard.kind);
+      if (!list) return;
+      const obj = JSON.parse(JSON.stringify(editorClipboard.obj));
+      delete obj.id;
+      if (editorClipboard.kind === 'fireball') obj.pos = (Number(obj.pos) || 0) + 24;
+      else {
+        obj.x = (Number(obj.x) || 0) + 16;
+        obj.y = (Number(obj.y) || 0) + 16;
+      }
+      ensureObjId(d, obj);
+      list.push(obj);
+      editorClipboard.obj = JSON.parse(JSON.stringify(obj));
+      editorSelection = { kind: editorClipboard.kind, index: list.length - 1 };
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Pasted.';
       scheduleEditorRedraw();
-    });
+    }
+
+    function deleteEditorSelection() {
+      if (!editorSelection || !editorState.data) return;
+      const d = editorState.data;
+      const list = editorListForKind(d, editorSelection.kind);
+      if (!list || editorSelection.index == null || !list[editorSelection.index]) return;
+      list.splice(editorSelection.index, 1);
+      editorSelection = null;
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Deleted.';
+      scheduleEditorRedraw();
+    }
+
+    const undoBtn = document.getElementById('btnLvlEdUndo');
+    const redoBtn = document.getElementById('btnLvlEdRedo');
+    const copyBtn = document.getElementById('btnLvlEdCopy');
+    const pasteBtn = document.getElementById('btnLvlEdPaste');
+    if (undoBtn) undoBtn.addEventListener('click', undoEditor);
+    if (redoBtn) redoBtn.addEventListener('click', redoEditor);
+    if (copyBtn) copyBtn.addEventListener('click', copyEditorSelection);
+    if (pasteBtn) pasteBtn.addEventListener('click', pasteEditorClipboard);
+    syncHistoryButtons();
+    document.getElementById('btnLvlEdDelete').addEventListener('click', deleteEditorSelection);
 
     bindEditorCanvas();
     var lvlEdTitleInput = document.getElementById('lvlEdTitle');
