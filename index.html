@@ -1404,7 +1404,8 @@
               <li><span class="font-mono">test.forLoop(start, end, name):</span> counts from start through end, one step at a time, and finishes in the same frame. The third argument is the variable name, not a value.</li>
               <li><span class="font-mono">test.ifTrue</span> runs when the condition is <span class="font-mono">1</span>. <span class="font-mono">test.ifFalse</span>, <span class="font-mono">test.else</span>, <span class="font-mono">test.elseIfTrue</span>, and <span class="font-mono">test.elseIfFalse</span> work too.</li>
               <li><span class="font-mono">test.break;</span> leaves the loop. <span class="font-mono">test.continue;</span> skips to the next pass.</li>
-              <li>Comparisons: <span class="font-mono">test.isEqualNumber</span>, <span class="font-mono">test.isGreater</span>, <span class="font-mono">test.isLess</span>. Math: <span class="font-mono">math.add</span>, <span class="font-mono">math.subtract</span>, <span class="font-mono">math.multiply</span>, <span class="font-mono">math.div</span>.</li>
+              <li>Comparisons: <span class="font-mono">test.isEqualNumber</span>, <span class="font-mono">test.isGreater</span>, <span class="font-mono">test.isLess</span>. Math: <span class="font-mono">math.add</span>, <span class="font-mono">math.subtract</span>, <span class="font-mono">math.multiply</span>, <span class="font-mono">math.div</span>, <span class="font-mono">math.floor</span>, <span class="font-mono">math.ceil</span>. Floor and ceil take one number and return a whole number. No extra <span class="font-mono">use</span> line.</li>
+              <li><span class="font-mono">skyhop.wait(n)</span> pauses the script for <span class="font-mono">n</span> seconds, then the next line runs. Put it in <span class="font-mono">test.while</span>. The game keeps moving during the wait.</li>
             </ul>
           </div>
           <div>
@@ -1433,6 +1434,9 @@
               <li><span class="font-mono">skyhop.rotate(id, degrees)</span> turns every object with that id. Use 90, 180, 270, or a negative amount. Each 90° swaps width and height around the center.</li>
               <li><span class="font-mono">skyhop.move(x, y, id)</span> shifts every object with that id. Positive x moves right and positive y moves down. Negative values move the opposite way.</li>
               <li><span class="font-mono">skyhop.change_color("#ff8800", id)</span> sets the color of every object with that id.</li>
+              <li><span class="font-mono">skyhop.hazard(id)</span> makes every object with that id lethal. Touching that platform or moving platform kills the player. <span class="font-mono">skyhop.safe(id)</span> removes that.</li>
+              <li><span class="font-mono">skyhop.disable_wall_jump(id)</span> makes every wall with that id refuse a wall jump.</li>
+              <li>In the editor, select an object and use Hazardous or No wall jump. Those stay on the object without a script. A script can still change them after the level starts.</li>
               <li><span class="font-mono">skyhop.toggle(id)</span> flips every object with that id between there and not there. Not there removes the hitbox. Only objects marked Affected by toggle respond. Make invisible is separate and keeps the hitbox.</li>
               <li><span class="font-mono">skyhop.kill()</span> kills this player.</li>
               <li><span class="font-mono">skyhop.kill("name")</span> kills the racer with that username or display name.</li>
@@ -1832,6 +1836,14 @@ end;</pre>
         <label class="inline-flex items-center gap-1.5">
           <input id="lvlEdOptRainbow" type="checkbox" class="rounded border-white/20 bg-slate-950" />
           Rainbow
+        </label>
+        <label class="inline-flex items-center gap-1.5">
+          <input id="lvlEdOptHazard" type="checkbox" class="rounded border-white/20 bg-slate-950" />
+          Hazardous
+        </label>
+        <label class="inline-flex items-center gap-1.5">
+          <input id="lvlEdOptNoWallJump" type="checkbox" class="rounded border-white/20 bg-slate-950" />
+          No wall jump
         </label>
       </div>
       <div id="lvlEdGravProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">

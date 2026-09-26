@@ -61,10 +61,25 @@ export async function resolveFeatureListHtml(store) {
   return defaultFeatureListHtml();
 }
 
+const SCRIPT_GUIDE_SUPPLEMENT = `
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Hazard, walls, and wait</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.hazard(id)</span> makes every object with that id lethal. Touching that platform or moving platform kills the player. <span class="font-mono">skyhop.safe(id)</span> removes that.</li>
+              <li><span class="font-mono">skyhop.disable_wall_jump(id)</span> makes every wall with that id refuse a wall jump.</li>
+              <li>In the editor, select an object and use Hazardous or No wall jump. Those stay on the object without a script.</li>
+              <li><span class="font-mono">skyhop.wait(n)</span> pauses the script for n seconds, then the next line runs. Put it in <span class="font-mono">test.while</span>.</li>
+              <li><span class="font-mono">math.floor(n)</span> and <span class="font-mono">math.ceil(n)</span> return a whole number. No extra use line.</li>
+            </ul>
+          </div>`;
+
 export async function resolveScriptGuideHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('script_guide');
-    if (row && typeof row.html === 'string' && row.html.trim()) return row.html;
+    if (row && typeof row.html === 'string' && row.html.trim()) {
+      if (row.html.includes('skyhop.hazard')) return row.html;
+      return row.html + SCRIPT_GUIDE_SUPPLEMENT;
+    }
   }
   return defaultScriptGuideHtml();
 }

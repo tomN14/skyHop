@@ -591,6 +591,10 @@
     else delete obj.invisible;
     if (obj.rainbow) obj.rainbow = true;
     else delete obj.rainbow;
+    if (obj.hazardous) obj.hazardous = true;
+    else delete obj.hazardous;
+    if (obj.noWallJump) obj.noWallJump = true;
+    else delete obj.noWallJump;
     normalizeToggleFields(obj);
     const rot = normalizeRot(obj.rot);
     if (rot) obj.rot = rot;
@@ -757,6 +761,10 @@
     }
     const rain = document.getElementById('lvlEdOptRainbow');
     if (rain && document.activeElement !== rain) rain.checked = !!t.rainbow;
+    const hazard = document.getElementById('lvlEdOptHazard');
+    if (hazard && document.activeElement !== hazard) hazard.checked = !!t.hazardous;
+    const noJump = document.getElementById('lvlEdOptNoWallJump');
+    if (noJump && document.activeElement !== noJump) noJump.checked = !!t.noWallJump;
   }
 
   function applySelectedColorFromUi() {
@@ -791,6 +799,26 @@
     }
     delete t.toggleOff;
     if (togWrap) togWrap.classList.toggle('hidden', !(tog && tog.checked));
+    scheduleEditorRedraw();
+  }
+
+  function applySelectedHazardFromUi() {
+    const t = selectedLookTarget();
+    const hazard = document.getElementById('lvlEdOptHazard');
+    if (t && hazard) {
+      if (hazard.checked) t.hazardous = true;
+      else delete t.hazardous;
+    }
+    scheduleEditorRedraw();
+  }
+
+  function applySelectedNoWallJumpFromUi() {
+    const t = selectedLookTarget();
+    const noJump = document.getElementById('lvlEdOptNoWallJump');
+    if (t && noJump) {
+      if (noJump.checked) t.noWallJump = true;
+      else delete t.noWallJump;
+    }
     scheduleEditorRedraw();
   }
 
@@ -1432,6 +1460,18 @@
         ctx.strokeStyle = stroke;
         ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
       }
+      if (obj && obj.hazardous) {
+        ctx.strokeStyle = 'rgba(248, 113, 113, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        ctx.lineWidth = 1;
+      }
+      if (obj && obj.noWallJump) {
+        ctx.strokeStyle = 'rgba(52, 211, 153, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 1.5, y + 1.5, Math.max(0, w - 3), Math.max(0, h - 3));
+        ctx.lineWidth = 1;
+      }
       if (obj && obj.invisible) {
         ctx.globalAlpha = 0.95;
         ctx.setLineDash([4, 3]);
@@ -1878,10 +1918,12 @@
         ? ' · toggle, starts absent'
         : ' · toggle, starts there'
       : '';
+    const hazardNote = obj.hazardous ? ' · hazardous' : '';
+    const wallNote = obj.noWallJump ? ' · no wall jump' : '';
     return {
       x: center.x,
       y: center.y,
-      text: hit.kind + id + sid + togNote + ' · Center: (' + fmt(center.x) + ', ' + fmt(center.y) + ')',
+      text: hit.kind + id + sid + togNote + hazardNote + wallNote + ' · Center: (' + fmt(center.x) + ', ' + fmt(center.y) + ')',
     };
   }
 
@@ -4000,6 +4042,10 @@
     if (togDefEl) togDefEl.addEventListener('change', applySelectedToggleFromUi);
     const rainEl = document.getElementById('lvlEdOptRainbow');
     if (rainEl) rainEl.addEventListener('change', applySelectedRainbowFromUi);
+    const hazardEl = document.getElementById('lvlEdOptHazard');
+    if (hazardEl) hazardEl.addEventListener('change', applySelectedHazardFromUi);
+    const noJumpEl = document.getElementById('lvlEdOptNoWallJump');
+    if (noJumpEl) noJumpEl.addEventListener('change', applySelectedNoWallJumpFromUi);
     ['lvlEdBlackSec', 'lvlEdBlackAfter'].forEach(function (id) {
       const el = document.getElementById(id);
       if (!el) return;

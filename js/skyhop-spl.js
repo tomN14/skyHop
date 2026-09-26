@@ -334,6 +334,27 @@
     return 0;
   }
 
+  function hazardObjects(stage, sid) {
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    for (let i = 0; i < objs.length; i++) objs[i].hazardous = true;
+    return 0;
+  }
+
+  function safeObjects(stage, sid) {
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    for (let i = 0; i < objs.length; i++) delete objs[i].hazardous;
+    return 0;
+  }
+
+  function disableWallJumpObjects(stage, sid) {
+    const objs = objectsWithSid(stage, sid);
+    if (!objs.length) throw new Error('No object with script id ' + sid);
+    for (let i = 0; i < objs.length; i++) objs[i].noWallJump = true;
+    return 0;
+  }
+
   function tokenize(src) {
     const tokens = [];
     let i = 0;
@@ -847,6 +868,28 @@
         api.toggle(args[0]);
         return 0;
       }
+      if (method === 'hazard') {
+        if (!api.hazard) throw new Error('skyhop.hazard is unavailable');
+        api.hazard(args[0]);
+        return 0;
+      }
+      if (method === 'safe') {
+        if (!api.safe) throw new Error('skyhop.safe is unavailable');
+        api.safe(args[0]);
+        return 0;
+      }
+      if (method === 'disable_wall_jump') {
+        if (!api.noWallJump) throw new Error('skyhop.disable_wall_jump is unavailable');
+        api.noWallJump(args[0]);
+        return 0;
+      }
+      if (method === 'wait') {
+        const n = Number(args[0]);
+        if (!Number.isFinite(n) || n < 0) throw new Error('skyhop.wait expects a number of seconds');
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        session.waitUntil = now + n * 1000;
+        return { splWait: true };
+      }
       if (method === 'kill') {
         if (!api.kill) throw new Error('skyhop.kill is unavailable');
         api.kill(args);
@@ -1053,6 +1096,7 @@
         done: false,
         error: null,
         call: null,
+        waitUntil: 0,
       };
     } catch (e) {
       return { done: true, error: String((e && e.message) || e) };
@@ -1066,6 +1110,9 @@
 
   function tick(session, api) {
     if (!session || session.done) return session;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (session.waitUntil && now < session.waitUntil) return session;
+    if (session.waitUntil) session.waitUntil = 0;
     session.api = api || {};
     let steps = 0;
     let yielded = false;
@@ -1113,6 +1160,10 @@
         }
         const stmt = frame.stmts[frame.ip++];
         const signal = execStmt(session, stmt);
+        if (signal === 'wait') {
+          yielded = true;
+          continue;
+        }
         if (signal === 'break' || signal === 'continue') {
           while (
             session.stack.length &&
@@ -1160,6 +1211,7 @@
         session.api.attr(prev.splAttr, value);
       }
       session.vars[stmt.name] = value;
+      if (value && value.splWait) return 'wait';
       return;
     }
     if (stmt.kind === 'func') {
@@ -1180,7 +1232,8 @@
         session.vars = locals;
         return;
       }
-      evalCall(session, stmt.obj, stmt.method, stmt.args || []);
+      const called = evalCall(session, stmt.obj, stmt.method, stmt.args || []);
+      if (called && called.splWait) return 'wait';
       return;
     }
     if (stmt.kind === 'block') {
@@ -1265,6 +1318,9 @@
     moveObjects: moveObjects,
     colorObjects: colorObjects,
     toggleObjects: toggleObjects,
+    hazardObjects: hazardObjects,
+    safeObjects: safeObjects,
+    disableWallJumpObjects: disableWallJumpObjects,
     setToggleAttr: setToggleAttr,
     applyToggleDefaults: applyToggleDefaults,
     clearCounters: clearCounters,

@@ -1075,6 +1075,9 @@
       else if (cmd[0] === 'move') spl.moveObjects(stage, cmd[1], cmd[2], cmd[3]);
       else if (cmd[0] === 'color') spl.colorObjects(stage, cmd[1], cmd[2]);
       else if (cmd[0] === 'toggle') spl.toggleObjects(stage, cmd[1]);
+      else if (cmd[0] === 'hazard') spl.hazardObjects(stage, cmd[1]);
+      else if (cmd[0] === 'safe') spl.safeObjects(stage, cmd[1]);
+      else if (cmd[0] === 'noWallJump') spl.disableWallJumpObjects(stage, cmd[1]);
       else if (cmd[0] === 'counter') spl.counterCreate(stage, cmd[1], cmd[2], cmd[3], cmd[4]);
       else if (cmd[0] === 'attr' && cmd[1] === 'jump_limit') setJumpLimitFromScript(cmd[2]);
       else if (cmd[0] === 'attr') spl.setToggleAttr(stage, cmd[1], cmd[2]);
@@ -1259,6 +1262,15 @@
         },
         toggle: function (sid) {
           window.SkyHopSpl.toggleObjects(stage, sid);
+        },
+        hazard: function (sid) {
+          window.SkyHopSpl.hazardObjects(stage, sid);
+        },
+        safe: function (sid) {
+          window.SkyHopSpl.safeObjects(stage, sid);
+        },
+        noWallJump: function (sid) {
+          window.SkyHopSpl.disableWallJumpObjects(stage, sid);
         },
         attr: function (name, value) {
           if (name === 'jump_limit') {
@@ -2134,6 +2146,23 @@
         if (!objectLive(sp)) continue;
         const r = resolveSpikeRect(sp, tSec);
         if (PHY.rectsOverlap(body, spikeLethalRect({ x: r.x, y: r.y, w: r.w, h: r.h, rot: sp.rot }))) return true;
+      }
+    }
+    return false;
+  }
+
+  function scriptHazardHit(stage, tSec) {
+    if (performance.now() < player.hazardIFrameUntil) return false;
+    const body = { x: player.x - 3, y: player.y - 3, w: player.w + 6, h: player.h + 6 };
+    const lists = [stage.platforms, stage.movingPlatforms];
+    for (let li = 0; li < lists.length; li++) {
+      const arr = lists[li];
+      if (!arr) continue;
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        if (!p || !p.hazardous || !objectLive(p)) continue;
+        const r = PHY.resolveMovingRect(p, tSec);
+        if (PHY.rectsOverlap(body, r)) return true;
       }
     }
     return false;
@@ -3666,7 +3695,7 @@
     if (kbDown('sword') || keys.KeyS) tryUseWoodenSword();
     if (kbDown('shield') || keys.KeyB) tryUseShield();
 
-    if (spikeHit(stage, tSec)) die();
+    if (spikeHit(stage, tSec) || scriptHazardHit(stage, tSec)) die();
     if (lavaHit(stage)) die();
     if (laserHit(stage)) die();
 
@@ -3991,6 +4020,7 @@
       if (src && src.invisible) return;
       const isMoving = !!(src && src.move);
       const noWallJump = !!(src && src.noWallJump);
+      const hazardous = !!(src && src.hazardous);
       const warnVertical = !!(src && src.warnVertical);
       const custom = src && objectDrawColor(src, null);
       const g = ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h);
@@ -4007,7 +4037,10 @@
         ctx.lineWidth = 1;
         return;
       }
-      if (custom) {
+      if (hazardous && !custom) {
+        g.addColorStop(0, '#f87171');
+        g.addColorStop(1, '#991b1b');
+      } else if (custom) {
         g.addColorStop(0, shadeHex(custom, 0.18));
         g.addColorStop(1, shadeHex(custom, -0.38));
       } else if (noWallJump) {
@@ -4022,14 +4055,16 @@
       }
       ctx.fillStyle = g;
       ctx.fillRect(r.x, r.y, r.w, r.h);
-      ctx.strokeStyle = noWallJump
-        ? 'rgba(52, 211, 153, 0.95)'
-        : isMoving
-          ? 'rgba(251, 191, 36, 0.75)'
-          : custom
-            ? hexToRgba(custom, 0.55) || 'rgba(165, 180, 252, 0.5)'
-            : 'rgba(165, 180, 252, 0.5)';
-      ctx.lineWidth = isMoving || noWallJump ? 2 : 1;
+      ctx.strokeStyle = hazardous
+        ? 'rgba(254, 202, 202, 0.95)'
+        : noWallJump
+          ? 'rgba(52, 211, 153, 0.95)'
+          : isMoving
+            ? 'rgba(251, 191, 36, 0.75)'
+            : custom
+              ? hexToRgba(custom, 0.55) || 'rgba(165, 180, 252, 0.5)'
+              : 'rgba(165, 180, 252, 0.5)';
+      ctx.lineWidth = hazardous || isMoving || noWallJump ? 2 : 1;
       ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
     }
 

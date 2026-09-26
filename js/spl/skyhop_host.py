@@ -9,10 +9,12 @@ including test.forLoop, runs through the real interpreter.
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import re
 import sys
+import time
 
 try:
     _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +78,19 @@ def _import_spl():
         "tokenize": tokenize,
         "Parser": Parser,
     }
+
+
+class _WaitSignal(Exception):
+    def __init__(self, seconds):
+        self.seconds = float(seconds)
+
+
+def _math_floor(a):
+    return int(math.floor(float(a)))
+
+
+def _math_ceil(a):
+    return int(math.ceil(float(a)))
 
 
 class _AttrRef:
@@ -239,6 +254,31 @@ def _toggle(sid):
     return 0
 
 
+def _hazard(sid):
+    _commands.append(["hazard", sid])
+    return 0
+
+
+def _safe(sid):
+    _commands.append(["safe", sid])
+    return 0
+
+
+def _disable_wall_jump(sid):
+    _commands.append(["noWallJump", sid])
+    return 0
+
+
+def _wait(seconds):
+    try:
+        n = float(seconds)
+    except (TypeError, ValueError):
+        raise Exception("skyhop.wait expects a number of seconds")
+    if n != n or n < 0:
+        raise Exception("skyhop.wait expects a number of seconds")
+    raise _WaitSignal(n)
+
+
 def _kill(*args):
     if not args:
         _commands.append(["kill", "self"])
@@ -272,10 +312,16 @@ class SandboxSession:
         interp = spl["Interpreter"]()
         for name in BLOCKED:
             interp.library.pop(name, None)
+        math_lib = interp.library.get("math")
+        if isinstance(math_lib, dict):
+            math_lib["floor"] = _math_floor
+            math_lib["ceil"] = _math_ceil
         self.interp = interp
         self._install_import_gate()
         self.nodes = spl["Parser"](spl["tokenize"](_rewrite_counter_calls(code))).parse()
         self.ip = 0
+        self.body_ip = 0
+        self.wait_until = 0
         self.done = False
         self.error = None
         if (
@@ -302,6 +348,10 @@ class SandboxSession:
                     "move": _move,
                     "change_color": _color,
                     "toggle": _toggle,
+                    "hazard": _hazard,
+                    "safe": _safe,
+                    "disable_wall_jump": _disable_wall_jump,
+                    "wait": _wait,
                     "kill": _kill,
                     "random": _skyhop_random,
                 }
@@ -343,6 +393,9 @@ class SandboxSession:
             self.done = True
 
     def _tick(self):
+        if self.wait_until and time.time() < self.wait_until:
+            return
+        self.wait_until = 0
         spl = self._spl
         while self.ip < len(self.nodes):
             node = self.nodes[self.ip]
@@ -353,7 +406,12 @@ class SandboxSession:
             ):
                 self._step_while(node)
                 return
-            self.interp.run(node)
+            try:
+                self.interp.run(node)
+            except _WaitSignal as wait:
+                self.ip += 1
+                self.wait_until = time.time() + wait.seconds
+                return
             self.ip += 1
         self.done = True
 
@@ -361,20 +419,32 @@ class SandboxSession:
         spl = self._spl
         if not node.args:
             raise Exception("test.while requires a condition")
-        cond = self.interp.evaluate(node.args[0])
-        if cond != 1:
-            self.ip += 1
-            self._tick()
-            return
-        for sub in node.body:
+        body = node.body or []
+        if self.body_ip <= 0:
+            cond = self.interp.evaluate(node.args[0])
+            if cond != 1:
+                self.body_ip = 0
+                self.ip += 1
+                self._tick()
+                return
+        i = self.body_ip if self.body_ip > 0 else 0
+        while i < len(body):
             try:
-                self.interp.run(sub)
+                self.interp.run(body[i])
+            except _WaitSignal as wait:
+                self.body_ip = i + 1
+                self.wait_until = time.time() + wait.seconds
+                return
             except spl["BreakSignal"]:
+                self.body_ip = 0
                 self.ip += 1
                 self._tick()
                 return
             except spl["ContinueSignal"]:
+                self.body_ip = 0
                 return
+            i += 1
+        self.body_ip = 0
 
 
 def skyhop_open(code):
