@@ -725,6 +725,7 @@
             <li>Scripts are saved with levels and rerun when a stage is restarted. In a race or collab, each player’s script sees that player</li>
             <li>Race and Collab any user level from My Levels, Online Levels, or the editor</li>
             <li>Awarded User Levels on the main menu, under Play and Racing. The owner awards a published level from Online Levels with the red Award button. The creator receives 300 coins once. A signed-in player receives 25 coins the first time they clear it, and nothing if they clear it again. Awarded level names are blue when you search that creator</li>
+            <li>Copy a published user level into your drafts from Online Levels or Awarded User Levels. The creator can turn off Allow copies in the editor, including after the level is published</li>
             <li>Profanity filter on level titles (client NN + server censor)</li>
             <li>Staff can edit non-owner user levels from mod dashboard</li>
             <li>Coin pickups inside a user level add to your balance only when that level is awarded. Pickups in other user levels do not count</li>
@@ -1757,6 +1758,10 @@ end;</pre>
         </select>
         <button id="btnLvlEdDeleteLevel" type="button" class="hidden rounded-lg border border-rose-600/55 px-2 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-950/50">Delete level…</button>
         <input id="lvlEdTitle" type="text" maxlength="80" class="min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-950 px-2 py-1 text-sm" placeholder="Level name" />
+        <label id="lvlEdAllowCopyWrap" class="flex items-center gap-1.5 text-[11px] text-slate-300">
+          <input id="lvlEdAllowCopy" type="checkbox" class="rounded border-slate-600" checked />
+          Allow copies
+        </label>
         <span class="text-[10px] text-slate-500">Tools:</span>
         <button type="button" class="lvl-tool lvl-on rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="select">Select</button>
         <button type="button" class="lvl-tool rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60" data-tool="platform">Block</button>

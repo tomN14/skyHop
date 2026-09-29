@@ -4256,16 +4256,75 @@ export async function handleApi(req, res) {
     try {
       const titleCensored = censorProfanity(String(body.title || '')).text;
       if (body.id && uuidRe.test(String(body.id))) {
-        await UserLevels.levelsUpdateDraft(uid, String(body.id), titleCensored, body.data);
+        const allowCopy = body.allowCopy === true || body.allowCopy === false ? body.allowCopy : undefined;
+        await UserLevels.levelsUpdateDraft(uid, String(body.id), titleCensored, body.data, allowCopy);
         json(res, 200, { id: String(body.id), title: titleCensored.trim().slice(0, 80) });
       } else {
-        const out = await UserLevels.levelsCreate(uid, titleCensored, body.data);
+        const out = await UserLevels.levelsCreate(uid, titleCensored, body.data, body.allowCopy !== false);
         json(res, 201, Object.assign({}, out, { title: titleCensored.trim().slice(0, 80) }));
       }
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
     return true;
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/copy$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      const author = await store.findUserById(uid);
+      try {
+        assertAccountActive(author);
+      } catch (e) {
+        json(res, 403, { error: String(e.message || e) });
+        return true;
+      }
+      try {
+        const out = await UserLevels.levelsCopy(uid, m[1]);
+        json(res, 201, out);
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  {
+    const m = /^\/api\/levels\/([^/]+)\/allow-copy$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const uid = await bearerUserId(req);
+      if (!uid) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!uuidRe.test(m[1])) {
+        json(res, 400, { error: 'Invalid id' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      try {
+        const out = await UserLevels.levelsSetAllowCopy(uid, m[1], body.allow !== false);
+        json(res, 200, out);
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
   }
 
   {

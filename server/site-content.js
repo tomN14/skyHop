@@ -58,6 +58,11 @@ const FEATURE_LIST_ROLES_SUPPLEMENT = `
             <li>Mod Admin: the owner sets hours, or -1 for permanent. Admin powers while active, then they return to their previous role</li>
           </ul>`;
 
+const FEATURE_LIST_COPY_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Copy a published user level into your drafts. The creator can turn off Allow copies in the editor</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -65,6 +70,7 @@ export async function resolveFeatureListHtml(store) {
       let html = row.html;
       if (!html.includes('Awarded User Levels')) html += FEATURE_LIST_SUPPLEMENT;
       if (!html.includes('Mod Admin')) html += FEATURE_LIST_ROLES_SUPPLEMENT;
+      if (!html.includes('Allow copies')) html += FEATURE_LIST_COPY_SUPPLEMENT;
       return html;
     }
   }

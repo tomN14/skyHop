@@ -65,6 +65,7 @@ create index if not exists skyhop_levels_published_play_idx on public.skyhop_use
 
 alter table public.skyhop_user_levels add column if not exists awarded boolean not null default false;
 alter table public.skyhop_user_levels add column if not exists award_paid boolean not null default false;
+alter table public.skyhop_user_levels add column if not exists allow_copy boolean not null default true;
 
 alter table public.skyhop_users add column if not exists admin_until_ms bigint;
 alter table public.skyhop_users add column if not exists admin_fallback_role text;

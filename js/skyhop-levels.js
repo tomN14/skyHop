@@ -35,6 +35,7 @@
     published: false,
     readOnly: false,
     staffEdit: false,
+    allowCopy: true,
   };
 
   /** When non-null, editor is editing built-in campaign slots (owner). */
@@ -2851,6 +2852,7 @@
               awarded: true,
               canAward: onlineIsOwner,
               returnTo: 'awarded',
+              allowCopy: items[i].allow_copy !== false,
             })
           );
         }
@@ -3248,6 +3250,7 @@
       editorState.published = !!row.published;
       editorState.beatenOk = !!row.beatenVerified;
       editorState.readOnly = !!row.published;
+      editorState.allowCopy = row.allowCopy !== false;
       editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
@@ -3270,6 +3273,7 @@
     editorState.published = false;
     editorState.beatenOk = false;
     editorState.readOnly = false;
+    editorState.allowCopy = true;
     editorState.data = defaultLevelData();
     resetEditorHistory();
     document.getElementById('lvlEdTitle').value = editorState.title;
@@ -3292,6 +3296,11 @@
     const del = document.getElementById('btnLvlEdDelete');
     const delLvl = document.getElementById('btnLvlEdDeleteLevel');
     const tit = document.getElementById('lvlEdTitle');
+    const allowWrap = document.getElementById('lvlEdAllowCopyWrap');
+    const allowBox = document.getElementById('lvlEdAllowCopy');
+    const showAllow = !editorState.staffEdit && !ownerBuiltinArr;
+    if (allowWrap) allowWrap.classList.toggle('hidden', !showAllow);
+    if (allowBox && showAllow) allowBox.checked = editorState.allowCopy !== false;
     if (delLvl) {
       const showDelLvl = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.id;
       delLvl.classList.toggle('hidden', !showDelLvl);
@@ -3638,7 +3647,7 @@
       if (editorState.id) {
         const saved = await api('/api/levels/save', {
           method: 'POST',
-          body: JSON.stringify({ id: editorState.id, title, data }),
+          body: JSON.stringify({ id: editorState.id, title, data, allowCopy: editorState.allowCopy !== false }),
         });
         if (saved && saved.title) {
           title = String(saved.title);
@@ -3648,7 +3657,7 @@
       } else {
         const out = await api('/api/levels/save', {
           method: 'POST',
-          body: JSON.stringify({ title, data }),
+          body: JSON.stringify({ title, data, allowCopy: editorState.allowCopy !== false }),
         });
         editorState.id = out.id;
         if (out.title) {
@@ -3824,6 +3833,7 @@
               authorRole: out.author_role || (out.author_is_moderator ? 'moderator' : 'player'),
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
+              allowCopy: it.allow_copy !== false,
             })
           );
         }
@@ -3845,6 +3855,7 @@
               authorRole: it.author_role || (it.author_is_moderator ? 'moderator' : 'player'),
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
+              allowCopy: it.allow_copy !== false,
             })
           );
         }
@@ -3861,6 +3872,7 @@
               authorRole: out.item.author_role || (out.item.author_is_moderator ? 'moderator' : 'player'),
               awarded: !!out.item.awarded,
               canAward: onlineIsOwner,
+              allowCopy: out.item.allow_copy !== false,
             })
           );
         }
@@ -3872,6 +3884,22 @@
       li.className = 'text-sm text-rose-300';
       li.textContent = String(e.message || e);
       onlineList.appendChild(li);
+    }
+  }
+
+  async function copyPublishedLevel(id, btn) {
+    if (!hasAuth()) {
+      window.alert('Sign in to copy a level into My Levels.');
+      return;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      const out = await api('/api/levels/' + encodeURIComponent(id) + '/copy', { method: 'POST', body: '{}' });
+      await openEditorForId(out.id);
+      lvlEdStatus.textContent = 'Copied into your drafts.';
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      window.alert(String(e.message || e));
     }
   }
 
@@ -3918,11 +3946,18 @@
       ' plays</div>' +
       '<div class="mt-2 flex flex-wrap gap-2">' +
       '<button type="button" class="lvl-play rounded-lg bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">Play</button>' +
+      (extra.allowCopy !== false
+        ? '<button type="button" class="lvl-copy rounded-lg border border-violet-400/50 px-3 py-1 text-xs font-semibold text-violet-100 hover:bg-violet-950/50">Copy</button>'
+        : '') +
       awardBtn +
       '<button type="button" class="lvl-race rounded-lg border border-amber-500/50 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Race</button>' +
       '<button type="button" class="lvl-collab rounded-lg border border-teal-500/50 px-3 py-1 text-xs font-semibold text-teal-100 hover:bg-teal-950/50">Collab</button>' +
       '</div>';
     li.querySelector('.lvl-play').addEventListener('click', () => playPublishedLevel(id, extra.returnTo));
+    const copyBtn = li.querySelector('.lvl-copy');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', () => void copyPublishedLevel(id, copyBtn));
+    }
     const award = li.querySelector('.lvl-award');
     if (award) {
       award.addEventListener('click', () => {
@@ -4183,6 +4218,19 @@
       });
     }
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
+    const allowBox = document.getElementById('lvlEdAllowCopy');
+    if (allowBox) {
+      allowBox.addEventListener('change', function () {
+        editorState.allowCopy = !!allowBox.checked;
+        if (!editorState.id || editorState.staffEdit || ownerBuiltinArr) return;
+        api('/api/levels/' + encodeURIComponent(editorState.id) + '/allow-copy', {
+          method: 'POST',
+          body: JSON.stringify({ allow: editorState.allowCopy }),
+        }).catch(function (err) {
+          lvlEdStatus.textContent = String(err.message || err);
+        });
+      });
+    }
     document.getElementById('btnLvlEdTest').addEventListener('click', () => runTestPlay());
     const raceEd = document.getElementById('btnLvlEdRace');
     const collabEd = document.getElementById('btnLvlEdCollab');

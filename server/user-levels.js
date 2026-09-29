@@ -69,6 +69,24 @@ function fileSave(db) {
   fs.writeFileSync(LEVELS_PATH, JSON.stringify(db), 'utf8');
 }
 
+function copyAllowed(row) {
+  return !row || row.allow_copy !== false;
+}
+
+async function selectLevelRows(sb, baseColumns, selectOpts, configure) {
+  const run = async (cols) => {
+    let q = sb.from('skyhop_user_levels').select(cols, selectOpts || undefined);
+    if (configure) q = configure(q);
+    return q;
+  };
+  let res = await run(baseColumns + ', allow_copy');
+  if (res.error && /allow_copy/i.test(String(res.error.message))) {
+    res = await run(baseColumns);
+  }
+  if (res.error) throw new Error(res.error.message);
+  return res;
+}
+
 function userIsModerator(u) {
   const role = u ? effectiveRole(u) : 'player';
   return role === 'moderator' || role === 'mod_admin';
@@ -106,27 +124,30 @@ async function enrichAuthorMeta(items) {
 
 /* ---------- exports ---------- */
 
-export async function levelsCreate(userId, title, data) {
+export async function levelsCreate(userId, title, data, allowCopy) {
   const clean = validateLevelData(data);
   const t = censoredTitle(title);
   const now = Date.now();
+  const allow = allowCopy !== false;
 
   if (useSupabase()) {
     const sb = sbClient();
-    const { data: row, error } = await sb
-      .from('skyhop_user_levels')
-      .insert({
-        author_id: userId,
-        title: t,
-        title_lower: t.toLowerCase(),
-        data: clean,
-        play_count: 0,
-        beaten_verified: false,
-        published: false,
-        created_at: now,
-      })
-      .select('id')
-      .single();
+    const rowBody = {
+      author_id: userId,
+      title: t,
+      title_lower: t.toLowerCase(),
+      data: clean,
+      play_count: 0,
+      beaten_verified: false,
+      published: false,
+      created_at: now,
+      allow_copy: allow,
+    };
+    let { data: row, error } = await sb.from('skyhop_user_levels').insert(rowBody).select('id').single();
+    if (error && /allow_copy/i.test(error.message)) {
+      delete rowBody.allow_copy;
+      ({ data: row, error } = await sb.from('skyhop_user_levels').insert(rowBody).select('id').single());
+    }
     if (error) throw new Error(error.message);
     return { id: row.id };
   }
@@ -142,13 +163,14 @@ export async function levelsCreate(userId, title, data) {
     play_count: 0,
     beaten_verified: false,
     published: false,
+    allow_copy: allow,
     created_at: now,
   });
   fileSave(db);
   return { id };
 }
 
-export async function levelsUpdateDraft(userId, levelId, title, data) {
+export async function levelsUpdateDraft(userId, levelId, title, data, allowCopy) {
   const clean = validateLevelData(data);
   const t = censoredTitle(title);
 
@@ -158,15 +180,21 @@ export async function levelsUpdateDraft(userId, levelId, title, data) {
     if (e1) throw new Error(e1.message);
     if (!rows || rows.author_id !== userId) throw new Error('Not found');
     if (rows.published) throw new Error('Cannot edit published level');
-    const { error } = await sb
-      .from('skyhop_user_levels')
-      .update({
-        title: t,
-        title_lower: t.toLowerCase(),
-        data: clean,
-        beaten_verified: false,
-      })
-      .eq('id', levelId);
+    const patch = {
+      title: t,
+      title_lower: t.toLowerCase(),
+      data: clean,
+      beaten_verified: false,
+    };
+    if (allowCopy === true || allowCopy === false) patch.allow_copy = allowCopy;
+    let { error } = await sb.from('skyhop_user_levels').update(patch).eq('id', levelId);
+    if (error && patch.allow_copy != null && /allow_copy/i.test(error.message)) {
+      if (patch.allow_copy === false) {
+        throw new Error('Run extend_v28_level_copy.sql in Supabase, then try again.');
+      }
+      delete patch.allow_copy;
+      ({ error } = await sb.from('skyhop_user_levels').update(patch).eq('id', levelId));
+    }
     if (error) throw new Error(error.message);
     return { ok: true };
   }
@@ -179,8 +207,61 @@ export async function levelsUpdateDraft(userId, levelId, title, data) {
   row.title_lower = t.toLowerCase();
   row.data = clean;
   row.beaten_verified = false;
+  if (allowCopy === true || allowCopy === false) row.allow_copy = allowCopy;
   fileSave(db);
   return { ok: true };
+}
+
+export async function levelsSetAllowCopy(userId, levelId, allow) {
+  const on = !!allow;
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error: e1 } = await sb
+      .from('skyhop_user_levels')
+      .select('author_id')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (e1) throw new Error(e1.message);
+    if (!row || row.author_id !== userId) throw new Error('Not found');
+    const { error } = await sb.from('skyhop_user_levels').update({ allow_copy: on }).eq('id', levelId);
+    if (error) {
+      if (/allow_copy/i.test(error.message)) {
+        throw new Error('Run extend_v28_level_copy.sql in Supabase, then try again.');
+      }
+      throw new Error(error.message);
+    }
+    return { ok: true, allowCopy: on };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((L) => L.id === levelId);
+  if (!row || row.author_id !== userId) throw new Error('Not found');
+  row.allow_copy = on;
+  fileSave(db);
+  return { ok: true, allowCopy: on };
+}
+
+export async function levelsCopy(userId, levelId) {
+  let row = null;
+  if (useSupabase()) {
+    const sb = sbClient();
+    let res = await sb
+      .from('skyhop_user_levels')
+      .select('id, title, data, published, allow_copy')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (res.error && /allow_copy/i.test(String(res.error.message))) {
+      res = await sb.from('skyhop_user_levels').select('id, title, data, published').eq('id', levelId).maybeSingle();
+    }
+    if (res.error) throw new Error(res.error.message);
+    row = res.data;
+  } else {
+    row = fileLoad().levels.find((L) => L.id === levelId) || null;
+  }
+  if (!row || !row.published) throw new Error('Only published levels can be copied.');
+  if (!copyAllowed(row)) throw new Error('The creator turned off copying for this level.');
+  const title = censoredTitle('Copy of ' + row.title);
+  const created = await levelsCreate(userId, title, row.data, true);
+  return { id: created.id, title };
 }
 
 export async function levelsMarkBeaten(userId, levelId) {
@@ -249,13 +330,13 @@ export async function levelsPublish(userId, levelId) {
 export async function levelsMine(userId) {
   if (useSupabase()) {
     const sb = sbClient();
-    const { data, error } = await sb
-      .from('skyhop_user_levels')
-      .select('id, title, published, beaten_verified, play_count, created_at')
-      .eq('author_id', userId)
-      .order('created_at', { ascending: false });
-    if (error) throw new Error(error.message);
-    return data || [];
+    const res = await selectLevelRows(
+      sb,
+      'id, title, published, beaten_verified, play_count, created_at',
+      null,
+      (q) => q.eq('author_id', userId).order('created_at', { ascending: false })
+    );
+    return (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }));
   }
   const db = fileLoad();
   return db.levels
@@ -267,6 +348,7 @@ export async function levelsMine(userId) {
       published: L.published,
       beaten_verified: L.beaten_verified,
       play_count: L.play_count,
+      allow_copy: copyAllowed(L),
       created_at: L.created_at,
     }));
 }
@@ -282,12 +364,10 @@ export async function levelsPublishedMetaById(id) {
 
   if (useSupabase()) {
     const sb = sbClient();
-    const { data: row, error } = await sb
-      .from('skyhop_user_levels')
-      .select('id, title, play_count, author_id, published, awarded')
-      .eq('id', idStr)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
+    const res = await selectLevelRows(sb, 'id, title, play_count, author_id, published, awarded', null, (q) =>
+      q.eq('id', idStr).maybeSingle()
+    );
+    const row = res.data;
     if (!row || !row.published) return null;
     const { data: userRow } = await sb
       .from('skyhop_users')
@@ -303,6 +383,7 @@ export async function levelsPublishedMetaById(id) {
       author_is_moderator: userIsModerator(userRow),
       author_role: authorRoleOf(userRow),
       awarded: !!row.awarded,
+      allow_copy: copyAllowed(row),
     };
   }
 
@@ -320,6 +401,7 @@ export async function levelsPublishedMetaById(id) {
     author_is_moderator: userIsModerator(u),
     author_role: authorRoleOf(u),
     awarded: !!row.awarded,
+    allow_copy: copyAllowed(row),
   };
 }
 
@@ -339,6 +421,7 @@ export async function levelsGetById(id, viewerUserId) {
       playCount: row.play_count,
       published: row.published,
       beatenVerified: !!row.beaten_verified,
+      allowCopy: copyAllowed(row),
     };
   }
   const db = fileLoad();
@@ -354,6 +437,7 @@ export async function levelsGetById(id, viewerUserId) {
     playCount: row.play_count,
     published: row.published,
     beatenVerified: !!row.beaten_verified,
+    allowCopy: copyAllowed(row),
   };
 }
 
@@ -382,16 +466,11 @@ export async function levelsListByUsername(usernameLower, page) {
     if (!user) return { items: [], total: 0, page: p, author_is_moderator: false, author_role: 'player' };
     const author_is_moderator = userIsModerator(user);
     const author_role = authorRoleOf(user);
-    const q = sb
-      .from('skyhop_user_levels')
-      .select('id, title, play_count, awarded', { count: 'exact' })
-      .eq('author_id', user.id)
-      .eq('published', true)
-      .order('created_at', { ascending: false })
-      .range(off, off + PAGE_SIZE - 1);
-    const { data, count, error } = await q;
-    if (error) throw new Error(error.message);
-    return { items: data || [], total: count || 0, page: p, author_is_moderator, author_role };
+    const res = await selectLevelRows(sb, 'id, title, play_count, awarded', { count: 'exact' }, (q) =>
+      q.eq('author_id', user.id).eq('published', true).order('created_at', { ascending: false }).range(off, off + PAGE_SIZE - 1)
+    );
+    const items = (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }));
+    return { items, total: res.count || 0, page: p, author_is_moderator, author_role };
   }
 
   const db = fileLoad();
@@ -405,7 +484,7 @@ export async function levelsListByUsername(usernameLower, page) {
   const items = all
     .sort((a, b) => b.created_at - a.created_at)
     .slice(off, off + PAGE_SIZE)
-    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, awarded: !!L.awarded }));
+    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, awarded: !!L.awarded, allow_copy: copyAllowed(L) }));
   return { items, total, page: p, author_is_moderator, author_role };
 }
 
@@ -419,15 +498,12 @@ export async function levelsSearchName(q, page) {
     const sb = sbClient();
     const like = `%${term.replace(/%/g, '')}%`;
     const { count } = await sb.from('skyhop_user_levels').select('id', { count: 'exact', head: true }).eq('published', true).ilike('title_lower', like);
-    const { data, error } = await sb
-      .from('skyhop_user_levels')
-      .select('id, title, play_count, author_id, awarded')
-      .eq('published', true)
-      .ilike('title_lower', like)
-      .order('play_count', { ascending: false })
-      .range(off, off + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    const enriched = await enrichAuthorMeta(data || []);
+    const res = await selectLevelRows(sb, 'id, title, play_count, author_id, awarded', null, (q) =>
+      q.eq('published', true).ilike('title_lower', like).order('play_count', { ascending: false }).range(off, off + PAGE_SIZE - 1)
+    );
+    const enriched = await enrichAuthorMeta(
+      (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }))
+    );
     return { items: enriched, total: count || 0, page: p };
   }
 
@@ -437,7 +513,7 @@ export async function levelsSearchName(q, page) {
   const total = all.length;
   const slice = all
     .slice(off, off + PAGE_SIZE)
-    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, author_id: L.author_id, awarded: !!L.awarded }));
+    .map((L) => ({ id: L.id, title: L.title, play_count: L.play_count, author_id: L.author_id, awarded: !!L.awarded, allow_copy: copyAllowed(L) }));
   const enriched = await enrichAuthorMeta(slice);
   return { items: enriched, total, page: p };
 }
@@ -487,6 +563,7 @@ export async function levelsStaffGetById(levelId) {
       playCount: row.play_count,
       published: row.published,
       beatenVerified: !!row.beaten_verified,
+      allowCopy: copyAllowed(row),
     };
   }
   const db = fileLoad();
@@ -629,15 +706,12 @@ export async function levelsListAwarded(page) {
       .select('id', { count: 'exact', head: true })
       .eq('published', true)
       .eq('awarded', true);
-    const { data, error } = await sb
-      .from('skyhop_user_levels')
-      .select('id, title, play_count, author_id, awarded')
-      .eq('published', true)
-      .eq('awarded', true)
-      .order('play_count', { ascending: false })
-      .range(off, off + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    const enriched = await enrichAuthorMeta(data || []);
+    const res = await selectLevelRows(sb, 'id, title, play_count, author_id, awarded', null, (q) =>
+      q.eq('published', true).eq('awarded', true).order('play_count', { ascending: false }).range(off, off + PAGE_SIZE - 1)
+    );
+    const enriched = await enrichAuthorMeta(
+      (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }))
+    );
     return { items: enriched, total: count || 0, page: p };
   }
   const db = fileLoad();
@@ -649,6 +723,7 @@ export async function levelsListAwarded(page) {
     play_count: L.play_count,
     author_id: L.author_id,
     awarded: true,
+    allow_copy: copyAllowed(L),
   }));
   const enriched = await enrichAuthorMeta(slice);
   return { items: enriched, total: all.length, page: p };
