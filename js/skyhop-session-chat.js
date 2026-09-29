@@ -17,12 +17,13 @@
 
   function isStaff() {
     var role = myRole();
-    return role === 'moderator' || role === 'admin' || role === 'owner';
+    return role === 'moderator' || role === 'admin' || role === 'mod_admin' || role === 'owner';
   }
 
   function canReveal() {
+    var me = window.__skyhopLastMe;
     var role = myRole();
-    return role === 'owner' || role === 'admin';
+    return role === 'owner' || role === 'admin' || role === 'mod_admin' || !!(me && me.adminPowers);
   }
 
   function dock() {

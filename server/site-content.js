@@ -50,12 +50,22 @@ const FEATURE_LIST_SUPPLEMENT = `
             <li>The level script guide is the script button on the main menu, above custom keybinds. The owner can edit that guide from Account administration</li>
           </ul>`;
 
+const FEATURE_LIST_ROLES_SUPPLEMENT = `
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Admins and level coins</p>
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Coin pickups inside a user level add to your balance only when that level is awarded. Pickups in other user levels do not count</li>
+            <li>Admins: more than one account can be Admin. Moderator powers, plus promote mods and 1-day bans (2 per week)</li>
+            <li>Mod Admin: the owner sets hours, or -1 for permanent. Admin powers while active, then they return to their previous role</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
     if (row && typeof row.html === 'string' && row.html.trim()) {
-      if (row.html.includes('Awarded User Levels')) return row.html;
-      return row.html + FEATURE_LIST_SUPPLEMENT;
+      let html = row.html;
+      if (!html.includes('Awarded User Levels')) html += FEATURE_LIST_SUPPLEMENT;
+      if (!html.includes('Mod Admin')) html += FEATURE_LIST_ROLES_SUPPLEMENT;
+      return html;
     }
   }
   return defaultFeatureListHtml();

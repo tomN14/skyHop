@@ -215,7 +215,7 @@
             ? 'text-amber-300'
             : prof.role === 'admin'
               ? 'text-emerald-300'
-              : prof.role === 'moderator'
+              : prof.role === 'moderator' || prof.role === 'mod_admin'
                 ? 'text-rose-400'
                 : prof.role === 'report_advisor'
                   ? 'text-sky-300'
@@ -274,7 +274,7 @@
   function canRevealMod() {
     var me = window.__skyhopLastMe;
     var role = me && me.role ? me.role : 'player';
-    return role === 'owner' || role === 'admin';
+    return role === 'owner' || role === 'admin' || role === 'mod_admin' || !!(me && me.adminPowers);
   }
 
   function sendWatch(obj) {
@@ -584,7 +584,7 @@
   function openDashboard() {
     var me = window.__skyhopLastMe;
     var role = me && me.role ? me.role : 'player';
-    if (role !== 'moderator' && role !== 'admin' && role !== 'owner') {
+    if (role !== 'moderator' && role !== 'admin' && role !== 'mod_admin' && role !== 'owner') {
       showAccessDenied();
       return;
     }

@@ -727,7 +727,9 @@
             <li>Awarded User Levels on the main menu, under Play and Racing. The owner awards a published level from Online Levels with the red Award button. The creator receives 300 coins once. A signed-in player receives 25 coins the first time they clear it, and nothing if they clear it again. Awarded level names are blue when you search that creator</li>
             <li>Profanity filter on level titles (client NN + server censor)</li>
             <li>Staff can edit non-owner user levels from mod dashboard</li>
-            <li>Admin (exactly one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
+            <li>Coin pickups inside a user level add to your balance only when that level is awarded. Pickups in other user levels do not count</li>
+            <li>Admins (more than one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
+            <li>Mod Admin: the owner sets how many hours it lasts, or -1 for permanent. While it is active they have Admin powers. When it ends they return to their previous role</li>
             <li>Report Advisor: pending reports only — dismiss or escalate to the owner; no dashboard, owner tools, or bans</li>
             <li>Owner: edit / append built-in World 1 &amp; World 2 stages; Upload ALL saves them to Play</li>
             <li>Owner: add worlds (unlock checklist) from the button above leaderboards; add that world’s stages from the owner inbox</li>
@@ -933,15 +935,29 @@
           <button id="ownerBtnDelete" type="button" class="rounded-xl border border-rose-600/60 bg-rose-950/60 px-4 py-2.5 text-sm font-semibold text-rose-100 hover:bg-rose-900/50">Delete account permanently…</button>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
-          <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admin (exactly one)</p>
-          <p class="mt-1 text-[11px] text-slate-500">Same as a moderator, plus promote mods and 1-day bans (max 2 / week). Becoming Admin automatically grants 3000 coins. They cannot demote mods, use Owner Inbox, Owner Administration, or Reviewed Runs. Assign after deploy — nobody is Admin until you set it.</p>
-          <p class="mt-2 text-sm text-slate-200">Current Admin: <span id="ownerAdminCurrentLabel" class="font-semibold text-emerald-300">none</span></p>
+          <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admins</p>
+          <p class="mt-1 text-[11px] text-slate-500">More than one Admin is allowed. Same as a moderator, plus promote mods and 1-day bans (max 2 / week). Becoming Admin automatically grants 3000 coins. They cannot demote mods, use Owner Inbox, Owner Administration, or Reviewed Runs.</p>
+          <p class="mt-2 text-[11px] font-sem text-emerald-300/90">Current Admins</p>
+          <ul id="ownerAdminCurrentList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-emerald-200"></ul>
           <input id="ownerAdminRoleUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username to make / remove Admin" />
           <div class="mt-2 flex flex-col gap-2 sm:flex-row">
             <button id="ownerBtnAdminOn" type="button" class="flex-1 rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Make Admin</button>
             <button id="ownerBtnAdminOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Admin</button>
           </div>
           <p id="ownerAdminRoleMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-teal-200/90">Mod Admin</p>
+          <p class="mt-1 text-[11px] text-slate-500">Temporary Admin powers. Set hours, or -1 for permanent. When the time ends they go back to the role they had before. This does not grant the 3000 Admin coins.</p>
+          <p class="mt-2 text-[11px] font-sem text-teal-300/90">Current Mod Admins</p>
+          <ul id="ownerModAdminList" class="mt-1 max-h-24 space-y-1 overflow-y-auto text-[11px] text-teal-200"></ul>
+          <input id="ownerModAdminUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <input id="ownerModAdminHours" type="number" step="1" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Hours (-1 = permanent)" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnModAdminOn" type="button" class="flex-1 rounded-xl border border-teal-500/45 bg-teal-950/50 px-3 py-2 text-xs font-semibold text-teal-100 hover:bg-teal-900/40">Set Mod Admin</button>
+            <button id="ownerBtnModAdminOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Mod Admin</button>
+          </div>
+          <p id="ownerModAdminMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-sky-200/90">📋 Report Advisor</p>

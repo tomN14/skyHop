@@ -327,7 +327,7 @@ export function chatHistoryFor(room, reveal) {
 }
 
 function mayRevealMod(role) {
-  return role === 'owner' || role === 'admin';
+  return role === 'owner' || role === 'admin' || role === 'mod_admin';
 }
 
 export function broadcastChat(room, row) {

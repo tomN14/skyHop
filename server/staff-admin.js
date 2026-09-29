@@ -25,7 +25,7 @@ export async function adminBanQuota(store, adminUserId) {
 export function assertAdminCanPunish(target) {
   const role = effectiveRole(target);
   if (role === 'owner') throw new Error('Cannot ban the site owner.');
-  if (role === 'admin') throw new Error('Cannot ban the Admin.');
+  if (role === 'admin' || role === 'mod_admin') throw new Error('Cannot ban an Admin.');
   if (role === 'moderator') throw new Error('Cannot ban a moderator. Request a demotion instead.');
 }
 

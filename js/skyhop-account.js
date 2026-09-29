@@ -258,14 +258,14 @@
   function staffNameClass(role) {
     if (role === 'owner') return 'font-semibold text-amber-300';
     if (role === 'admin') return 'font-semibold text-emerald-300';
-    if (role === 'moderator') return 'font-semibold text-rose-400';
+    if (role === 'moderator' || role === 'mod_admin') return 'font-semibold text-rose-400';
     if (role === 'report_advisor') return 'font-semibold text-sky-300';
     return 'font-semibold text-violet-200';
   }
   window.SkyHopAuthorNameClass = function (role) {
     if (role === 'owner') return 'text-amber-300 font-semibold';
     if (role === 'admin') return 'text-emerald-300 font-semibold';
-    if (role === 'moderator') return 'text-rose-400 font-semibold';
+    if (role === 'moderator' || role === 'mod_admin') return 'text-rose-400 font-semibold';
     if (role === 'report_advisor') return 'text-sky-300 font-semibold';
     return 'text-slate-400';
   };
@@ -549,10 +549,10 @@
       const n =
         role === 'owner'
           ? me.ownerInboxCount || 0
-          : role === 'moderator' || role === 'admin' || role === 'report_advisor'
+          : role === 'moderator' || role === 'admin' || role === 'mod_admin' || role === 'report_advisor'
             ? me.modInboxCount || 0
             : 0;
-      const show = role === 'moderator' || role === 'admin' || role === 'owner' || role === 'report_advisor';
+      const show = role === 'moderator' || role === 'admin' || role === 'mod_admin' || role === 'owner' || role === 'report_advisor';
       fab.classList.toggle('hidden', !show);
       if (n > 0) {
         badge.textContent = n > 99 ? '99+' : String(n);
@@ -562,10 +562,13 @@
       }
     }
 
+    function meIsAdmin(me) {
+      return !!(me && (me.adminPowers || me.role === 'admin' || me.role === 'mod_admin'));
+    }
     function updateAdminBanFab(me) {
       var fab = document.getElementById('btnAdminBanFab');
       if (!fab) return;
-      fab.classList.toggle('hidden', !(me && me.role === 'admin'));
+      fab.classList.toggle('hidden', !meIsAdmin(me));
     }
 
     function hidePromotionNotice() {
@@ -2045,12 +2048,13 @@
         void loadOwnerSiteContentEditors();
         void refreshOwnerAppealsList();
         void refreshOwnerAdminRole();
+        void refreshOwnerModAdmins();
         void refreshOwnerStaffRequests();
         void refreshOwnerAdvisors();
       });
     }
 
-    var ownerAdminCurrentLabel = document.getElementById('ownerAdminCurrentLabel');
+    var ownerAdminCurrentList = document.getElementById('ownerAdminCurrentList');
     var ownerAdminRoleUsername = document.getElementById('ownerAdminRoleUsername');
     var ownerAdminRoleMsg = document.getElementById('ownerAdminRoleMsg');
     function setOwnerAdminRoleMsg(t, isErr) {
@@ -2059,6 +2063,18 @@
       ownerAdminRoleMsg.classList.toggle('hidden', !t);
       ownerAdminRoleMsg.classList.toggle('text-rose-300', !!isErr);
       ownerAdminRoleMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function fillNameList(el, rows, emptyText) {
+      if (!el) return;
+      if (!rows.length) {
+        el.innerHTML = '<li class="list-none text-slate-500">' + emptyText + '</li>';
+        return;
+      }
+      el.innerHTML = rows
+        .map(function (a) {
+          return '<li>' + String(a.username || '').replace(/</g, '&lt;') + '</li>';
+        })
+        .join('');
     }
     async function refreshOwnerAdminRole() {
       var tok = getToken();
@@ -2069,10 +2085,9 @@
           method: 'GET',
           headers: { Authorization: 'Bearer ' + tok },
         });
-        var name = data.admin && data.admin.username ? data.admin.username : 'none';
-        if (ownerAdminCurrentLabel) ownerAdminCurrentLabel.textContent = name;
+        fillNameList(ownerAdminCurrentList, data.admins || [], 'none');
       } catch (e) {
-        if (ownerAdminCurrentLabel) ownerAdminCurrentLabel.textContent = '—';
+        if (ownerAdminCurrentList) ownerAdminCurrentList.innerHTML = '<li class="list-none text-slate-500">—</li>';
         setOwnerAdminRoleMsg(String(e.message || e), true);
       }
     }
@@ -2092,11 +2107,12 @@
           headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: un, promote: !!promote }),
         });
-        var msg = promote
-          ? 'Admin set to ' + (data.username || un) + '.'
-          : 'Admin removed from ' + (data.username || un) + '.';
-        if (data.previousAdmin) msg += ' Previous Admin ' + data.previousAdmin + ' is now a player.';
-        setOwnerAdminRoleMsg(msg, false);
+        setOwnerAdminRoleMsg(
+          promote
+            ? (data.username || un) + ' is now an Admin.'
+            : 'Admin removed from ' + (data.username || un) + '.',
+          false
+        );
         await refreshOwnerAdminRole();
       } catch (e) {
         setOwnerAdminRoleMsg(String(e.message || e), true);
@@ -2112,6 +2128,97 @@
     if (ownerBtnAdminOff) {
       ownerBtnAdminOff.addEventListener('click', function () {
         void ownerSetAdmin(false);
+      });
+    }
+
+    var ownerModAdminList = document.getElementById('ownerModAdminList');
+    var ownerModAdminUsername = document.getElementById('ownerModAdminUsername');
+    var ownerModAdminHours = document.getElementById('ownerModAdminHours');
+    var ownerModAdminMsg = document.getElementById('ownerModAdminMsg');
+    function setOwnerModAdminMsg(t, isErr) {
+      if (!ownerModAdminMsg) return;
+      ownerModAdminMsg.textContent = t || '';
+      ownerModAdminMsg.classList.toggle('hidden', !t);
+      ownerModAdminMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerModAdminMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    function modAdminLine(row) {
+      var name = String(row.username || '').replace(/</g, '&lt;');
+      if (row.permanent || Number(row.untilMs) === -1) return name + ' — permanent';
+      var ms = Number(row.untilMs);
+      if (!Number.isFinite(ms)) return name;
+      return name + ' — until ' + new Date(ms).toLocaleString();
+    }
+    async function refreshOwnerModAdmins() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerModAdminList) return;
+      try {
+        var data = await api('/api/owner/mod-admins', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var rows = data.modAdmins || [];
+        if (!rows.length) {
+          ownerModAdminList.innerHTML = '<li class="list-none text-slate-500">none</li>';
+        } else {
+          ownerModAdminList.innerHTML = rows
+            .map(function (a) {
+              return '<li>' + modAdminLine(a) + '</li>';
+            })
+            .join('');
+        }
+      } catch (e) {
+        ownerModAdminList.innerHTML = '<li class="list-none text-slate-500">Could not load</li>';
+        setOwnerModAdminMsg(String(e.message || e), true);
+      }
+    }
+    async function ownerSetModAdmin(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerModAdminUsername ? String(ownerModAdminUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerModAdminMsg('Username required.', true);
+        return;
+      }
+      var body = { username: un, promote: !!promote };
+      if (promote) {
+        var hours = ownerModAdminHours ? Number(ownerModAdminHours.value) : NaN;
+        if (!Number.isFinite(hours) || (hours !== -1 && hours < 1)) {
+          setOwnerModAdminMsg('Enter hours, or -1 for permanent.', true);
+          return;
+        }
+        body.hours = Math.floor(hours);
+      }
+      setOwnerModAdminMsg('', false);
+      try {
+        var data = await api('/api/owner/set-mod-admin', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        setOwnerModAdminMsg(
+          promote
+            ? (data.username || un) + (data.permanent ? ' is a permanent Mod Admin.' : ' is a Mod Admin until the timer ends.')
+            : 'Mod Admin removed from ' + (data.username || un) + '.',
+          false
+        );
+        await refreshOwnerModAdmins();
+      } catch (e) {
+        setOwnerModAdminMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnModAdminOn = document.getElementById('ownerBtnModAdminOn');
+    var ownerBtnModAdminOff = document.getElementById('ownerBtnModAdminOff');
+    if (ownerBtnModAdminOn) {
+      ownerBtnModAdminOn.addEventListener('click', function () {
+        void ownerSetModAdmin(true);
+      });
+    }
+    if (ownerBtnModAdminOff) {
+      ownerBtnModAdminOff.addEventListener('click', function () {
+        void ownerSetModAdmin(false);
       });
     }
 
@@ -2309,7 +2416,7 @@
     }
     function openAdminTools() {
       var me = window.__skyhopLastMe;
-      if (!me || me.role !== 'admin') return;
+      if (!me || !meIsAdmin(me)) return;
       setAdminToolsMsg('', false);
       syncAdminQuotaLabel(me);
       if (screenAdminTools) {
@@ -2333,7 +2440,7 @@
         var me = window.__skyhopLastMe;
         var out = document.getElementById('adminStrikeLookupResult');
         var inp = document.getElementById('adminStrikeLookupUser');
-        if (!tok || !me || me.role !== 'admin') return;
+        if (!tok || !me || !meIsAdmin(me)) return;
         if (out) out.textContent = 'Looking up…';
         try {
           var data = await api('/api/strikes?username=' + encodeURIComponent(inp ? inp.value : ''), {
@@ -2351,7 +2458,7 @@
       adminBtnOneDayBan.addEventListener('click', async function () {
         var tok = getToken();
         var me = window.__skyhopLastMe;
-        if (!tok || !me || me.role !== 'admin') return;
+        if (!tok || !me || !meIsAdmin(me)) return;
         var unEl = document.getElementById('adminBanUsername');
         var reasonEl = document.getElementById('adminBanReason');
         setAdminToolsMsg('', false);
@@ -2377,7 +2484,7 @@
       adminBtnRequestLongBan.addEventListener('click', async function () {
         var tok = getToken();
         var me = window.__skyhopLastMe;
-        if (!tok || !me || me.role !== 'admin') return;
+        if (!tok || !me || !meIsAdmin(me)) return;
         var unEl = document.getElementById('adminLongBanUser');
         var durEl = document.getElementById('adminLongBanDur');
         var reasonEl = document.getElementById('adminLongBanReason');
@@ -2404,7 +2511,7 @@
       adminBtnPromoteMod.addEventListener('click', async function () {
         var tok = getToken();
         var me = window.__skyhopLastMe;
-        if (!tok || !me || me.role !== 'admin') return;
+        if (!tok || !me || !meIsAdmin(me)) return;
         var unEl = document.getElementById('adminModUsername');
         setAdminToolsMsg('', false);
         try {
@@ -2424,7 +2531,7 @@
       adminBtnRequestDemote.addEventListener('click', async function () {
         var tok = getToken();
         var me = window.__skyhopLastMe;
-        if (!tok || !me || me.role !== 'admin') return;
+        if (!tok || !me || !meIsAdmin(me)) return;
         var unEl = document.getElementById('adminDemoteUser');
         var reasonEl = document.getElementById('adminDemoteReason');
         setAdminToolsMsg('', false);

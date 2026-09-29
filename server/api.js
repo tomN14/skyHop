@@ -4,7 +4,7 @@ import {
   finalizeCampaignRunSession,
   startCampaignRunSession,
 } from './campaign-run-sessions.js';
-import { banStatusForUser, assertAccountActive, canAccessReportInbox, effectiveRole, isAccountDisabled, isStaffRole, ownerUsernameLower, parseBanDuration, promotionNoticePayload, seesModReportQueue } from './moderation.js';
+import { banStatusForUser, assertAccountActive, canAccessReportInbox, displayRole, effectiveRole, hasAdminPowers, isAccountDisabled, isStaffRole, ownerUsernameLower, parseBanDuration, parseModAdminHours, promotionNoticePayload, seesModReportQueue } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
 import {
   createDeleteToken,
@@ -150,6 +150,10 @@ async function getActiveSessionUser(req) {
   if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(uid);
   const user = await store.findUserById(uid);
   if (!user) return null;
+  if (typeof store.expireModAdminIfNeeded === 'function') {
+    const settled = await store.expireModAdminIfNeeded(user);
+    if (settled) Object.assign(user, settled);
+  }
   const bs = banStatusForUser(user);
   if (bs.banned) {
     if (typeof store.revokeSession === 'function') await store.revokeSession(tok);
@@ -248,7 +252,7 @@ async function buildMePayload(userId, req = null) {
   if (typeof store.countOpenBanAppeals === 'function') {
     try {
       const ac = await store.countOpenBanAppeals();
-      if (role === 'moderator' || role === 'admin') modInboxCount += ac;
+      if (role === 'moderator' || hasAdminPowers(role)) modInboxCount += ac;
       if (role === 'owner') ownerInboxCount += ac;
     } catch {
       /* */
@@ -263,7 +267,7 @@ async function buildMePayload(userId, req = null) {
     }
   }
   let adminBanQuotaInfo = null;
-  if (role === 'admin') {
+  if (hasAdminPowers(role)) {
     try {
       adminBanQuotaInfo = await adminBanQuota(store, userId);
     } catch {
@@ -289,7 +293,8 @@ async function buildMePayload(userId, req = null) {
   }
   return {
     username: user.username,
-    role,
+    role: displayRole(role),
+    adminPowers: hasAdminPowers(role),
     disabled: isAccountDisabled(user),
     coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
@@ -714,7 +719,7 @@ export async function handleApi(req, res) {
           username: p.username,
           bio: p.bio,
           avatarUrl: user ? resolveProfileAvatarUrl(user, req) : null,
-          role: effectiveRole(user || {}),
+          role: displayRole(effectiveRole(user || {})),
         });
       } catch (e) {
         json(res, 400, { error: String(e.message || e) });
@@ -2458,7 +2463,7 @@ export async function handleApi(req, res) {
       return true;
     }
     const actorRole = effectiveRole(sess.user);
-    if (actorRole !== 'owner' && actorRole !== 'admin') {
+    if (actorRole !== 'owner' && !hasAdminPowers(actorRole)) {
       json(res, 403, { error: 'Owner or Admin only' });
       return true;
     }
@@ -2475,7 +2480,7 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'username required' });
       return true;
     }
-    if (actorRole === 'admin' && !promote) {
+    if (hasAdminPowers(actorRole) && !promote) {
       json(res, 403, { error: 'Admins cannot demote moderators. Send a demotion request to the owner.' });
       return true;
     }
@@ -2490,7 +2495,7 @@ export async function handleApi(req, res) {
         json(res, 400, { error: 'Cannot change the owner account.' });
         return true;
       }
-      if (targetRole === 'admin') {
+      if (targetRole === 'admin' || targetRole === 'mod_admin') {
         json(res, 400, { error: 'Cannot change the Admin here. The owner assigns Admin separately.' });
         return true;
       }
@@ -2550,17 +2555,83 @@ export async function handleApi(req, res) {
         json(res, 400, { error: 'Cannot change the owner account.' });
         return true;
       }
-      let previous = null;
-      if (promote && typeof store.listAdmins === 'function') {
-        const cur = await store.listAdmins();
-        previous = cur.find((a) => a.id !== u.id) || null;
-      }
       await store.setAdminRole(u.id, promote);
       json(res, 200, {
         ok: true,
         username: u.username,
         admin: promote,
-        previousAdmin: previous ? previous.username : null,
+      });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/mod-admins' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const modAdmins = typeof store.listModAdmins === 'function' ? await store.listModAdmins() : [];
+      json(res, 200, { modAdmins });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-mod-admin' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const promote = !!body.promote;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(un);
+      if (!u) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      if (effectiveRole(u) === 'owner') {
+        json(res, 400, { error: 'Cannot change the owner account.' });
+        return true;
+      }
+      if (typeof store.setModAdminRole !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      if (!promote) {
+        await store.setModAdminRole(u.id, null);
+        json(res, 200, { ok: true, username: u.username, modAdmin: false });
+        return true;
+      }
+      const untilMs = parseModAdminHours(body.hours);
+      if (untilMs == null) {
+        json(res, 400, { error: 'Hours must be a whole number from 1 up, or -1 for permanent.' });
+        return true;
+      }
+      await store.setModAdminRole(u.id, untilMs);
+      json(res, 200, {
+        ok: true,
+        username: u.username,
+        modAdmin: true,
+        untilMs,
+        permanent: untilMs === -1,
       });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
@@ -2633,7 +2704,7 @@ export async function handleApi(req, res) {
       return true;
     }
     const actorRole = effectiveRole(sess.user);
-    if (actorRole !== 'owner' && actorRole !== 'admin') {
+    if (actorRole !== 'owner' && !hasAdminPowers(actorRole)) {
       json(res, 403, { error: 'Not allowed' });
       return true;
     }
@@ -2753,7 +2824,7 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'admin') {
+    if (!hasAdminPowers(effectiveRole(sess.user))) {
       json(res, 403, { error: 'Admin only' });
       return true;
     }
@@ -2794,7 +2865,7 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'admin') {
+    if (!hasAdminPowers(effectiveRole(sess.user))) {
       json(res, 403, { error: 'Admin only' });
       return true;
     }
@@ -3085,6 +3156,12 @@ export async function handleApi(req, res) {
         return true;
       }
       try {
+        const counts = await UserLevels.levelPickupCoinsCount(m[1]);
+        if (!counts) {
+          const me = await buildMePayload(uid);
+          json(res, 200, { ok: true, counted: false, coins: me.coins, coinsInfinite: !!me.coinsInfinite });
+          return true;
+        }
         const ok = await store.claimOnlineCoin(uid, m[1], idx);
         if (!ok) {
           json(res, 200, { ok: false, already: true });
@@ -3175,7 +3252,7 @@ export async function handleApi(req, res) {
       const publishedCount = levels.filter((L) => L.published).length;
       json(res, 200, {
         username: target.username,
-        role,
+        role: displayRole(role),
         disabled: isAccountDisabled(target),
         createdAt: target.createdAt != null ? target.createdAt : null,
         isSiteOwner: role === 'owner',

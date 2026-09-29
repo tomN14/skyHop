@@ -66,7 +66,10 @@
   };
 
   function listsFor(role) {
-    if (role === 'owner' || role === 'admin') return ['report_advisor', 'moderator', 'admin'];
+    var me = window.__skyhopLastMe;
+    if (role === 'owner' || role === 'admin' || role === 'mod_admin' || (me && me.adminPowers)) {
+      return ['report_advisor', 'moderator', 'admin'];
+    }
     if (role === 'moderator') return ['moderator'];
     if (role === 'report_advisor') return ['report_advisor'];
     return [];
@@ -125,7 +128,7 @@
       hint.textContent =
         myRole() === 'owner'
           ? 'You can read every role list.'
-          : myRole() === 'admin'
+          : myRole() === 'admin' || myRole() === 'mod_admin' || (window.__skyhopLastMe && window.__skyhopLastMe.adminPowers)
             ? 'You can read the Report Advisor, moderator, and Admin lists.'
             : 'This list is only for your role.';
     }

@@ -7,7 +7,7 @@ create table if not exists public.skyhop_users (
   username_lower text not null unique,
   salt text not null,
   hash text not null,
-  role text not null default 'player', -- player | report_advisor | moderator | admin | owner
+  role text not null default 'player', -- player | report_advisor | moderator | admin | mod_admin | owner
   ban_until_ms bigint,
   ban_reason text,
   created_at bigint not null default (floor(extract(epoch from now()) * 1000))::bigint
@@ -65,6 +65,9 @@ create index if not exists skyhop_levels_published_play_idx on public.skyhop_use
 
 alter table public.skyhop_user_levels add column if not exists awarded boolean not null default false;
 alter table public.skyhop_user_levels add column if not exists award_paid boolean not null default false;
+
+alter table public.skyhop_users add column if not exists admin_until_ms bigint;
+alter table public.skyhop_users add column if not exists admin_fallback_role text;
 
 create table if not exists public.skyhop_awarded_clears (
   user_id bigint not null references public.skyhop_users (id) on delete cascade,

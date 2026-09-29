@@ -8,7 +8,7 @@ import './env.js';
 import { warnIfPasswordPepperMissing } from './password.js';
 import { handleApi } from './api.js';
 import { store } from './store.js';
-import { effectiveRole, isAccountDisabled, isStaffRole } from './moderation.js';
+import { effectiveRole, hasAdminPowers, isAccountDisabled, isStaffRole } from './moderation.js';
 import { recordVisit } from './visit-stats.js';
 import {
   applyChat,
@@ -97,7 +97,11 @@ async function wsUserFromToken(authToken) {
   try {
     const uid = await store.sessionUserId(tok);
     if (!uid) return null;
-    const user = await store.findUserById(uid);
+    let user = await store.findUserById(uid);
+    if (!user) return null;
+    if (typeof store.expireModAdminIfNeeded === 'function') {
+      user = await store.expireModAdminIfNeeded(user);
+    }
     if (!user) return null;
     return {
       uid,
@@ -185,7 +189,7 @@ function stampSessionUser(meta, user) {
 
 function revealModsFor(userOrMeta) {
   const role = userOrMeta && userOrMeta.role;
-  return role === 'owner' || role === 'admin';
+  return role === 'owner' || hasAdminPowers(role);
 }
 
 function canModerateSession(meta) {

@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { effectiveRole } from './moderation.js';
+import { displayRole, effectiveRole } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
 
 function censoredTitle(title) {
@@ -71,11 +71,11 @@ function fileSave(db) {
 
 function userIsModerator(u) {
   const role = u ? effectiveRole(u) : 'player';
-  return role === 'moderator';
+  return role === 'moderator' || role === 'mod_admin';
 }
 
 function authorRoleOf(u) {
-  return u ? effectiveRole(u) : 'player';
+  return u ? displayRole(effectiveRole(u)) : 'player';
 }
 
 /** Adds author_username and author_is_moderator for rows with author_id. */
@@ -689,4 +689,19 @@ export async function levelsClaimClearReward(userId, levelId) {
   const { store } = await import('./store.js');
   await store.incrementUserCoins(userId, CLEAR_AWARD_COINS);
   return { coins: CLEAR_AWARD_COINS, already: false };
+}
+
+export async function levelPickupCoinsCount(levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data, error } = await sb
+      .from('skyhop_user_levels')
+      .select('published, awarded')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return !!(data && data.published && data.awarded);
+  }
+  const row = fileLoad().levels.find((L) => L.id === levelId);
+  return !!(row && row.published && row.awarded);
 }

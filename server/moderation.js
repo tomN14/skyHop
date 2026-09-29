@@ -67,25 +67,57 @@ export function parseBanDuration(body) {
   return durationKeyToBanUntil(key);
 }
 
+export function modAdminExpired(user) {
+  if (!user || String(user.role || '') !== 'mod_admin') return false;
+  const until = user.adminUntilMs != null ? Number(user.adminUntilMs) : NaN;
+  if (until === BAN_PERMANENT_MS) return false;
+  if (!Number.isFinite(until)) return true;
+  return until <= Date.now();
+}
+
+export function modAdminFallbackRole(user) {
+  const fb = String(user?.adminFallbackRole || '');
+  if (fb === 'player' || fb === 'report_advisor' || fb === 'moderator') return fb;
+  return 'moderator';
+}
+
+/** Hours until Mod Admin ends. -1 is permanent. */
+export function parseModAdminHours(hours) {
+  const n = Number(hours);
+  if (!Number.isFinite(n)) return null;
+  if (n === BAN_PERMANENT_MS) return BAN_PERMANENT_MS;
+  const h = Math.floor(n);
+  if (h < 1 || h > 24 * 365 * 5) return null;
+  return Date.now() + h * 60 * 60 * 1000;
+}
+
 export function effectiveRole(user) {
   if (!user) return 'player';
   const low = String(user.usernameLower || String(user.username || '').toLowerCase()).trim();
   const ownerEnv = (process.env.SKYHOP_OWNER_USERNAME || '').trim().toLowerCase();
   if (ownerEnv && low === ownerEnv) return 'owner';
   if ((user.role || '') === 'owner') return 'owner';
+  if ((user.role || '') === 'mod_admin') {
+    if (modAdminExpired(user)) return modAdminFallbackRole(user);
+    return 'mod_admin';
+  }
   if ((user.role || '') === 'admin') return 'admin';
   if ((user.role || '') === 'moderator') return 'moderator';
   if ((user.role || '') === 'report_advisor') return 'report_advisor';
   return 'player';
 }
 
+export function hasAdminPowers(role) {
+  return role === 'admin' || role === 'mod_admin';
+}
+
 export function isStaffRole(role) {
-  return role === 'moderator' || role === 'admin' || role === 'owner';
+  return role === 'moderator' || hasAdminPowers(role) || role === 'owner';
 }
 
 /** Pending player-report queue (not owner-escalated inbox, not ban appeals). */
 export function seesModReportQueue(role) {
-  return role === 'report_advisor' || role === 'moderator' || role === 'admin';
+  return role === 'report_advisor' || role === 'moderator' || hasAdminPowers(role);
 }
 
 export function canAccessReportInbox(role) {
@@ -118,6 +150,7 @@ export function roleRank(role) {
     case 'owner':
       return 4;
     case 'admin':
+    case 'mod_admin':
       return 3;
     case 'moderator':
       return 2;
@@ -128,6 +161,10 @@ export function roleRank(role) {
   }
 }
 
+export function displayRole(role) {
+  return role === 'mod_admin' ? 'moderator' : String(role || 'player');
+}
+
 export function roleDisplayName(role) {
   switch (String(role || '')) {
     case 'report_advisor':
@@ -136,6 +173,8 @@ export function roleDisplayName(role) {
       return 'moderator';
     case 'admin':
       return 'Admin';
+    case 'mod_admin':
+      return 'moderator';
     case 'owner':
       return 'owner';
     default:
@@ -153,6 +192,7 @@ export function roleChangeFields(fromRole, toRole) {
   const to = String(toRole || 'player') || 'player';
   if (from === to) return { role: to };
   if (roleRank(to) > roleRank(from)) {
+    if (displayRole(from) === displayRole(to)) return { role: to };
     return { role: to, promotionFrom: from, promotionTo: to };
   }
   return { role: to, promotionFrom: null, promotionTo: null };

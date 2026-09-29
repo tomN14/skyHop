@@ -2,7 +2,17 @@ import crypto from 'crypto';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { BAN_PERMANENT_MS, creditPromotionCoins, effectiveRole, ownerUsernameLower, roleChangeDbPatch } from './moderation.js';
+import {
+  BAN_PERMANENT_MS,
+  creditPromotionCoins,
+  displayRole,
+  effectiveRole,
+  hasAdminPowers,
+  modAdminExpired,
+  modAdminFallbackRole,
+  ownerUsernameLower,
+  roleChangeDbPatch,
+} from './moderation.js';
 import {
   createSignedAvatarUpload,
   removeUserProfileStorage,
@@ -44,6 +54,8 @@ function mapUser(row) {
     strikes: row.strikes != null ? Math.max(0, Math.floor(Number(row.strikes) || 0)) : 0,
     modsWarningSeen: !!row.mods_warning_seen,
     appealDeclineReason: row.appeal_decline_reason || null,
+    adminUntilMs: row.admin_until_ms != null ? Number(row.admin_until_ms) : null,
+    adminFallbackRole: row.admin_fallback_role ?? null,
   };
 }
 
@@ -69,6 +81,8 @@ async function updateUserRow(sb, userId, patch) {
     }
     if (msg.includes('mods_warning_seen')) delete rest.mods_warning_seen;
     if (msg.includes('appeal_decline_reason')) delete rest.appeal_decline_reason;
+    if (msg.includes('admin_until_ms')) delete rest.admin_until_ms;
+    if (msg.includes('admin_fallback_role')) delete rest.admin_fallback_role;
     if (!Object.keys(rest).length) return;
     ({ error } = await sb.from('skyhop_users').update(rest).eq('id', userId));
   }
@@ -245,8 +259,8 @@ export function createSupabaseStore() {
       if (!u) throw new Error('User not found');
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
-      if (effectiveRole(u) === 'admin') {
-        throw new Error('That account is the Admin. Change their Admin status first.');
+      if (hasAdminPowers(effectiveRole(u))) {
+        throw new Error('Remove their Admin or Mod Admin status first.');
       }
       if (effectiveRole(u) === 'report_advisor' && !isModerator) {
         throw new Error('That account is a Report Advisor. Remove that role separately.');
@@ -615,11 +629,27 @@ export function createSupabaseStore() {
     async listModerators() {
       const { data, error } = await sb
         .from('skyhop_users')
-        .select('id, username')
-        .eq('role', 'moderator')
+        .select('id, username, role, admin_until_ms, admin_fallback_role')
+        .in('role', ['moderator', 'mod_admin'])
         .order('username');
-      if (error) throw new Error(error.message);
-      return (data || []).map((r) => ({ id: r.id, username: r.username }));
+      if (error) {
+        if (String(error.message).includes('admin_until_ms') || String(error.message).includes('admin_fallback_role')) {
+          const fallback = await sb.from('skyhop_users').select('id, username').eq('role', 'moderator').order('username');
+          if (fallback.error) throw new Error(fallback.error.message);
+          return (fallback.data || []).map((r) => ({ id: r.id, username: r.username }));
+        }
+        throw new Error(error.message);
+      }
+      const out = [];
+      for (const row of data || []) {
+        const u = mapUser(row);
+        if (u.role === 'mod_admin' && modAdminExpired(u)) {
+          await this.expireModAdminIfNeeded(u);
+          continue;
+        }
+        out.push({ id: u.id, username: u.username });
+      }
+      return out;
     },
 
     async listReportAdvisors() {
@@ -639,7 +669,7 @@ export function createSupabaseStore() {
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       const role = effectiveRole(u);
       if (role === 'owner') throw new Error('Cannot change owner role.');
-      if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
+      if (hasAdminPowers(role)) throw new Error('Remove their Admin or Mod Admin status first.');
       if (role === 'moderator') throw new Error('Demote them from moderator first.');
       const fromRole = role;
       const toRole = isAdvisor ? 'report_advisor' : 'player';
@@ -705,7 +735,7 @@ export function createSupabaseStore() {
         username: u.username,
         bio: u.profileBio ?? null,
         avatarPath: u.profileAvatarPath ?? null,
-        role: u.role ?? 'player',
+        role: displayRole(effectiveRole(u)),
       };
     },
 
@@ -1215,27 +1245,97 @@ export function createSupabaseStore() {
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
       if (isAdmin) {
-        const { data: existing, error: e0 } = await sb.from('skyhop_users').select('id').eq('role', 'admin');
-        if (e0) throw new Error(e0.message);
-        const others = (existing || []).filter((r) => Number(r.id) !== Number(userId));
-        if (others.length) {
-          const ids = others.map((r) => r.id);
-          const demote = roleChangeDbPatch('admin', 'player');
-          let { error: e1 } = await sb.from('skyhop_users').update(demote).in('id', ids);
-          if (
-            e1 &&
-            (String(e1.message).includes('promotion_from') || String(e1.message).includes('promotion_to'))
-          ) {
-            ({ error: e1 } = await sb.from('skyhop_users').update({ role: 'player' }).in('id', ids));
-          }
-          if (e1) throw new Error(e1.message);
-        }
+        if (u.role === 'admin') return;
         const fromRole = effectiveRole(u);
-        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'admin'));
+        const baseRole = u.role === 'mod_admin' ? modAdminFallbackRole(u) : u.role;
+        const patch = roleChangeDbPatch(baseRole, 'admin');
+        patch.admin_until_ms = null;
+        patch.admin_fallback_role = null;
+        await updateUserRow(sb, userId, patch);
         await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, 'admin');
       } else {
-        if (effectiveRole(u) !== 'admin') return;
-        await updateUserRow(sb, userId, roleChangeDbPatch(u.role, 'player'));
+        if (u.role !== 'admin') return;
+        const patch = roleChangeDbPatch(u.role, 'player');
+        patch.admin_until_ms = null;
+        patch.admin_fallback_role = null;
+        await updateUserRow(sb, userId, patch);
+      }
+    },
+
+    async expireModAdminIfNeeded(user) {
+      if (!user || !modAdminExpired(user)) return user;
+      const fb = modAdminFallbackRole(user);
+      const patch = roleChangeDbPatch(user.role, fb);
+      patch.admin_until_ms = null;
+      patch.admin_fallback_role = null;
+      await updateUserRow(sb, user.id, patch);
+      return this.findUserById(user.id);
+    },
+
+    async listModAdmins() {
+      const { data, error } = await sb
+        .from('skyhop_users')
+        .select('id, username, role, admin_until_ms, admin_fallback_role')
+        .eq('role', 'mod_admin')
+        .order('username');
+      if (error) {
+        if (String(error.message).includes('admin_until_ms') || String(error.message).includes('admin_fallback_role')) {
+          return [];
+        }
+        throw new Error(error.message);
+      }
+      const out = [];
+      for (const row of data || []) {
+        const u = mapUser(row);
+        if (modAdminExpired(u)) {
+          await this.expireModAdminIfNeeded(u);
+          continue;
+        }
+        out.push({
+          id: u.id,
+          username: u.username,
+          untilMs: u.adminUntilMs,
+          permanent: Number(u.adminUntilMs) === BAN_PERMANENT_MS,
+        });
+      }
+      return out;
+    },
+
+    async setModAdminRole(userId, untilMs) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      if (u.role === 'admin') throw new Error('That account is an Admin. Remove Admin first.');
+      if (untilMs == null) {
+        if (u.role !== 'mod_admin') return;
+        const fb = modAdminFallbackRole(u);
+        const patch = roleChangeDbPatch(u.role, fb);
+        patch.admin_until_ms = null;
+        patch.admin_fallback_role = null;
+        await updateUserRow(sb, userId, patch);
+        return;
+      }
+      const fallback = u.role === 'mod_admin' ? modAdminFallbackRole(u) : effectiveRole(u);
+      let patch;
+      if (u.role === 'mod_admin') {
+        patch = { admin_until_ms: untilMs, admin_fallback_role: fallback };
+      } else {
+        patch = roleChangeDbPatch(u.role, 'mod_admin');
+        patch.admin_until_ms = untilMs;
+        patch.admin_fallback_role = fallback;
+      }
+      await updateUserRow(sb, userId, patch);
+      const fresh = await this.findUserById(userId);
+      if (!fresh || fresh.role !== 'mod_admin' || Number(fresh.adminUntilMs) !== Number(untilMs)) {
+        if (fresh && fresh.role === 'mod_admin') {
+          const revert = roleChangeDbPatch('mod_admin', fallback);
+          revert.admin_until_ms = null;
+          revert.admin_fallback_role = null;
+          await updateUserRow(sb, userId, revert);
+        }
+        throw new Error('Run extend_v27_mod_admin.sql in Supabase, then try again.');
       }
     },
 

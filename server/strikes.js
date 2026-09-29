@@ -1,4 +1,4 @@
-import { durationKeyToBanUntil, effectiveRole, roleDisplayName } from './moderation.js';
+import { durationKeyToBanUntil, effectiveRole, hasAdminPowers, roleDisplayName } from './moderation.js';
 
 export const STRIKE_PLAYER_BAN_REASON = 'Automatic 1-week ban (3 strikes).';
 
@@ -13,7 +13,7 @@ export function canAdminViewStrikes(targetRole) {
 /** Auto-penalty only when a threshold is first crossed for the current role. */
 export function evaluateStrikePenalty(role, prevCount, newCount) {
   if (role === 'owner') return null;
-  if (role === 'admin' && prevCount < 1 && newCount >= 1) {
+  if ((role === 'admin' || role === 'mod_admin') && prevCount < 1 && newCount >= 1) {
     return { type: 'demote', toRole: 'moderator' };
   }
   if ((role === 'moderator' || role === 'report_advisor') && prevCount < 2 && newCount >= 2) {
@@ -33,7 +33,7 @@ export async function lookupStrikes(store, actorRole, username) {
   const role = effectiveRole(target);
   if (actorRole === 'owner') {
     /* full lookup */
-  } else if (actorRole === 'admin') {
+  } else if (hasAdminPowers(actorRole)) {
     if (!canAdminViewStrikes(role)) {
       throw new Error('Admins can only view strikes for players, Report Advisors, and moderators.');
     }

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { BAN_PERMANENT_MS, applyRoleChangeToUser, creditPromotionCoins, effectiveRole, ownerUsernameLower } from './moderation.js';
+import { BAN_PERMANENT_MS, applyRoleChangeToUser, creditPromotionCoins, displayRole, effectiveRole, hasAdminPowers, modAdminExpired, modAdminFallbackRole, ownerUsernameLower } from './moderation.js';
 import { extFromContentType, MAX_AVATAR_BYTES, sniffImageExt } from './profile-storage.js';
 import { isValidBuiltinStages, prepareBuiltinStagesForPlay } from './builtin-stage-validate.js';
 import { checkPassword, hashNewPassword } from './password.js';
@@ -280,8 +280,8 @@ export function createFileStore() {
       if (!u) throw new Error('User not found');
       const own = ownerUsernameLower();
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
-      if (effectiveRole(u) === 'admin') {
-        throw new Error('That account is the Admin. Change their Admin status first.');
+      if (hasAdminPowers(effectiveRole(u))) {
+        throw new Error('Remove their Admin or Mod Admin status first.');
       }
       if (effectiveRole(u) === 'report_advisor' && !isModerator) {
         throw new Error('That account is a Report Advisor. Remove that role separately.');
@@ -570,7 +570,16 @@ export function createFileStore() {
 
     async listModerators() {
       const s = loadStore();
-      return s.users.filter((u) => u.role === 'moderator').map((u) => ({ id: u.id, username: u.username }));
+      const out = [];
+      for (const u of s.users) {
+        if (u.role === 'mod_admin' && modAdminExpired(u)) {
+          await this.expireModAdminIfNeeded(u);
+          continue;
+        }
+        if (u.role === 'moderator' || u.role === 'mod_admin') out.push({ id: u.id, username: u.username });
+      }
+      out.sort((a, b) => String(a.username).localeCompare(String(b.username)));
+      return out;
     },
 
     async listReportAdvisors() {
@@ -586,7 +595,7 @@ export function createFileStore() {
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       const role = effectiveRole(u);
       if (role === 'owner') throw new Error('Cannot change owner role.');
-      if (role === 'admin') throw new Error('That account is the Admin. Change their Admin status first.');
+      if (hasAdminPowers(role)) throw new Error('Remove their Admin or Mod Admin status first.');
       if (role === 'moderator') throw new Error('Demote them from moderator first.');
       const fromRole = role;
       const toRole = isAdvisor ? 'report_advisor' : 'player';
@@ -649,7 +658,7 @@ export function createFileStore() {
         username: u.username,
         bio: u.profileBio ?? null,
         avatarPath: u.profileAvatarPath ?? null,
-        role: u.role ?? 'player',
+        role: displayRole(effectiveRole(u)),
       };
     },
 
@@ -1096,17 +1105,77 @@ export function createFileStore() {
       if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
       if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
       if (isAdmin) {
-        for (const other of s.users) {
-          if (other.id !== userId && other.role === 'admin') applyRoleChangeToUser(other, 'player');
-        }
+        if (u.role === 'admin') return;
         const fromRole = effectiveRole(u);
+        if (u.role === 'mod_admin') u.role = modAdminFallbackRole(u);
+        u.adminUntilMs = null;
+        u.adminFallbackRole = null;
         applyRoleChangeToUser(u, 'admin');
         saveStore();
         await creditPromotionCoins((id, d) => this.incrementUserCoins(id, d), userId, fromRole, 'admin');
         return;
       } else if (u.role === 'admin') {
         applyRoleChangeToUser(u, 'player');
+        u.adminUntilMs = null;
+        u.adminFallbackRole = null;
       }
+      saveStore();
+    },
+
+    async expireModAdminIfNeeded(user) {
+      if (!user || !modAdminExpired(user)) return user;
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === user.id);
+      if (!u || u.role !== 'mod_admin') return user;
+      const fb = modAdminFallbackRole(u);
+      applyRoleChangeToUser(u, fb);
+      u.adminUntilMs = null;
+      u.adminFallbackRole = null;
+      saveStore();
+      return u;
+    },
+
+    async listModAdmins() {
+      const s = loadStore();
+      const out = [];
+      for (const u of s.users) {
+        if (u.role !== 'mod_admin') continue;
+        if (modAdminExpired(u)) {
+          await this.expireModAdminIfNeeded(u);
+          continue;
+        }
+        out.push({
+          id: u.id,
+          username: u.username,
+          untilMs: u.adminUntilMs,
+          permanent: Number(u.adminUntilMs) === BAN_PERMANENT_MS,
+        });
+      }
+      out.sort((a, b) => String(a.username).localeCompare(String(b.username)));
+      return out;
+    },
+
+    async setModAdminRole(userId, untilMs) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      const own = ownerUsernameLower();
+      if (own && u.usernameLower === own) throw new Error('Cannot change owner role.');
+      if (effectiveRole(u) === 'owner') throw new Error('Cannot change owner role.');
+      if (u.role === 'admin') throw new Error('That account is an Admin. Remove Admin first.');
+      if (untilMs == null) {
+        if (u.role !== 'mod_admin') return;
+        const fb = modAdminFallbackRole(u);
+        applyRoleChangeToUser(u, fb);
+        u.adminUntilMs = null;
+        u.adminFallbackRole = null;
+        saveStore();
+        return;
+      }
+      const fallback = u.role === 'mod_admin' ? modAdminFallbackRole(u) : effectiveRole(u);
+      if (u.role !== 'mod_admin') applyRoleChangeToUser(u, 'mod_admin');
+      u.adminUntilMs = untilMs;
+      u.adminFallbackRole = fallback;
       saveStore();
     },
 
