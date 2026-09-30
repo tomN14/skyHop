@@ -112,3 +112,47 @@ test('skipping many stages in one packet still kicks', () => {
   assert.equal(ev.ok, false);
   assert.ok(ev.flags.includes('stage_skip'));
 });
+
+test('repeated scripted key events kick without a named bot flag', () => {
+  const prev = {
+    stage: 0,
+    stageAt: 1000,
+    lastAt: 1100,
+    x: 80,
+    y: 520,
+    deaths: 0,
+    suspicion: 0,
+    progressHits: 4,
+    untrustedTotal: 2,
+  };
+  const ev = evaluateProgress(
+    room,
+    prev,
+    { stage0: 0, timeMs: 400, x: 120, y: 520, deaths: 0, untrustedKeys: 1, keyEvents: 1, keyJitter: 40 },
+    1400
+  );
+  assert.equal(ev.ok, false);
+  assert.ok(ev.flags.includes('scripted_input'));
+});
+
+test('trusted movement is not treated as scripted input', () => {
+  const prev = {
+    stage: 0,
+    stageAt: 1000,
+    lastAt: 1100,
+    x: 80,
+    y: 520,
+    deaths: 0,
+    suspicion: 0,
+    progressHits: 4,
+    untrustedTotal: 0,
+  };
+  const ev = evaluateProgress(
+    room,
+    prev,
+    { stage0: 0, timeMs: 400, x: 140, y: 520, deaths: 0, untrustedKeys: 0, keyEvents: 2, keyJitter: 18 },
+    1400
+  );
+  assert.equal(ev.kick, null);
+  assert.equal(ev.untrustedTotal, 0);
+});

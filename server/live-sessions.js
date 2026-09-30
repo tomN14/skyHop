@@ -268,6 +268,7 @@ export function applyProgress(room, playerId, msg, now) {
   prev.progressHits = ev.progressHits;
   prev.rateHits = ev.rateHits;
   prev.rateWindowAt = ev.rateWindowAt;
+  prev.untrustedTotal = ev.untrustedTotal || 0;
   prev.lastAt = now;
   if (ev.x != null && ev.y != null) {
     prev.x = ev.x;

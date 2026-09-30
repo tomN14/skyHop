@@ -157,6 +157,13 @@ export function evaluateProgress(room, prev, msg, now) {
     suspicion += 2;
   }
 
+  const untrustedNow = Math.max(0, Math.floor(Number(msg.untrustedKeys) || 0));
+  const untrustedTotal = Math.max(0, Math.floor(Number(prev && prev.untrustedTotal) || 0)) + untrustedNow;
+  if (!kick && untrustedTotal >= 3) {
+    kick = 'Automated input is not allowed in online sessions.';
+    flags.push('scripted_input');
+  }
+
   const nextSuspicion = Math.max(0, ((prev && prev.suspicion) || 0) + suspicion - (dtWall > 8000 ? 1 : 0));
   if (!kick && nextSuspicion >= KICK_SUSPICION) {
     kick = 'Play pattern looked automated.';
@@ -178,6 +185,7 @@ export function evaluateProgress(room, prev, msg, now) {
     rateHits,
     rateWindowAt,
     progressHits: hits + 1,
+    untrustedTotal,
   };
 }
 

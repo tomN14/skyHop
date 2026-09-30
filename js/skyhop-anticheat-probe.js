@@ -11,6 +11,8 @@
   var held = 0;
   var intervals = [];
   var ptrMoveAt = 0;
+  var untrustedN = 0;
+  var scriptedDown = 0;
 
   function now() {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -21,6 +23,10 @@
     held++;
     var t = now();
     lastKey = t;
+    if (e.isTrusted === false) {
+      untrustedN++;
+      scriptedDown++;
+    }
     if (e.repeat) return;
     keyN++;
     if (lastKeyT) {
@@ -30,9 +36,13 @@
     lastKeyT = t;
   }
 
-  function onKeyUp() {
+  function onKeyUp(e) {
     held = Math.max(0, held - 1);
     lastKey = now();
+    if (e && e.isTrusted === false) {
+      untrustedN++;
+      scriptedDown = Math.max(0, scriptedDown - 1);
+    }
   }
 
   function onPtr() {
@@ -82,11 +92,13 @@
         pointerEvents: ptrN,
         held: held > 0,
         mods: modsActive(),
+        untrustedKeys: scriptedDown > 0 ? Math.max(untrustedN, 1) : untrustedN,
       };
       var jit = jitterOf(intervals);
       if (jit != null) snap.keyJitter = Math.round(jit * 100) / 100;
       keyN = 0;
       ptrN = 0;
+      untrustedN = 0;
       return snap;
     },
   };

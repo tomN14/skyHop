@@ -5061,7 +5061,20 @@
     return false;
   }
 
+  function scriptedInputBlocked(e) {
+    if (!e || e.isTrusted !== false) return false;
+    const ac = window.SkyHopRunAnticheat;
+    if (!ac || typeof ac.isRunOn !== 'function' || ac.isRunOn() === false) return false;
+    try {
+      window.dispatchEvent(new CustomEvent('skyhop-scripted-input'));
+    } catch {
+      /* */
+    }
+    return true;
+  }
+
   window.addEventListener('keydown', (e) => {
+    if (scriptedInputBlocked(e)) return;
     if (isTypingInFormField()) return;
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
       e.preventDefault();
@@ -5102,6 +5115,7 @@
     }
   });
   window.addEventListener('keyup', (e) => {
+    if (scriptedInputBlocked(e)) return;
     if (isTypingInFormField()) return;
     keys[e.key] = false;
     keysByCode[e.code] = false;
@@ -5405,6 +5419,21 @@
         g: gravityDir,
         vx: player.vx,
         vy: player.vy,
+        og: !!player.onGround,
+      };
+    },
+    getPlayState: function () {
+      return {
+        mode: gameState,
+        live: !!(inRace || inCollab),
+        stage0: stageIndex,
+        w: player.w,
+        h: player.h,
+        x: player.x,
+        y: player.y,
+        vx: player.vx,
+        vy: player.vy,
+        g: gravityDir,
         og: !!player.onGround,
       };
     },
