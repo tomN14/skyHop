@@ -151,7 +151,11 @@
       })
     );
     body.appendChild(card);
-    yours.forEach(function (mine) {
+    var ownedHost = el('div', '');
+    body.appendChild(ownedHost);
+    function paintMine(mine) {
+      selectedOwnedId = mine.id;
+      ownedHost.textContent = '';
       var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
       card.appendChild(el('h3', 'text-sm font-semibold text-white', mine.name));
       card.appendChild(
@@ -285,8 +289,76 @@
           post('/api/economy/company/delete', { companyId: mine.id });
         })
       );
-      body.appendChild(card);
-    });
+      ownedHost.appendChild(card);
+    }
+    if (yours.length === 1) paintMine(yours[0]);
+    else if (yours.length > 1) {
+      var finder = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+      finder.appendChild(el('h3', 'text-sm font-semibold text-white', 'Your companies'));
+      finder.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Search by name or ticker, then edit that company.'));
+      var findWrap = el('div', 'relative mt-2');
+      var find = field('Your companies', ownedQuery, 'text');
+      find.input.maxLength = 24;
+      find.input.autocomplete = 'off';
+      find.input.placeholder = 'Name or ticker';
+      findWrap.appendChild(find.wrap);
+      var found = el('div', 'absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-52 overflow-y-auto rounded-xl border border-white/15 bg-slate-900 shadow-xl');
+      findWrap.appendChild(found);
+      finder.appendChild(findWrap);
+      function hideFound() {
+        found.classList.add('hidden');
+        found.textContent = '';
+      }
+      function showFound(list) {
+        found.textContent = '';
+        if (!list.length) {
+          found.classList.remove('hidden');
+          found.appendChild(el('p', 'px-3 py-2 text-sm text-slate-400', 'None of your companies match.'));
+          return;
+        }
+        found.classList.remove('hidden');
+        list.slice(0, 12).forEach(function (c) {
+          found.appendChild(
+            button(
+              c.name + (c.ticker ? ' · ' + c.ticker : '') + ' · ' + c.kind + ' · ' + money(c.shareExact),
+              'block w-full border-b border-white/10 px-3 py-2 text-left text-sm text-slate-200 last:border-b-0 hover:bg-slate-800',
+              function () {
+                ownedQuery = c.name;
+                find.input.value = c.name;
+                hideFound();
+                paintMine(c);
+              }
+            )
+          );
+        });
+      }
+      function filterOwned() {
+        var q = find.input.value.trim().toLowerCase();
+        ownedQuery = find.input.value;
+        if (!q) {
+          hideFound();
+          return;
+        }
+        showFound(
+          yours.filter(function (c) {
+            return c.name.toLowerCase().indexOf(q) !== -1 || String(c.ticker || '').toLowerCase().indexOf(q) !== -1;
+          })
+        );
+      }
+      find.input.addEventListener('input', filterOwned);
+      find.input.addEventListener('focus', function () {
+        if (!find.input.value.trim()) showFound(yours);
+        else filterOwned();
+      });
+      find.input.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') hideFound();
+      });
+      ownedHost.parentNode.insertBefore(finder, ownedHost);
+      var chosen = yours.filter(function (c) {
+        return c.id === selectedOwnedId;
+      })[0];
+      if (chosen) paintMine(chosen);
+    }
 
     var nat = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     nat.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop National Bank'));
@@ -515,6 +587,8 @@
 
   var stockRange = '1d';
   var stockId = '';
+  var selectedOwnedId = '';
+  var ownedQuery = '';
   var STOCK_RANGES = [
     ['1d', '1D'],
     ['1w', '1W'],
