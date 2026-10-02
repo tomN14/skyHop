@@ -719,6 +719,18 @@ export function createSupabaseStore() {
       if (error) throw new Error(error.message);
     },
 
+    async listCoinHolders() {
+      const { data, error } = await sb.from('skyhop_users').select('id, username, username_lower, coins, role');
+      if (error) throw new Error(error.message);
+      return (data || []).map((r) => ({
+        id: r.id,
+        username: r.username,
+        usernameLower: r.username_lower,
+        coins: Math.max(0, Math.floor(Number(r.coins) || 0)),
+        role: r.role || 'player',
+      }));
+    },
+
     async setUserCoins(userId, coins) {
       const next = Math.max(0, Math.min(1_000_000_000, Math.floor(Number(coins) || 0)));
       const { error } = await sb.from('skyhop_users').update({ coins: next }).eq('id', userId);

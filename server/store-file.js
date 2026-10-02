@@ -629,6 +629,17 @@ export function createFileStore() {
       saveStore();
     },
 
+    async listCoinHolders() {
+      const s = loadStore();
+      return s.users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        usernameLower: u.usernameLower,
+        coins: Math.max(0, Math.floor(Number(u.coins) || 0)),
+        role: u.role || 'player',
+      }));
+    },
+
     async setUserCoins(userId, coins) {
       const s = loadStore();
       const u = s.users.find((x) => x.id === userId);

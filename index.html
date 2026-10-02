@@ -47,6 +47,10 @@
       right: max(0.75rem, env(safe-area-inset-right, 0px));
       bottom: calc(10.75rem + env(safe-area-inset-bottom, 0px));
     }
+    #btnEconomyFab {
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+      bottom: calc(14rem + env(safe-area-inset-bottom, 0px));
+    }
     #btnModDashboardFab {
       right: max(0.75rem, env(safe-area-inset-right, 0px));
       bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
@@ -98,6 +102,7 @@
     @media (min-width: 768px) {
       #btnLeaderboardFab { right: 1.25rem; bottom: 8.5rem; }
       #btnOwnerAddWorldFab { right: 1.25rem; bottom: 11.75rem; }
+      #btnEconomyFab { right: 1.25rem; bottom: 15rem; }
       #btnModDashboardFab { right: 1.25rem; bottom: 5.25rem; }
       #btnFriendsFab { right: 1.25rem; bottom: 1.25rem; }
       #btnModInbox { left: 3rem; bottom: calc(9rem + env(safe-area-inset-bottom, 0px)); }
@@ -736,6 +741,7 @@
             <li>Admins (more than one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
             <li>Mod Admin: the owner sets how many hours it lasts, or -1 for permanent. While it is active they have Admin powers. When it ends they return to their previous role</li>
             <li>Report Advisor: pending reports only — dismiss or escalate to the owner; no dashboard, owner tools, or bans. They can see other Report Advisors</li>
+            <li>Companies cost 1,000 coins. Racing companies host paid tournaments. Banks hold deposits and loans. Insurers cover market losses. Public firms have 1,000 shares. An 8% weekly tax funds the Sky Hop National Bank, which lends at 14.32% and pays 1.2% on savings. A company under −500 coins of weekly profit is closed. Bank heists are rare and a failure is a 1-day ban</li>
             <li>Graphic Designer is separate from staff. A player, Report Advisor, moderator, or Admin can also be one. They add shop items and set the name, price, sell price, and optional credits. Credits show as Credits: name in the bottom right of a shop slot, and stay hidden when blank</li>
             <li>Moderator, Admin, and Report Advisor are one role each. Mods see other mods and Report Advisors. Admins see Admins, mods, and Report Advisors, and can read the Graphic Designer power list. A lower tier cannot see a higher tier. Graphic Designers see other Graphic Designers only</li>
             <li>Owner: edit / append built-in World 1 &amp; World 2 stages; Upload ALL saves them to Play</li>
@@ -2152,6 +2158,17 @@ end;</pre>
       </div>
     </div>
 
+  <div id="screenEconomy" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-emerald-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-sem uppercase tracking-widest text-emerald-300">Economy</p>
+        <h2 class="text-lg font-bold text-white">Companies and the National Bank</h2>
+      </div>
+      <button id="btnEconomyClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="economyBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
   <!-- Edge FABs live on body so position:fixed is always viewport-relative (avoid relative+fixed Tailwind clash). -->
   <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🚫</span>
@@ -2173,6 +2190,9 @@ end;</pre>
   </button>
   <button id="btnOwnerAddShopFab" type="button" title="Add shop item" class="skyhop-edge-fab hidden border border-amber-400/60 bg-slate-900/95 hover:bg-amber-950/80">
     <span aria-hidden="true">➕</span>
+  </button>
+  <button id="btnEconomyFab" type="button" title="Companies and banks" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
+    <span aria-hidden="true">💼</span>
   </button>
   <button id="btnOwnerAddWorldFab" type="button" title="Add world" class="skyhop-edge-fab hidden border border-violet-500/50 bg-slate-900/95 hover:bg-violet-950/80">
     <span aria-hidden="true">🌐</span>
@@ -2228,6 +2248,7 @@ end;</pre>
   <script src="js/skyhop-leaderboard.js"></script>
   <script src="js/skyhop-leaderboards-panel.js"></script>
   <script src="js/skyhop-coin-shop.js"></script>
+  <script src="js/skyhop-economy.js"></script>
   <script src="js/skyhop-mod-dashboard.js"></script>
   <script src="js/skyhop-role-powers.js"></script>
   <script src="js/skyhop-public-sessions.js"></script>
