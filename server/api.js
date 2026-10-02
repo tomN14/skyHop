@@ -4683,7 +4683,13 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      json(res, 200, await Economy.deleteCompany(store, sess.user));
+      let body = {};
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        body = {};
+      }
+      json(res, 200, await Economy.deleteCompany(store, sess.user, body.companyId));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

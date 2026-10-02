@@ -193,9 +193,9 @@ async function settlePrices(state) {
       ensureMarket(c);
       const noise = (unitNoise(c.noiseSeed, day) - 0.5) * 0.04;
       const change = Math.max(-0.15, Math.min(0.15, c.beta * market + noise));
-      const base = Number(c.shareExact) > 0 ? Number(c.shareExact) : Math.max(1, Number(c.sharePrice) || 1);
-      c.shareExact = Math.max(0.01, Math.min(1_000_000, base * (1 + change)));
-      c.sharePrice = Math.max(1, Math.min(1_000_000, Math.round(c.shareExact)));
+      const base = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
+      c.shareExact = Math.max(0, Math.min(1_000_000, Math.round(base * (1 + change) * 100) / 100));
+      c.sharePrice = Math.max(0, Math.min(1_000_000, Math.round(c.shareExact)));
       pushHistory(c, day * DAY_MS, c.shareExact);
     }
     state.priceDay = day;
@@ -244,8 +244,14 @@ function companyById(state, id) {
   return state.companies.find((c) => c.id === id && c.alive) || null;
 }
 
-function myCompany(state, userId) {
-  return state.companies.find((c) => c.alive && uid(c.ownerId) === uid(userId)) || null;
+function myCompanies(state, userId) {
+  return state.companies.filter((c) => c.alive && uid(c.ownerId) === uid(userId));
+}
+
+function ownedCompany(state, userId, companyId) {
+  const list = myCompanies(state, userId);
+  if (companyId) return list.find((c) => c.id === String(companyId)) || null;
+  return list.length === 1 ? list[0] : null;
 }
 
 function sharesOf(company, userId) {
@@ -256,7 +262,8 @@ function portfolio(state, userId) {
   let n = 0;
   for (const c of state.companies) {
     if (!c.alive) continue;
-    n += sharesOf(c, userId) * Math.max(1, Math.floor(Number(c.sharePrice) || 1));
+    const px = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
+    n += sharesOf(c, userId) * px;
   }
   return n;
 }
@@ -398,7 +405,8 @@ async function withState(store, fn) {
 
 function present(state, user, people) {
   const me = uid(user.id);
-  const mine = myCompany(state, user.id);
+  const mine = myCompanies(state, user.id);
+  const ownedIds = new Set(mine.map((c) => c.id));
   return {
     coins: coinsOf(user),
     coinsInfinite: isOwnerUser(user),
@@ -422,10 +430,10 @@ function present(state, user, people) {
       savingsRate: NATIONAL_SAVE,
       loanRate: NATIONAL_LOAN,
     },
-    yourCompany: mine ? detailCompany(mine, user, people, true) : null,
+    yourCompanies: mine.map((c) => detailCompany(c, user, people, true)),
     companies: state.companies.filter((c) => c.alive).map((c) => detailCompany(c, user, people, uid(c.ownerId) === me)),
     loans: state.loans
-      .filter((loan) => uid(loan.borrowerId) === me || (mine && loan.borrowerType === 'company' && loan.borrowerId === mine.id))
+      .filter((loan) => uid(loan.borrowerId) === me || (loan.borrowerType === 'company' && ownedIds.has(loan.borrowerId)))
       .map((loan) => ({
         id: loan.id,
         lender: loan.lender === 'national' ? 'Sky Hop National Bank' : (companyById(state, loan.lender) || {}).name || 'Closed bank',
@@ -446,6 +454,7 @@ function detailCompany(c, user, people, ownerView) {
     ownerName: c.ownerName,
     isPublic: !!c.isPublic,
     sharePrice: c.sharePrice,
+    shareExact: Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100,
     listed: c.listed,
     yourShares: sharesOf(c, user.id),
     ownerShares: sharesOf(c, c.ownerId),
@@ -477,12 +486,12 @@ export async function registerCompany(store, user, { name, kind }) {
   if (clean.length < 2) throw new Error('Company name must be 2–24 characters.');
   if (!['racing', 'bank', 'insurance'].includes(kind)) throw new Error('Pick a racing, bank, or insurance company.');
   return withState(store, async (state) => {
-    if (myCompany(state, user.id)) throw new Error('You already own a company.');
     if (state.companies.some((c) => c.alive && c.name.toLowerCase() === clean.toLowerCase())) {
       throw new Error('That company name is taken.');
     }
     await chargeWallet(store, user, REGISTER_COST);
     if (!isOwnerUser(user)) state.national.taxPool += REGISTER_COST;
+    const opened = Math.round(Math.random() * 100) / 100;
     const company = {
       id: crypto.randomUUID(),
       name: clean,
@@ -491,7 +500,8 @@ export async function registerCompany(store, user, { name, kind }) {
       ownerName: user.username,
       cash: 0,
       isPublic: false,
-      sharePrice: 10,
+      sharePrice: Math.round(opened),
+      shareExact: opened,
       listed: 0,
       shares: { [uid(user.id)]: SHARE_COUNT },
       alive: true,
@@ -510,7 +520,7 @@ export async function registerCompany(store, user, { name, kind }) {
       history: [],
     };
     ensureMarket(company);
-    pushHistory(company, Date.now(), company.sharePrice);
+    pushHistory(company, Date.now(), company.shareExact);
     state.companies.push(company);
     return present(state, user, await holders(store));
   });
@@ -518,13 +528,13 @@ export async function registerCompany(store, user, { name, kind }) {
 
 export async function updateCompany(store, user, body) {
   return withState(store, async (state) => {
-    const c = myCompany(state, user.id);
-    if (!c) throw new Error('You do not own a company.');
+    const c = ownedCompany(state, user.id, body.companyId);
+    if (!c) throw new Error('You do not own that company.');
     if (body.isPublic != null) {
       if (body.isPublic) {
         c.isPublic = true;
         ensureMarket(c);
-        if (!(Number(c.shareExact) > 0)) c.shareExact = c.sharePrice;
+        if (!(Number.isFinite(Number(c.shareExact)))) c.shareExact = c.sharePrice;
         pushHistory(c, Date.now(), c.shareExact);
       } else if (c.listed > 0) throw new Error('Buy the listed shares back before going private.');
       else c.isPublic = false;
@@ -537,9 +547,9 @@ export async function updateCompany(store, user, body) {
       c.ticker = ticker;
     }
     if (body.sharePrice != null) {
-      const price = Math.floor(Number(body.sharePrice));
-      if (price < 1 || price > 1_000_000) throw new Error('Share price must be 1–1,000,000.');
-      c.sharePrice = price;
+      const price = Math.round(Number(body.sharePrice) * 100) / 100;
+      if (!Number.isFinite(price) || price < 0 || price > 1_000_000) throw new Error('Share price must be 0–1,000,000.');
+      c.sharePrice = Math.round(price);
       c.shareExact = price;
       pushHistory(c, Date.now(), price);
     }
@@ -600,7 +610,9 @@ export async function buyShares(store, user, companyId, qty) {
     if (!c || !c.isPublic) throw new Error('That company is not on the market.');
     if (uid(c.ownerId) === uid(user.id)) throw new Error('You already own those shares.');
     if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
-    const cost = n * c.sharePrice;
+    const unit = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Number(c.sharePrice) || 0;
+    if (unit <= 0) throw new Error('That stock is worth $0.00.');
+    const cost = Math.max(1, Math.round(n * unit));
     await chargeWallet(store, user, cost);
     c.cash += cost;
     c.weekProfit += cost;
@@ -656,11 +668,11 @@ export async function withdraw(store, user, bankId, amount) {
   });
 }
 
-export async function borrow(store, user, { lender, amount, forCompany }) {
+export async function borrow(store, user, { lender, amount, forCompany, companyId }) {
   const n = clampMoney(amount, 1, 1_000_000_000);
   return withState(store, async (state) => {
-    const firm = forCompany ? myCompany(state, user.id) : null;
-    if (forCompany && !firm) throw new Error('You do not own a company.');
+    const firm = forCompany ? ownedCompany(state, user.id, companyId) : null;
+    if (forCompany && !firm) throw new Error('Pick one of your companies.');
     let rate = NATIONAL_LOAN;
     if (lender === 'national') {
       /* Too big to fail: the loan is created even when the tax pool is empty. */
@@ -694,10 +706,10 @@ export async function repay(store, user, loanId, amount) {
   return withState(store, async (state) => {
     const loan = state.loans.find((row) => row.id === loanId);
     if (!loan) throw new Error('Loan not found.');
-    const firm = myCompany(state, user.id);
+    const firm = loan.borrowerType === 'company' ? ownedCompany(state, user.id, loan.borrowerId) : null;
     const mine =
       (loan.borrowerType === 'user' && uid(loan.borrowerId) === uid(user.id)) ||
-      (loan.borrowerType === 'company' && firm && loan.borrowerId === firm.id);
+      (loan.borrowerType === 'company' && firm);
     if (!mine) throw new Error('That loan is not yours.');
     const pay = Math.min(n, loan.principal);
     if (loan.borrowerType === 'company') {
@@ -734,10 +746,10 @@ export async function buyPolicy(store, user, companyId) {
   });
 }
 
-export async function deleteCompany(store, user) {
+export async function deleteCompany(store, user, companyId) {
   return withState(store, async (state) => {
-    const c = myCompany(state, user.id);
-    if (!c) throw new Error('You do not own a company.');
+    const c = ownedCompany(state, user.id, companyId);
+    if (!c) throw new Error('You do not own that company.');
     const owed = sumMap(c.deposits);
     let cash = Math.max(0, Math.floor(Number(c.cash) || 0));
     if (owed > 0 && cash > 0) {
@@ -826,6 +838,7 @@ function stockCard(c, user) {
     alive: !!c.alive,
     isPublic: !!c.isPublic && !!c.alive,
     sharePrice: c.alive ? c.sharePrice : 0,
+    shareExact: c.alive ? Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100 : 0,
     listed: c.alive ? c.listed : 0,
     yourShares: c.shares ? sharesOf(c, user.id) : 0,
     viewerIsOwner: uid(c.ownerId) === uid(user.id),
@@ -878,8 +891,8 @@ export async function enterTournament(store, user, companyId, tournamentId) {
 export async function payTournament(store, user, companyId, tournamentId, username) {
   const want = String(username || '').trim().toLowerCase();
   return withState(store, async (state) => {
-    const c = myCompany(state, user.id);
-    if (!c || c.id !== companyId || c.kind !== 'racing') throw new Error('No tournament to pay.');
+    const c = ownedCompany(state, user.id, companyId);
+    if (!c || c.kind !== 'racing') throw new Error('No tournament to pay.');
     const t = findTournament(c, tournamentId);
     if (!t) throw new Error('That tournament is not open.');
     const winner = (t.entrants || []).find((e) => String(e.username || '').toLowerCase() === want);

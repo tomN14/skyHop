@@ -77,6 +77,12 @@
       });
   }
 
+  function money(n) {
+    var x = Number(n);
+    if (!Number.isFinite(x)) x = 0;
+    return '$' + x.toFixed(2);
+  }
+
   function pct(n) {
     return (Number(n) * 100).toFixed(2) + '%';
   }
@@ -118,30 +124,36 @@
     msg.id = 'economyMsg';
     body.appendChild(msg);
 
-    var mine = data.yourCompany;
+    var yours = data.yourCompanies || [];
+    var ownedIds = {};
+    yours.forEach(function (row) {
+      ownedIds[row.id] = true;
+    });
     var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
-    card.appendChild(el('h3', 'text-sm font-semibold text-white', mine ? 'Your company: ' + mine.name : 'Start a company'));
-    if (!mine) {
-      var name = field('Name', '', 'text');
-      name.input.maxLength = 24;
-      var kind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
-      var select = document.createElement('select');
-      select.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-      ['racing', 'bank', 'insurance'].forEach(function (k) {
-        var opt = document.createElement('option');
-        opt.value = k;
-        opt.textContent = k === 'racing' ? 'Racing company' : k === 'bank' ? 'Bank' : 'Insurance company';
-        select.appendChild(opt);
-      });
-      kind.appendChild(select);
-      card.appendChild(name.wrap);
-      card.appendChild(kind);
-      card.appendChild(
-        button('Register for 1,000 coins', 'mt-3 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white', function () {
-          post('/api/economy/register', { name: name.input.value, kind: select.value });
-        })
-      );
-    } else {
+    card.appendChild(el('h3', 'text-sm font-semibold text-white', yours.length ? 'Register another company' : 'Start a company'));
+    var name = field('Name', '', 'text');
+    name.input.maxLength = 24;
+    var kind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
+    var select = document.createElement('select');
+    select.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+    ['racing', 'bank', 'insurance'].forEach(function (k) {
+      var opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k === 'racing' ? 'Racing company' : k === 'bank' ? 'Bank' : 'Insurance company';
+      select.appendChild(opt);
+    });
+    kind.appendChild(select);
+    card.appendChild(name.wrap);
+    card.appendChild(kind);
+    card.appendChild(
+      button('Register for 1,000 coins', 'mt-3 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white', function () {
+        post('/api/economy/register', { name: name.input.value, kind: select.value });
+      })
+    );
+    body.appendChild(card);
+    yours.forEach(function (mine) {
+      var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+      card.appendChild(el('h3', 'text-sm font-semibold text-white', mine.name));
       card.appendChild(
         el(
           'p',
@@ -157,10 +169,12 @@
             rules.shares +
             ' shares · ' +
             (mine.isPublic ? 'public' : 'private') +
+            ' · ' +
+            money(mine.shareExact) +
             (mine.ticker ? ' · ' + mine.ticker : '')
         )
       );
-      var price = field('Share price', mine.sharePrice);
+      var price = field('Share price in dollars', mine.shareExact);
       var listed = field('Shares listed for sale', mine.listed);
       var ticker = field('Ticker', mine.ticker || '', 'text');
       ticker.input.maxLength = 5;
@@ -172,6 +186,7 @@
       row.appendChild(
         button('Save shares', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
           post('/api/economy/company', {
+            companyId: mine.id,
             sharePrice: Number(price.input.value),
             listed: Number(listed.input.value),
             ticker: ticker.input.value,
@@ -180,7 +195,7 @@
       );
       row.appendChild(
         button(mine.isPublic ? 'Go private' : 'Go public', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-          post('/api/economy/company', { isPublic: !mine.isPublic });
+          post('/api/economy/company', { companyId: mine.id, isPublic: !mine.isPublic });
         })
       );
       card.appendChild(row);
@@ -191,7 +206,7 @@
         card.appendChild(loanRate.wrap);
         card.appendChild(
           button('Save bank rates', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/company', { interestRate: Number(saveRate.input.value), loanRate: Number(loanRate.input.value) });
+            post('/api/economy/company', { companyId: mine.id, interestRate: Number(saveRate.input.value), loanRate: Number(loanRate.input.value) });
           })
         );
         if (mine.deposits && mine.deposits.length) {
@@ -208,7 +223,7 @@
         card.appendChild(coverage.wrap);
         card.appendChild(
           button('Save policy', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/company', { premium: Number(premium.input.value), coverage: Number(coverage.input.value) });
+            post('/api/economy/company', { companyId: mine.id, premium: Number(premium.input.value), coverage: Number(coverage.input.value) });
           })
         );
       }
@@ -226,6 +241,7 @@
         card.appendChild(
           button('Open tournament', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
             post('/api/economy/company', {
+              companyId: mine.id,
               openTournament: true,
               fee: Number(fee.input.value),
               prize: Number(prize.input.value),
@@ -249,7 +265,7 @@
           );
           raceRow.appendChild(
             button('Close without paying', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-              post('/api/economy/company', { closeTournament: true, tournamentId: t.id });
+              post('/api/economy/company', { companyId: mine.id, closeTournament: true, tournamentId: t.id });
             })
           );
           race.appendChild(raceRow);
@@ -260,17 +276,17 @@
       card.appendChild(borrowAmt.wrap);
       card.appendChild(
         button('Take a National Bank loan', 'mt-2 rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
-          post('/api/economy/borrow', { lender: 'national', amount: Number(borrowAmt.input.value), forCompany: true });
+          post('/api/economy/borrow', { lender: 'national', amount: Number(borrowAmt.input.value), forCompany: true, companyId: mine.id });
         })
       );
       card.appendChild(
         button('Delete company', 'mt-4 rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
           if (!window.confirm('Delete this company? Its shares become worthless. This cannot be undone.')) return;
-          post('/api/economy/company/delete', {});
+          post('/api/economy/company/delete', { companyId: mine.id });
         })
       );
-    }
-    body.appendChild(card);
+      body.appendChild(card);
+    });
 
     var nat = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     nat.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop National Bank'));
@@ -332,7 +348,7 @@
     market.appendChild(el('h3', 'text-sm font-semibold text-white', 'Companies'));
     market.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Share prices and charts are on the stock button.'));
     (data.companies || []).forEach(function (c) {
-      if (mine && c.id === mine.id) return;
+      if (ownedIds[c.id]) return;
       var box = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
       box.appendChild(el('p', 'text-sm font-semibold text-white', c.name));
       box.appendChild(
@@ -344,7 +360,7 @@
             c.ownerName +
             ' · ' +
             (c.ticker ? c.ticker + ' · ' : '') +
-            (c.isPublic ? c.sharePrice + ' coins · ' + c.listed + ' listed · you own ' + c.yourShares : 'private')
+            (c.isPublic ? money(c.shareExact) + ' · ' + c.listed + ' listed · you own ' + c.yourShares : 'private')
         )
       );
       if (c.kind === 'bank') {
@@ -547,8 +563,8 @@
     box.appendChild(el('h3', 'text-sm font-semibold text-white', title));
     box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', q.ownerName || ''));
     if (!q.alive) box.appendChild(el('p', 'mt-2 text-sm text-rose-200', 'Closed. Shares are worthless.'));
-    else if (!q.isPublic) box.appendChild(el('p', 'mt-2 text-sm text-slate-300', 'Private. ' + q.sharePrice + ' coins if it lists.'));
-    else box.appendChild(el('p', 'mt-2 text-sm text-slate-200', q.sharePrice + ' coins · ' + q.listed + ' listed · you own ' + q.yourShares));
+    else if (!q.isPublic) box.appendChild(el('p', 'mt-2 text-sm text-slate-300', 'Private. ' + money(q.shareExact)));
+    else box.appendChild(el('p', 'mt-2 text-sm text-slate-200', money(q.shareExact) + ' · ' + q.listed + ' listed · you own ' + q.yourShares));
     var change = el('p', 'mt-1 text-sm font-semibold ' + (q.pct >= 0 ? 'text-emerald-300' : 'text-rose-300'), signedPct(q.pct));
     box.appendChild(change);
     if (q.sinceListing) box.appendChild(el('p', 'text-[11px] text-slate-500', 'This range is longer than the listing. The change is from the first recorded price.'));
@@ -617,31 +633,71 @@
     var body = document.getElementById('stocksBody');
     if (!body) return;
     body.textContent = '';
-    body.appendChild(el('p', 'text-xs text-slate-400', 'Search by company name or ticker. Each public company follows the S&P 500 by its own amount, plus its own daily swing. The chart starts when the company is created.'));
+    body.appendChild(el('p', 'text-xs text-slate-400', 'Search by company name or ticker. Matches show under the box as you type. Each public company follows the S&P 500 by its own amount, plus its own daily swing.'));
+    var searchWrap = el('div', 'relative mt-3');
     var search = field('Name or ticker', '', 'text');
     search.input.maxLength = 24;
-    body.appendChild(search.wrap);
-    body.appendChild(
-      button('Search', 'mt-2 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white', function () {
-        var q = search.input.value.trim();
-        var list = document.getElementById('stocksResults');
-        if (list) list.textContent = 'Searching…';
-        api('/api/economy/stocks?q=' + encodeURIComponent(q))
-          .then(function (data) {
-            renderStockMatches(data);
-            if (data.matches && data.matches.length === 1) loadQuote(data.matches[0].id, stockRange);
-          })
-          .catch(function (e) {
-            if (list) list.textContent = String(e.message || e);
-          });
-      })
-    );
-    var results = el('div', '', '');
-    results.id = 'stocksResults';
-    body.appendChild(results);
+    search.input.autocomplete = 'off';
+    searchWrap.appendChild(search.wrap);
+    var suggest = el('div', 'absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-52 overflow-y-auto rounded-xl border border-white/15 bg-slate-900 shadow-xl');
+    searchWrap.appendChild(suggest);
+    body.appendChild(searchWrap);
     var quote = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4', '');
     quote.id = 'stocksQuote';
     body.appendChild(quote);
+    var searchTimer = 0;
+    var searchToken = 0;
+    function hideSuggest() {
+      suggest.classList.add('hidden');
+      suggest.textContent = '';
+    }
+    function showSuggest(matches) {
+      suggest.textContent = '';
+      if (!matches.length) {
+        suggest.classList.remove('hidden');
+        suggest.appendChild(el('p', 'px-3 py-2 text-sm text-slate-400', 'No matching company'));
+        return;
+      }
+      suggest.classList.remove('hidden');
+      matches.forEach(function (c) {
+        suggest.appendChild(
+          button(
+            c.name + (c.ticker ? ' · ' + c.ticker : '') + ' · ' + (c.alive ? money(c.shareExact) : 'worthless') + (c.alive && !c.isPublic ? ' · private' : ''),
+            'block w-full border-b border-white/10 px-3 py-2 text-left text-sm text-slate-200 last:border-b-0 hover:bg-slate-800',
+            function () {
+              search.input.value = c.ticker || c.name;
+              hideSuggest();
+              loadQuote(c.id, stockRange);
+            }
+          )
+        );
+      });
+    }
+    function runSuggest() {
+      var q = search.input.value.trim();
+      searchToken += 1;
+      var token = searchToken;
+      if (!q) {
+        hideSuggest();
+        return;
+      }
+      api('/api/economy/stocks?q=' + encodeURIComponent(q))
+        .then(function (data) {
+          if (token !== searchToken) return;
+          showSuggest((data && data.matches) || []);
+        })
+        .catch(function () {
+          if (token !== searchToken) return;
+          hideSuggest();
+        });
+    }
+    search.input.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(runSuggest, 200);
+    });
+    search.input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') hideSuggest();
+    });
   }
 
   function closeStocks() {
