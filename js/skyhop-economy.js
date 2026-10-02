@@ -48,9 +48,10 @@
     msg.className = 'mt-2 text-sm ' + (bad ? 'text-rose-300' : 'text-emerald-200');
   }
 
-  function post(path, body) {
+  function post(path, body, draw) {
     setMsg('');
     var note = '';
+    var failed = false;
     return api(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -58,6 +59,7 @@
     })
       .then(function (data) {
         if (data && data.message) note = data.message;
+        if (data && data.ok === false) failed = true;
         if (data && data.banned) {
           setMsg(note || 'Banned.', true);
           return null;
@@ -65,11 +67,13 @@
         return data && data.view ? data.view : data;
       })
       .then(function (view) {
-        if (view) render(view);
-        if (note) setMsg(note, false);
+        if (view) (draw || render)(view);
+        if (note && !draw) setMsg(note, failed);
+        if (note && draw) setRaceMsg(note, failed);
       })
       .catch(function (e) {
-        setMsg(String(e.message || e), true);
+        if (draw) setRaceMsg(String(e.message || e), true);
+        else setMsg(String(e.message || e), true);
       });
   }
 
@@ -191,24 +195,45 @@
         );
       }
       if (mine.kind === 'racing') {
-        var fee = field('Entry fee', mine.tournament ? mine.tournament.fee : 25);
-        var prize = field('Prize', mine.tournament ? mine.tournament.prize : 100);
+        var fee = field('Entry fee', 25);
+        var prize = field('Prize', 100);
+        var desc = field('Description', '', 'text');
+        desc.input.maxLength = 200;
+        desc.input.placeholder = 'What this race is';
         card.appendChild(fee.wrap);
         card.appendChild(prize.wrap);
-        var raceRow = el('div', 'mt-2 flex flex-wrap gap-2');
-        raceRow.appendChild(
-          button('Open tournament', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/company', { openTournament: true, fee: Number(fee.input.value), prize: Number(prize.input.value) });
-          })
-        );
-        var winner = field('Pay winner username', '', 'text');
-        card.appendChild(raceRow);
-        card.appendChild(winner.wrap);
+        card.appendChild(desc.wrap);
         card.appendChild(
-          button('Pay winner and close', 'mt-2 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-            post('/api/economy/tournament/pay', { companyId: mine.id, username: winner.input.value });
+          button('Open tournament', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            post('/api/economy/company', {
+              openTournament: true,
+              fee: Number(fee.input.value),
+              prize: Number(prize.input.value),
+              description: desc.input.value,
+            });
           })
         );
+        (mine.tournaments || []).forEach(function (t) {
+          var race = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
+          race.appendChild(el('p', 'text-xs font-semibold text-white', t.description || 'Untitled tournament'));
+          race.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', 'Entry ' + t.fee + ' · prize ' + t.prize + ' · ' + t.entrants + ' entered'));
+          if (t.names && t.names.length) race.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Entered: ' + t.names.join(', ')));
+          var winner = field('Pay winner username', '', 'text');
+          race.appendChild(winner.wrap);
+          var raceRow = el('div', 'mt-2 flex flex-wrap gap-2');
+          raceRow.appendChild(
+            button('Pay winner and close', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+              post('/api/economy/tournament/pay', { companyId: mine.id, tournamentId: t.id, username: winner.input.value });
+            })
+          );
+          raceRow.appendChild(
+            button('Close without paying', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+              post('/api/economy/company', { closeTournament: true, tournamentId: t.id });
+            })
+          );
+          race.appendChild(raceRow);
+          card.appendChild(race);
+        });
       }
       var borrowAmt = field('Borrow for the company', 1000);
       card.appendChild(borrowAmt.wrap);
@@ -335,15 +360,22 @@
           })
         );
       }
-      if (c.kind === 'racing' && c.tournament) {
-        box.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', 'Entry ' + c.tournament.fee + ' · prize ' + c.tournament.prize + ' · ' + c.tournament.entrants + ' entered'));
-        if (!c.youEntered) {
-          box.appendChild(
-            button('Enter tournament', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-              post('/api/economy/tournament/enter', { companyId: c.id });
-            })
-          );
-        }
+      if (c.kind === 'racing' && c.tournaments && c.tournaments.length) {
+        c.tournaments.forEach(function (t) {
+          var race = el('div', 'mt-2 rounded-lg border border-white/10 p-2');
+          race.appendChild(el('p', 'text-xs text-white', t.description || 'Untitled tournament'));
+          race.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', 'Entry ' + t.fee + ' · prize ' + t.prize + ' · ' + t.entrants + ' entered'));
+          if (!t.youEntered) {
+            race.appendChild(
+              button('Enter', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+                post('/api/economy/tournament/enter', { companyId: c.id, tournamentId: t.id });
+              })
+            );
+          } else {
+            race.appendChild(el('p', 'mt-1 text-[11px] text-emerald-300', 'You entered.'));
+          }
+          box.appendChild(race);
+        });
       }
       market.appendChild(box);
     });
@@ -375,11 +407,82 @@
     screen.classList.remove('flex');
   }
 
+  function setRaceMsg(text, bad) {
+    var msg = document.getElementById('racesMsg');
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.className = 'mt-2 text-sm ' + (bad ? 'text-rose-300' : 'text-emerald-200');
+  }
+
+  function renderRaces(data) {
+    var body = document.getElementById('racesBody');
+    if (!body || !data) return;
+    body.textContent = '';
+    body.appendChild(el('p', 'text-xs text-slate-400', 'Open tournaments from racing companies. Each listing shows the description, entry fee, and prize.'));
+    var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
+    msg.id = 'racesMsg';
+    body.appendChild(msg);
+    var any = false;
+    (data.companies || []).forEach(function (c) {
+      if (c.kind !== 'racing' || !c.tournaments || !c.tournaments.length) return;
+      any = true;
+      var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+      box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name));
+      box.appendChild(el('p', 'text-[11px] text-slate-500', c.ownerName));
+      c.tournaments.forEach(function (t) {
+        var race = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
+        race.appendChild(el('p', 'text-sm text-white', t.description || 'No description'));
+        race.appendChild(el('p', 'mt-1 text-xs text-slate-300', 'Entry fee ' + t.fee + ' coins · prize ' + t.prize + ' coins · ' + t.entrants + ' entered'));
+        if (t.youEntered) {
+          race.appendChild(el('p', 'mt-2 text-[11px] text-emerald-300', 'You entered.'));
+        } else {
+          race.appendChild(
+            button('Enter', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+              post('/api/economy/tournament/enter', { companyId: c.id, tournamentId: t.id }, renderRaces);
+            })
+          );
+        }
+        box.appendChild(race);
+      });
+      body.appendChild(box);
+    });
+    if (!any) body.appendChild(el('p', 'mt-4 text-sm text-slate-400', 'No tournaments are open.'));
+  }
+
+  function openRaces() {
+    if (!getToken()) {
+      window.alert('Sign in from Account first.');
+      return;
+    }
+    var screen = document.getElementById('screenRaces');
+    if (!screen) return;
+    screen.classList.remove('hidden');
+    screen.classList.add('flex');
+    var body = document.getElementById('racesBody');
+    if (body) body.textContent = 'Loading…';
+    api('/api/economy', { method: 'GET' })
+      .then(renderRaces)
+      .catch(function (e) {
+        if (body) body.textContent = String(e.message || e);
+      });
+  }
+
+  function closeRaces() {
+    var screen = document.getElementById('screenRaces');
+    if (!screen) return;
+    screen.classList.add('hidden');
+    screen.classList.remove('flex');
+  }
+
   function bind() {
     var fab = document.getElementById('btnEconomyFab');
     var close = document.getElementById('btnEconomyClose');
+    var races = document.getElementById('btnRacesFab');
+    var racesClose = document.getElementById('btnRacesClose');
     if (fab) fab.addEventListener('click', openEconomy);
     if (close) close.addEventListener('click', closeEconomy);
+    if (races) races.addEventListener('click', openRaces);
+    if (racesClose) racesClose.addEventListener('click', closeRaces);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

@@ -73,6 +73,11 @@ const FEATURE_LIST_ECONOMY_SUPPLEMENT = `
             <li>Companies cost 1,000 coins. The Sky Hop National Bank takes an 8% weekly tax, lends at 14.32%, and pays 1.2% on savings. A company under −500 coins of weekly profit is closed</li>
           </ul>`;
 
+const FEATURE_LIST_RACES_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Racing companies can host several tournaments at once. Each one has its own entry fee, prize, and description</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -83,6 +88,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('Allow copies')) html += FEATURE_LIST_COPY_SUPPLEMENT;
       if (!html.includes('Graphic Designer')) html += FEATURE_LIST_GD_SUPPLEMENT;
       if (!html.includes('Sky Hop National Bank')) html += FEATURE_LIST_ECONOMY_SUPPLEMENT;
+      if (!html.includes('several tournaments')) html += FEATURE_LIST_RACES_SUPPLEMENT;
       return html;
     }
   }

@@ -125,6 +125,41 @@ async function indexMove(state) {
   }
 }
 
+function tournamentsOf(c) {
+  if (!Array.isArray(c.tournaments)) c.tournaments = [];
+  if (c.tournament && typeof c.tournament === 'object') {
+    c.tournaments.push({
+      id: c.tournament.id || crypto.randomUUID(),
+      fee: c.tournament.fee,
+      prize: c.tournament.prize,
+      description: String(c.tournament.description || ''),
+      entrants: Array.isArray(c.tournament.entrants) ? c.tournament.entrants : [],
+    });
+    c.tournament = null;
+  }
+  return c.tournaments;
+}
+
+function publicTournament(t, me, ownerView) {
+  const entrants = Array.isArray(t.entrants) ? t.entrants : [];
+  return {
+    id: t.id,
+    fee: Math.max(0, Math.floor(Number(t.fee) || 0)),
+    prize: Math.max(0, Math.floor(Number(t.prize) || 0)),
+    description: String(t.description || ''),
+    entrants: entrants.length,
+    youEntered: entrants.some((e) => uid(e.userId) === me),
+    names: ownerView ? entrants.map((e) => e.username) : undefined,
+  };
+}
+
+function findTournament(c, tournamentId) {
+  const list = tournamentsOf(c);
+  const want = String(tournamentId || '');
+  if (want) return list.find((t) => t.id === want) || null;
+  return list.length === 1 ? list[0] : null;
+}
+
 function companyById(state, id) {
   return state.companies.find((c) => c.id === id && c.alive) || null;
 }
@@ -260,6 +295,7 @@ async function applyWeek(store, state) {
       c.sharePrice = 0;
       c.deposits = {};
       c.policies = {};
+      c.tournaments = [];
       c.tournament = null;
       c.alive = false;
       state.loans = state.loans.filter((loan) => loan.lender !== c.id && !(loan.borrowerType === 'company' && loan.borrowerId === c.id));
@@ -348,8 +384,7 @@ function detailCompany(c, user, people, ownerView) {
     coverage: c.kind === 'insurance' ? c.coverage : undefined,
     yourDeposit: c.kind === 'bank' ? Math.floor(Number((c.deposits || {})[me]) || 0) : undefined,
     insured: c.kind === 'insurance' ? !!(c.policies || {})[me] : undefined,
-    tournament: c.kind === 'racing' && c.tournament ? { fee: c.tournament.fee, prize: c.tournament.prize, entrants: (c.tournament.entrants || []).length, open: true } : null,
-    youEntered: c.kind === 'racing' && c.tournament ? (c.tournament.entrants || []).some((e) => uid(e.userId) === me) : false,
+    tournaments: c.kind === 'racing' ? tournamentsOf(c).map((t) => publicTournament(t, me, ownerView)) : [],
   };
   if (ownerView && c.kind === 'bank') {
     row.deposits = Object.keys(c.deposits || {}).map((id) => ({
@@ -394,6 +429,7 @@ export async function registerCompany(store, user, { name, kind }) {
       coverage: 200,
       deposits: {},
       policies: {},
+      tournaments: [],
       tournament: null,
     };
     state.companies.push(company);
@@ -430,11 +466,19 @@ export async function updateCompany(store, user, body) {
       if (body.coverage != null) c.coverage = clampMoney(body.coverage, 0, 1_000_000);
     }
     if (c.kind === 'racing' && body.openTournament) {
+      const list = tournamentsOf(c);
+      if (list.length >= 20) throw new Error('A racing company can have 20 open tournaments.');
       const fee = clampMoney(body.fee, 0, 1_000_000);
       const prize = clampMoney(body.prize, 0, 1_000_000);
-      c.tournament = { fee, prize, entrants: [] };
+      const description = String(body.description || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+      list.push({ id: crypto.randomUUID(), fee, prize, description, entrants: [] });
     }
-    if (c.kind === 'racing' && body.closeTournament) c.tournament = null;
+    if (c.kind === 'racing' && body.closeTournament) {
+      const id = String(body.tournamentId || '');
+      const list = tournamentsOf(c);
+      if (!list.some((t) => t.id === id)) throw new Error('That tournament is not open.');
+      c.tournaments = list.filter((t) => t.id !== id);
+    }
     return present(state, user, await holders(store));
   });
 }
@@ -592,33 +636,37 @@ export async function buyPolicy(store, user, companyId) {
   });
 }
 
-export async function enterTournament(store, user, companyId) {
+export async function enterTournament(store, user, companyId, tournamentId) {
   return withState(store, async (state) => {
     const c = companyById(state, companyId);
-    if (!c || c.kind !== 'racing' || !c.tournament) throw new Error('No tournament is open.');
-    if ((c.tournament.entrants || []).some((e) => uid(e.userId) === uid(user.id))) throw new Error('You already entered.');
-    const fee = Math.max(0, Math.floor(Number(c.tournament.fee) || 0));
+    if (!c || c.kind !== 'racing') throw new Error('No tournament is open.');
+    const t = findTournament(c, tournamentId);
+    if (!t) throw new Error('That tournament is not open.');
+    if ((t.entrants || []).some((e) => uid(e.userId) === uid(user.id))) throw new Error('You already entered.');
+    const fee = Math.max(0, Math.floor(Number(t.fee) || 0));
     await chargeWallet(store, user, fee);
     c.cash += fee;
     c.weekProfit += fee;
-    c.tournament.entrants.push({ userId: uid(user.id), username: user.username });
+    t.entrants.push({ userId: uid(user.id), username: user.username });
     return present(state, user, await holders(store));
   });
 }
 
-export async function payTournament(store, user, companyId, username) {
+export async function payTournament(store, user, companyId, tournamentId, username) {
   const want = String(username || '').trim().toLowerCase();
   return withState(store, async (state) => {
     const c = myCompany(state, user.id);
-    if (!c || c.id !== companyId || c.kind !== 'racing' || !c.tournament) throw new Error('No tournament to pay.');
-    const winner = (c.tournament.entrants || []).find((e) => String(e.username || '').toLowerCase() === want);
+    if (!c || c.id !== companyId || c.kind !== 'racing') throw new Error('No tournament to pay.');
+    const t = findTournament(c, tournamentId);
+    if (!t) throw new Error('That tournament is not open.');
+    const winner = (t.entrants || []).find((e) => String(e.username || '').toLowerCase() === want);
     if (!winner) throw new Error('That player did not enter.');
-    const prize = Math.max(0, Math.floor(Number(c.tournament.prize) || 0));
+    const prize = Math.max(0, Math.floor(Number(t.prize) || 0));
     if (c.cash < prize) throw new Error('The company cannot cover the prize.');
     c.cash -= prize;
     c.weekProfit -= prize;
     await payWallet(store, winner.userId, prize);
-    c.tournament = null;
+    c.tournaments = tournamentsOf(c).filter((row) => row.id !== t.id);
     return present(state, user, await holders(store));
   });
 }
@@ -632,6 +680,14 @@ export async function heist(store, user, bankId) {
     const chance = national ? HEIST_NATIONAL : HEIST_PRIVATE;
     const success = Math.random() < chance;
     if (!success) {
+      if (national && isOwnerUser(user)) {
+        return {
+          ok: false,
+          banned: false,
+          message: 'The heist failed.',
+          view: present(state, user, await holders(store)),
+        };
+      }
       const until = durationKeyToBanUntil('1d');
       if (typeof store.applyBan === 'function' && until != null) {
         await store.applyBan(user.id, until, 'Failed a bank heist.');

@@ -4667,6 +4667,7 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
+      if (body.description != null) body.description = censorProfanity(String(body.description)).text;
       json(res, 200, await Economy.updateCompany(store, sess.user, body));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
@@ -4814,7 +4815,7 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      json(res, 200, await Economy.enterTournament(store, sess.user, body.companyId));
+      json(res, 200, await Economy.enterTournament(store, sess.user, body.companyId, body.tournamentId));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -4835,7 +4836,7 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      json(res, 200, await Economy.payTournament(store, sess.user, body.companyId, body.username));
+      json(res, 200, await Economy.payTournament(store, sess.user, body.companyId, body.tournamentId, body.username));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
