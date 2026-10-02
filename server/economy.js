@@ -33,6 +33,7 @@ function locked(fn) {
 function emptyState() {
   return {
     weekId: null,
+    priceDay: null,
     indexChange: 0,
     national: { taxPool: 0, vault: 0, deposits: {} },
     companies: [],
@@ -69,6 +70,7 @@ async function loadState(store) {
   if (!row || typeof row !== 'object') return emptyState();
   const state = emptyState();
   state.weekId = row.weekId == null ? null : Number(row.weekId);
+  state.priceDay = row.priceDay == null ? null : Number(row.priceDay);
   state.indexChange = Number(row.indexChange) || 0;
   state.national = {
     taxPool: Math.max(0, Math.floor(Number(row.national && row.national.taxPool) || 0)),
@@ -104,24 +106,100 @@ async function payWallet(store, userId, amount) {
   await store.incrementUserCoins(userId, n);
 }
 
-async function indexMove(state) {
+const DAY_MS = 24 * 60 * 60 * 1000;
+let indexCache = { at: 0, map: {} };
+
+function hashStr(s) {
+  let h = 2166136261;
+  const text = String(s || '');
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function unitNoise(seed, day) {
+  const x = Math.sin(Number(seed) * 12.9898 + Number(day) * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function seededMarket(day) {
+  return (unitNoise(9001, day) - 0.5) * 0.04;
+}
+
+async function indexReturns() {
+  if (indexCache.at && Date.now() - indexCache.at < 15 * 60 * 1000) return indexCache.map;
   try {
-    const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=5d', {
+    const res = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=3mo', {
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) throw new Error('index');
     const data = await res.json();
-    const closes = (((data.chart || {}).result || [])[0].indicators.quote[0].close || []).filter((n) => n != null);
-    const prev = closes[closes.length - 2];
-    const last = closes[closes.length - 1];
-    if (!(prev > 0) || !(last > 0)) throw new Error('index');
-    const change = (last - prev) / prev;
-    return Math.max(-0.08, Math.min(0.08, change));
+    const result = ((data.chart || {}).result || [])[0] || {};
+    const ts = result.timestamp || [];
+    const closes = ((result.indicators || {}).quote || [])[0]?.close || [];
+    const map = {};
+    for (let i = 1; i < closes.length; i += 1) {
+      const prev = closes[i - 1];
+      const last = closes[i];
+      if (!(prev > 0) || !(last > 0)) continue;
+      const day = Math.floor((Number(ts[i]) * 1000) / DAY_MS);
+      map[day] = Math.max(-0.08, Math.min(0.08, (last - prev) / prev));
+    }
+    indexCache = { at: Date.now(), map };
+    return map;
   } catch {
-    if (state.indexChange) return state.indexChange;
-    const day = Math.floor(Date.now() / 86400000);
-    const x = Math.sin(day * 12.9898) * 43758.5453;
-    return (x - Math.floor(x) - 0.5) * 0.04;
+    return indexCache.map || {};
+  }
+}
+
+function ensureMarket(c) {
+  if (!c.noiseSeed) c.noiseSeed = hashStr(c.id || c.name || 'co');
+  if (!(Number(c.beta) > 0)) {
+    const u = (c.noiseSeed % 10000) / 10000;
+    c.beta = Math.round((0.4 + u * 1.3) * 100) / 100;
+  }
+  if (!Array.isArray(c.history)) c.history = [];
+}
+
+function pushHistory(c, t, p) {
+  ensureMarket(c);
+  const n = Math.max(0, Math.round(Number(p) * 100) / 100);
+  c.history.push({ t: Math.floor(Number(t) || Date.now()), p: n });
+  if (c.history.length > 3700) c.history.splice(0, c.history.length - 3700);
+}
+
+async function settlePrices(state) {
+  const target = Math.floor(Date.now() / DAY_MS);
+  if (state.priceDay == null) {
+    state.priceDay = target;
+    for (const c of state.companies) {
+      if (!c.alive) continue;
+      ensureMarket(c);
+      if (!c.history.length) pushHistory(c, Date.now(), c.sharePrice || 0);
+    }
+    return;
+  }
+  if (state.priceDay >= target) return;
+  const returns = await indexReturns();
+  let steps = 0;
+  while (state.priceDay < target && steps < 40) {
+    const day = state.priceDay + 1;
+    const market = returns[day] != null ? returns[day] : seededMarket(day);
+    state.indexChange = Math.round(market * 10000) / 10000;
+    for (const c of state.companies) {
+      if (!c.alive || !c.isPublic) continue;
+      ensureMarket(c);
+      const noise = (unitNoise(c.noiseSeed, day) - 0.5) * 0.04;
+      const change = Math.max(-0.15, Math.min(0.15, c.beta * market + noise));
+      const base = Number(c.shareExact) > 0 ? Number(c.shareExact) : Math.max(1, Number(c.sharePrice) || 1);
+      c.shareExact = Math.max(0.01, Math.min(1_000_000, base * (1 + change)));
+      c.sharePrice = Math.max(1, Math.min(1_000_000, Math.round(c.shareExact)));
+      pushHistory(c, day * DAY_MS, c.shareExact);
+    }
+    state.priceDay = day;
+    steps += 1;
   }
 }
 
@@ -150,6 +228,8 @@ function publicTournament(t, me, ownerView) {
     entrants: entrants.length,
     youEntered: entrants.some((e) => uid(e.userId) === me),
     names: ownerView ? entrants.map((e) => e.username) : undefined,
+    startsAt: t.startsAt || null,
+    started: !!(t.startsAt && Date.now() >= Number(t.startsAt)),
   };
 }
 
@@ -188,18 +268,9 @@ function sumMap(map) {
 }
 
 async function applyWeek(store, state) {
-  const move = await indexMove(state);
-  const local = (Math.random() - 0.5) * 0.04;
-  state.indexChange = Math.round((move + local) * 10000) / 10000;
   const people = await holders(store);
   const before = {};
   for (const p of people) before[uid(p.id)] = portfolio(state, p.id);
-
-  for (const c of state.companies) {
-    if (!c.alive || !c.isPublic) continue;
-    const next = Math.round(Math.max(1, c.sharePrice) * (1 + state.indexChange));
-    c.sharePrice = Math.max(1, Math.min(1_000_000, next));
-  }
 
   for (const p of people) {
     if (effectiveRole(p) === 'owner') continue;
@@ -304,6 +375,7 @@ async function applyWeek(store, state) {
 }
 
 async function settle(store, state) {
+  await settlePrices(state);
   const target = Math.floor(Date.now() / WEEK_MS);
   if (state.weekId == null) state.weekId = target;
   let steps = 0;
@@ -369,6 +441,7 @@ function detailCompany(c, user, people, ownerView) {
   const row = {
     id: c.id,
     name: c.name,
+    ticker: c.ticker || '',
     kind: c.kind,
     ownerName: c.ownerName,
     isPublic: !!c.isPublic,
@@ -431,7 +504,13 @@ export async function registerCompany(store, user, { name, kind }) {
       policies: {},
       tournaments: [],
       tournament: null,
+      ticker: '',
+      beta: 0,
+      noiseSeed: 0,
+      history: [],
     };
+    ensureMarket(company);
+    pushHistory(company, Date.now(), company.sharePrice);
     state.companies.push(company);
     return present(state, user, await holders(store));
   });
@@ -442,14 +521,27 @@ export async function updateCompany(store, user, body) {
     const c = myCompany(state, user.id);
     if (!c) throw new Error('You do not own a company.');
     if (body.isPublic != null) {
-      if (body.isPublic) c.isPublic = true;
-      else if (c.listed > 0) throw new Error('Buy the listed shares back before going private.');
+      if (body.isPublic) {
+        c.isPublic = true;
+        ensureMarket(c);
+        if (!(Number(c.shareExact) > 0)) c.shareExact = c.sharePrice;
+        pushHistory(c, Date.now(), c.shareExact);
+      } else if (c.listed > 0) throw new Error('Buy the listed shares back before going private.');
       else c.isPublic = false;
+    }
+    if (body.ticker != null) {
+      const ticker = String(body.ticker || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{1,5}$/.test(ticker)) throw new Error('Ticker must be 1–5 letters or numbers.');
+      const taken = state.companies.some((o) => o.alive && o.id !== c.id && String(o.ticker || '').toUpperCase() === ticker);
+      if (taken) throw new Error('That ticker is taken.');
+      c.ticker = ticker;
     }
     if (body.sharePrice != null) {
       const price = Math.floor(Number(body.sharePrice));
       if (price < 1 || price > 1_000_000) throw new Error('Share price must be 1–1,000,000.');
       c.sharePrice = price;
+      c.shareExact = price;
+      pushHistory(c, Date.now(), price);
     }
     if (body.listed != null) {
       const listed = Math.floor(Number(body.listed));
@@ -471,7 +563,13 @@ export async function updateCompany(store, user, body) {
       const fee = clampMoney(body.fee, 0, 1_000_000);
       const prize = clampMoney(body.prize, 0, 1_000_000);
       const description = String(body.description || '').trim().replace(/\s+/g, ' ').slice(0, 200);
-      list.push({ id: crypto.randomUUID(), fee, prize, description, entrants: [] });
+      let startsAt = null;
+      if (body.startsAt) {
+        const ms = Date.parse(body.startsAt);
+        if (!Number.isFinite(ms)) throw new Error('Start date is invalid.');
+        startsAt = ms;
+      }
+      list.push({ id: crypto.randomUUID(), fee, prize, description, startsAt, entrants: [] });
     }
     if (c.kind === 'racing' && body.closeTournament) {
       const id = String(body.tournamentId || '');
@@ -636,12 +734,137 @@ export async function buyPolicy(store, user, companyId) {
   });
 }
 
+export async function deleteCompany(store, user) {
+  return withState(store, async (state) => {
+    const c = myCompany(state, user.id);
+    if (!c) throw new Error('You do not own a company.');
+    const owed = sumMap(c.deposits);
+    let cash = Math.max(0, Math.floor(Number(c.cash) || 0));
+    if (owed > 0 && cash > 0) {
+      const pool = Math.min(cash, owed);
+      let paid = 0;
+      for (const id of Object.keys(c.deposits || {})) {
+        const bal = Math.floor(Number(c.deposits[id]) || 0);
+        const part = Math.floor(pool * (bal / owed));
+        if (part > 0) {
+          await payWallet(store, id, part);
+          paid += part;
+        }
+      }
+      cash -= paid;
+    }
+    state.national.taxPool += Math.max(0, cash);
+    c.cash = 0;
+    c.shares = {};
+    c.listed = 0;
+    c.sharePrice = 0;
+    c.shareExact = 0;
+    pushHistory(c, Date.now(), 0);
+    c.deposits = {};
+    c.policies = {};
+    c.tournaments = [];
+    c.tournament = null;
+    c.alive = false;
+    state.loans = state.loans.filter((loan) => loan.lender !== c.id && !(loan.borrowerType === 'company' && loan.borrowerId === c.id));
+    return present(state, user, await holders(store));
+  });
+}
+
+function rangeStart(key, now) {
+  if (key === '1d') return now - DAY_MS;
+  if (key === '1w') return now - 7 * DAY_MS;
+  if (key === '1m') return now - 30 * DAY_MS;
+  if (key === '1y') return now - 365 * DAY_MS;
+  if (key === '10y') return now - 3650 * DAY_MS;
+  return new Date(new Date(now).getFullYear(), 0, 1).getTime();
+}
+
+function downsample(points, max) {
+  if (points.length <= max) return points;
+  const out = [];
+  const step = (points.length - 1) / (max - 1);
+  for (let i = 0; i < max; i += 1) out.push(points[Math.round(i * step)]);
+  return out;
+}
+
+function chartSeries(c, key) {
+  const now = Date.now();
+  const start = rangeStart(key, now);
+  const mark = c.alive ? (Number(c.shareExact) > 0 ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) : 0;
+  const hist = (Array.isArray(c.history) ? c.history : [])
+    .filter((p) => Number.isFinite(Number(p.t)) && Number.isFinite(Number(p.p)))
+    .map((p) => ({ t: Number(p.t), p: Math.max(0, Math.round(Number(p.p) * 100) / 100) }))
+    .sort((a, b) => a.t - b.t);
+  let baseline = null;
+  const inside = [];
+  for (const p of hist) {
+    if (p.t < start) baseline = p;
+    else inside.push(p);
+  }
+  const line = [];
+  if (baseline) line.push(baseline);
+  line.push(...inside);
+  if (!line.length || Math.abs(line[line.length - 1].p - mark) > 0.009) line.push({ t: now, p: Math.round(mark * 100) / 100 });
+  const first = line[0].p;
+  const pct = first > 0 ? (mark - first) / first : 0;
+  return {
+    range: key,
+    pct: Math.round(pct * 10000) / 10000,
+    from: first,
+    to: Math.round(mark * 100) / 100,
+    sinceListing: !baseline,
+    points: downsample(line, 80),
+  };
+}
+
+function stockCard(c, user) {
+  return {
+    id: c.id,
+    name: c.name,
+    ticker: c.ticker || '',
+    ownerName: c.ownerName,
+    alive: !!c.alive,
+    isPublic: !!c.isPublic && !!c.alive,
+    sharePrice: c.alive ? c.sharePrice : 0,
+    listed: c.alive ? c.listed : 0,
+    yourShares: c.shares ? sharesOf(c, user.id) : 0,
+    viewerIsOwner: uid(c.ownerId) === uid(user.id),
+  };
+}
+
+export async function stockSearch(store, user, q) {
+  const query = String(q || '').trim().toLowerCase();
+  if (query.length < 1) throw new Error('Type a company name or ticker.');
+  return withState(store, async (state) => {
+    const matches = state.companies
+      .filter((c) => {
+        const name = String(c.name || '').toLowerCase();
+        const ticker = String(c.ticker || '').toLowerCase();
+        return name.includes(query) || (ticker && ticker.includes(query));
+      })
+      .slice(0, 20)
+      .map((c) => stockCard(c, user));
+    return { matches };
+  });
+}
+
+export async function stockQuote(store, user, companyId, range) {
+  const key = String(range || '1d').toLowerCase();
+  if (!['1d', '1w', '1m', '1y', '10y', 'ytd'].includes(key)) throw new Error('Unknown range.');
+  return withState(store, async (state) => {
+    const c = state.companies.find((row) => row.id === companyId);
+    if (!c) throw new Error('Company not found.');
+    return { ...stockCard(c, user), ...chartSeries(c, key) };
+  });
+}
+
 export async function enterTournament(store, user, companyId, tournamentId) {
   return withState(store, async (state) => {
     const c = companyById(state, companyId);
     if (!c || c.kind !== 'racing') throw new Error('No tournament is open.');
     const t = findTournament(c, tournamentId);
     if (!t) throw new Error('That tournament is not open.');
+    if (t.startsAt && Date.now() >= Number(t.startsAt)) throw new Error('This tournament has already started.');
     if ((t.entrants || []).some((e) => uid(e.userId) === uid(user.id))) throw new Error('You already entered.');
     const fee = Math.max(0, Math.floor(Number(t.fee) || 0));
     await chargeWallet(store, user, fee);

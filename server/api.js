@@ -4668,7 +4668,38 @@ export async function handleApi(req, res) {
     }
     try {
       if (body.description != null) body.description = censorProfanity(String(body.description)).text;
+      if (body.ticker != null) body.ticker = censorProfanity(String(body.ticker)).text;
       json(res, 200, await Economy.updateCompany(store, sess.user, body));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/company/delete' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      json(res, 200, await Economy.deleteCompany(store, sess.user));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/stocks' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      const id = u.searchParams.get('id') || '';
+      if (id) json(res, 200, await Economy.stockQuote(store, sess.user, id, u.searchParams.get('range') || '1d'));
+      else json(res, 200, await Economy.stockSearch(store, sess.user, u.searchParams.get('q') || ''));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

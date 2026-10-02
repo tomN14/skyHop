@@ -78,6 +78,11 @@ const FEATURE_LIST_RACES_SUPPLEMENT = `
             <li>Racing companies can host several tournaments at once. Each one has its own entry fee, prize, and description</li>
           </ul>`;
 
+const FEATURE_LIST_STOCKS_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Racing tournaments can set a start time. Entry closes after it. Owners can delete a company, which makes its shares worthless. Stocks are searched by name or ticker</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -89,6 +94,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('Graphic Designer')) html += FEATURE_LIST_GD_SUPPLEMENT;
       if (!html.includes('Sky Hop National Bank')) html += FEATURE_LIST_ECONOMY_SUPPLEMENT;
       if (!html.includes('several tournaments')) html += FEATURE_LIST_RACES_SUPPLEMENT;
+      if (!html.includes('ticker')) html += FEATURE_LIST_STOCKS_SUPPLEMENT;
       return html;
     }
   }
