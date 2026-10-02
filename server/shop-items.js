@@ -80,6 +80,7 @@ function mapOwnerRow(r) {
     creator: r.creator || '',
     price,
     sellPrice,
+    credits: String(r.credits || '').trim().slice(0, 40),
     page: Number(r.page) || 1,
     slot: Number(r.slot) || 0,
     imageUrl: '/api/shop/skins/' + encodeURIComponent(texture),
@@ -99,6 +100,7 @@ function publicShopItem(it) {
     creator: it.creator || '',
     price: it.price,
     sellPrice: it.sellPrice,
+    credits: String(it.credits || '').trim().slice(0, 40),
     page: it.page,
     slot: it.slot,
     imageUrl: it.imageUrl,
@@ -118,6 +120,7 @@ function mapBundled(x) {
     creator: x.creator || '',
     price,
     sellPrice: x.sellPrice != null ? Math.floor(Number(x.sellPrice) || 0) : 0,
+    credits: '',
     page: x.page != null ? Number(x.page) : 1,
     slot: x.slot != null ? Number(x.slot) : 0,
     imageUrl: 'textures/' + encodeURIComponent(x.texture),
@@ -146,6 +149,7 @@ function applyOverride(item, ov) {
   const sellPrice = ov.sellPrice != null ? Math.floor(Number(ov.sellPrice)) : item.sellPrice;
   const label = ov.label != null && String(ov.label).trim() ? String(ov.label).trim().slice(0, 80) : item.label;
   const creator = ov.creator != null ? String(ov.creator).trim().slice(0, 40) : item.creator || '';
+  const credits = ov.credits != null ? String(ov.credits).trim().slice(0, 40) : item.credits || '';
   const tier = shopTierFromPrice(price);
   const page = ov.page != null ? Number(ov.page) : item.page;
   const slot = ov.slot != null ? Number(ov.slot) : item.slot;
@@ -153,6 +157,7 @@ function applyOverride(item, ov) {
     ...item,
     label,
     creator,
+    credits,
     price,
     sellPrice,
     page,
@@ -233,18 +238,20 @@ export async function getShopItemById(id) {
   return items.find((x) => x.id === want) || null;
 }
 
-export async function updateShopListing(id, { label, price, sellPrice, creator }) {
+export async function updateShopListing(id, { label, price, sellPrice, creator, credits }) {
   const item = await getShopItemById(id);
   if (!item) throw new Error('Unknown shop item.');
   const prices = validatePrices(price, sellPrice);
   const name = String(label || '').trim().slice(0, 80) || item.label || 'Shop item';
   const author = String(creator == null ? item.creator || '' : creator).trim().slice(0, 40);
+  const creditLine = String(credits == null ? item.credits || '' : credits).trim().slice(0, 40);
   const overrides = await loadOverrides();
   const prev = overrides[item.id] && typeof overrides[item.id] === 'object' ? overrides[item.id] : {};
   overrides[item.id] = {
     ...prev,
     label: name,
     creator: author,
+    credits: creditLine,
     price: prices.price,
     sellPrice: prices.sellPrice,
   };
@@ -331,7 +338,7 @@ async function ensureShopBucket() {
   }
 }
 
-export async function createOwnerShopItem({ label, price, sellPrice, creator, buffer, contentType }) {
+export async function createOwnerShopItem({ label, price, sellPrice, creator, credits, buffer, contentType }) {
   if (!buffer || !buffer.length) throw new Error('Image is required.');
   if (buffer.length > MAX_SHOP_IMAGE_BYTES) throw new Error('Image must be 1.5 MB or smaller.');
   const ext = extFromContentType(contentType) || sniffImageExt(buffer);
@@ -339,6 +346,7 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, bu
   const mime = contentType && String(contentType).startsWith('image/') ? String(contentType).split(';')[0] : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
   const name = String(label || '').trim().slice(0, 80) || 'Shop item';
   const author = String(creator || '').trim().slice(0, 40);
+  const creditLine = String(credits || '').trim().slice(0, 40);
   const prices = validatePrices(price, sellPrice);
   const current = await listShopItems(null);
   const pos = nextFreeSlot(current.items);
@@ -366,8 +374,13 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, bu
       storage_path: storagePath,
       mime_type: mime,
       created_at: createdAt,
+      credits: creditLine,
     };
-    const { error } = await sb.from('skyhop_shop_items').insert(row);
+    let { error } = await sb.from('skyhop_shop_items').insert(row);
+    if (error && /credits/i.test(String(error.message || ''))) {
+      delete row.credits;
+      ({ error } = await sb.from('skyhop_shop_items').insert(row));
+    }
     if (error) {
       await sb.storage.from(SHOP_BUCKET).remove([storagePath]);
       if (/skyhop_shop_items|relation|column/i.test(String(error.message || ''))) {
@@ -376,10 +389,14 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, bu
       throw new Error(error.message);
     }
     const made = mapOwnerRow(row);
-    if (author) {
+    if (author || creditLine) {
       const overrides = await loadOverrides();
       const prev = overrides[id] && typeof overrides[id] === 'object' ? overrides[id] : {};
-      overrides[id] = { ...prev, creator: author };
+      overrides[id] = {
+        ...prev,
+        ...(author ? { creator: author } : {}),
+        credits: creditLine,
+      };
       await saveOverrides(overrides);
       return publicShopItem(applyOverride(made, overrides[id]));
     }
@@ -393,6 +410,7 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, bu
     id,
     label: name,
     creator: author,
+    credits: creditLine,
     texture,
     price: prices.price,
     sellPrice: prices.sellPrice,

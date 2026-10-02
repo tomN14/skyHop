@@ -13,6 +13,7 @@
         'Dismiss a report that is not valid.',
         'Escalate a report to the owner.',
         'Read this Report Advisor power list.',
+        'See other Report Advisors.',
       ],
     },
     moderator: {
@@ -34,6 +35,7 @@
         'Add, edit, or delete chat in a race or collab.',
         'Messages you add show as SkyHopMod_ plus five random digits. A new alias is chosen for every message.',
         'Read this moderator power list.',
+        'See other moderators and Report Advisors.',
       ],
     },
     admin: {
@@ -55,7 +57,8 @@
         'Add, edit, or delete chat in a race or collab.',
         'Messages you add show as SkyHopMod_ plus five random digits. A new alias is chosen for every message.',
         'Click a SkyHopMod alias to see which moderator posted that message.',
-        'Read the Report Advisor, moderator, and Admin power lists.',
+        'Read the Report Advisor, moderator, Admin, and Graphic Designer power lists.',
+        'See other Admins, moderators, and Report Advisors.',
         'Promote a player to moderator.',
         'Ban a player or Report Advisor for 1 day, up to 2 times in 7 days.',
         'Ask the owner to apply a longer ban.',
@@ -63,16 +66,27 @@
         'Look up strike counts for players, Report Advisors, and moderators.',
       ],
     },
+    graphic_designer: {
+      title: 'Graphic Designer',
+      powers: [
+        'Add items to the coin shop.',
+        'Set the item name, buy price, and sell price.',
+        'Set optional credits. When credits are filled, the shop slot shows Credits: and that name in the bottom right. Blank credits stay hidden.',
+        'See other Graphic Designers.',
+        'Read this Graphic Designer power list.',
+      ],
+    },
   };
 
   function listsFor(role) {
     var me = window.__skyhopLastMe;
+    var keys = [];
     if (role === 'owner' || role === 'admin' || role === 'mod_admin' || (me && me.adminPowers)) {
-      return ['report_advisor', 'moderator', 'admin'];
-    }
-    if (role === 'moderator') return ['moderator'];
-    if (role === 'report_advisor') return ['report_advisor'];
-    return [];
+      keys = ['report_advisor', 'moderator', 'admin', 'graphic_designer'];
+    } else if (role === 'moderator') keys = ['moderator'];
+    else if (role === 'report_advisor') keys = ['report_advisor'];
+    if (me && me.graphicDesigner && keys.indexOf('graphic_designer') < 0) keys.push('graphic_designer');
+    return keys;
   }
 
   function myRole() {
@@ -129,7 +143,7 @@
         myRole() === 'owner'
           ? 'You can read every role list.'
           : myRole() === 'admin' || myRole() === 'mod_admin' || (window.__skyhopLastMe && window.__skyhopLastMe.adminPowers)
-            ? 'You can read the Report Advisor, moderator, and Admin lists.'
+            ? 'You can read the Report Advisor, moderator, Admin, and Graphic Designer lists.'
             : 'This list is only for your role.';
     }
     paintTabs(keys);

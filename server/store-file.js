@@ -168,6 +168,7 @@ export function createFileStore() {
         strikes: 0,
         modsWarningSeen: false,
         appealDeclineReason: null,
+        graphicDesigner: false,
       };
       s.users.push(user);
       saveStore();
@@ -585,6 +586,22 @@ export function createFileStore() {
     async listReportAdvisors() {
       const s = loadStore();
       return s.users.filter((u) => u.role === 'report_advisor').map((u) => ({ id: u.id, username: u.username }));
+    },
+
+    async listGraphicDesigners() {
+      const s = loadStore();
+      return s.users
+        .filter((u) => u.graphicDesigner)
+        .map((u) => ({ id: u.id, username: u.username }))
+        .sort((a, b) => String(a.username).localeCompare(String(b.username)));
+    },
+
+    async setGraphicDesigner(userId, on) {
+      const s = loadStore();
+      const u = s.users.find((x) => x.id === userId);
+      if (!u) throw new Error('User not found');
+      u.graphicDesigner = !!on;
+      saveStore();
     },
 
     async setReportAdvisorRole(userId, isAdvisor) {

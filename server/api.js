@@ -4,7 +4,7 @@ import {
   finalizeCampaignRunSession,
   startCampaignRunSession,
 } from './campaign-run-sessions.js';
-import { banStatusForUser, assertAccountActive, canAccessReportInbox, displayRole, effectiveRole, hasAdminPowers, isAccountDisabled, isStaffRole, ownerUsernameLower, parseBanDuration, parseModAdminHours, promotionNoticePayload, seesModReportQueue } from './moderation.js';
+import { banStatusForUser, assertAccountActive, canAccessReportInbox, canManageShop, displayRole, effectiveRole, hasAdminPowers, isAccountDisabled, isGraphicDesigner, isStaffRole, ownerUsernameLower, parseBanDuration, parseModAdminHours, promotionNoticePayload, seesModReportQueue, staffRosterKeys } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
 import {
   createDeleteToken,
@@ -295,6 +295,7 @@ async function buildMePayload(userId, req = null) {
     username: user.username,
     role: displayRole(role),
     adminPowers: hasAdminPowers(role),
+    graphicDesigner: isGraphicDesigner(user),
     disabled: isAccountDisabled(user),
     coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
@@ -1393,8 +1394,8 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'owner') {
-      json(res, 403, { error: 'Owner only' });
+    if (!canManageShop(sess.user)) {
+      json(res, 403, { error: 'Owner or Graphic Designer only' });
       return true;
     }
     try {
@@ -1412,8 +1413,8 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'owner') {
-      json(res, 403, { error: 'Owner only' });
+    if (!canManageShop(sess.user)) {
+      json(res, 403, { error: 'Owner or Graphic Designer only' });
       return true;
     }
     let body;
@@ -1426,9 +1427,11 @@ export async function handleApi(req, res) {
     try {
       const label = censorProfanity(String(body.label || '')).text.slice(0, 80);
       const creator = censorProfanity(String(body.creator || '')).text.slice(0, 40);
+      const credits = censorProfanity(String(body.credits || '')).text.slice(0, 40);
       const item = await ShopItems.updateShopListing(body.id, {
         label,
         creator,
+        credits,
         price: body.price,
         sellPrice: body.sellPrice,
       });
@@ -1474,8 +1477,8 @@ export async function handleApi(req, res) {
       json(res, 401, { error: 'Not logged in' });
       return true;
     }
-    if (effectiveRole(sess.user) !== 'owner') {
-      json(res, 403, { error: 'Owner only' });
+    if (!canManageShop(sess.user)) {
+      json(res, 403, { error: 'Owner or Graphic Designer only' });
       return true;
     }
     try {
@@ -1495,11 +1498,19 @@ export async function handleApi(req, res) {
         /* keep */
       }
       creator = censorProfanity(creator).text.slice(0, 40);
+      let credits = String(req.headers['x-shop-credits'] || '');
+      try {
+        credits = decodeURIComponent(credits);
+      } catch {
+        /* keep */
+      }
+      credits = censorProfanity(credits).text.slice(0, 40);
       const price = Number(req.headers['x-shop-price']);
       const sellPrice = Number(req.headers['x-shop-sell-price']);
       const item = await ShopItems.createOwnerShopItem({
         label,
         creator,
+        credits,
         price,
         sellPrice,
         buffer: buf,
@@ -2691,6 +2702,86 @@ export async function handleApi(req, res) {
       }
       await store.setReportAdvisorRole(u.id, promote);
       json(res, 200, { ok: true, username: u.username, reportAdvisor: promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/staff/roster' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    const role = effectiveRole(sess.user);
+    const graphicDesigner = isGraphicDesigner(sess.user);
+    const keys = staffRosterKeys(role, graphicDesigner);
+    try {
+      const out = {};
+      if (keys.includes('admins') && typeof store.listAdmins === 'function') out.admins = await store.listAdmins();
+      if (keys.includes('moderators') && typeof store.listModerators === 'function') {
+        out.moderators = await store.listModerators();
+      }
+      if (keys.includes('reportAdvisors') && typeof store.listReportAdvisors === 'function') {
+        out.reportAdvisors = await store.listReportAdvisors();
+      }
+      if (keys.includes('graphicDesigners') && typeof store.listGraphicDesigners === 'function') {
+        out.graphicDesigners = await store.listGraphicDesigners();
+      }
+      json(res, 200, out);
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/graphic-designers' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const designers = typeof store.listGraphicDesigners === 'function' ? await store.listGraphicDesigners() : [];
+      json(res, 200, { designers });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-graphic-designer' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const un = String(body.username || '').trim();
+    const promote = !!body.promote;
+    if (!un) {
+      json(res, 400, { error: 'username required' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(un);
+      if (!u) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      if (typeof store.setGraphicDesigner !== 'function') {
+        json(res, 501, { error: 'Not configured' });
+        return true;
+      }
+      await store.setGraphicDesigner(u.id, promote);
+      json(res, 200, { ok: true, username: u.username, graphicDesigner: promote });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

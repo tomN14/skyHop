@@ -5435,6 +5435,7 @@
         vy: player.vy,
         g: gravityDir,
         og: !!player.onGround,
+        deaths: deaths,
       };
     },
   };

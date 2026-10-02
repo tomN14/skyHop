@@ -1235,6 +1235,10 @@
         if (typeof window.SkyHopSyncOwnerAddWorldFab === 'function') window.SkyHopSyncOwnerAddWorldFab();
         var btnOwnerOut = document.getElementById('btnOpenOwnerPage');
         if (btnOwnerOut) btnOwnerOut.classList.add('hidden');
+        var graphicBadgeOut = document.getElementById('accGraphicBadge');
+        if (graphicBadgeOut) graphicBadgeOut.classList.add('hidden');
+        var rosterOut = document.getElementById('staffRoster');
+        if (rosterOut) rosterOut.classList.add('hidden');
         window.__skyhopLastMe = null;
         try {
           window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
@@ -1257,6 +1261,9 @@
           accUserLabel.textContent = me.username || '';
           accUserLabel.className = staffNameClass(me.role);
         }
+        var graphicBadge = document.getElementById('accGraphicBadge');
+        if (graphicBadge) graphicBadge.classList.toggle('hidden', !me.graphicDesigner);
+        void refreshStaffRoster();
         try {
           if (me.username) localStorage.setItem(LS_USER, me.username);
         } catch {
@@ -2051,6 +2058,7 @@
         void refreshOwnerModAdmins();
         void refreshOwnerStaffRequests();
         void refreshOwnerAdvisors();
+        void refreshOwnerGraphics();
       });
     }
 
@@ -2294,6 +2302,136 @@
       ownerBtnAdvisorOff.addEventListener('click', function () {
         void ownerSetAdvisor(false);
       });
+    }
+
+    var ownerGraphicList = document.getElementById('ownerGraphicList');
+    var ownerGraphicUsername = document.getElementById('ownerGraphicUsername');
+    var ownerGraphicMsg = document.getElementById('ownerGraphicMsg');
+    function setOwnerGraphicMsg(t, isErr) {
+      if (!ownerGraphicMsg) return;
+      ownerGraphicMsg.textContent = t || '';
+      ownerGraphicMsg.classList.toggle('hidden', !t);
+      ownerGraphicMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerGraphicMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function refreshOwnerGraphics() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerGraphicList) return;
+      try {
+        var data = await api('/api/owner/graphic-designers', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var rows = data.designers || [];
+        if (!rows.length) {
+          ownerGraphicList.innerHTML = '<li class="list-none text-slate-500">none</li>';
+        } else {
+          ownerGraphicList.innerHTML = rows
+            .map(function (a) {
+              return '<li>' + String(a.username || '').replace(/</g, '&lt;') + '</li>';
+            })
+            .join('');
+        }
+      } catch (e) {
+        ownerGraphicList.innerHTML = '<li class="list-none text-slate-500">Could not load</li>';
+        setOwnerGraphicMsg(String(e.message || e), true);
+      }
+    }
+    async function ownerSetGraphic(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerGraphicUsername ? String(ownerGraphicUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerGraphicMsg('Enter a username.', true);
+        return;
+      }
+      setOwnerGraphicMsg('', false);
+      try {
+        var data = await api('/api/owner/set-graphic-designer', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, promote: !!promote }),
+        });
+        setOwnerGraphicMsg(
+          promote
+            ? (data.username || un) + ' is now a Graphic Designer.'
+            : 'Graphic Designer removed from ' + (data.username || un) + '.',
+          false
+        );
+        await refreshOwnerGraphics();
+        await refreshStaffRoster();
+        await refreshPanel();
+      } catch (e) {
+        setOwnerGraphicMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnGraphicOn = document.getElementById('ownerBtnGraphicOn');
+    var ownerBtnGraphicOff = document.getElementById('ownerBtnGraphicOff');
+    if (ownerBtnGraphicOn) {
+      ownerBtnGraphicOn.addEventListener('click', function () {
+        void ownerSetGraphic(true);
+      });
+    }
+    if (ownerBtnGraphicOff) {
+      ownerBtnGraphicOff.addEventListener('click', function () {
+        void ownerSetGraphic(false);
+      });
+    }
+
+    async function refreshStaffRoster() {
+      var box = document.getElementById('staffRoster');
+      var body = document.getElementById('staffRosterBody');
+      var tok = getToken();
+      if (!box || !body) return;
+      if (!tok) {
+        box.classList.add('hidden');
+        return;
+      }
+      try {
+        var data = await api('/api/staff/roster', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        var sections = [
+          ['admins', 'Admins'],
+          ['moderators', 'Moderators'],
+          ['reportAdvisors', 'Report Advisors'],
+          ['graphicDesigners', 'Graphic Designers'],
+        ];
+        body.textContent = '';
+        var any = false;
+        sections.forEach(function (pair) {
+          if (!Object.prototype.hasOwnProperty.call(data, pair[0])) return;
+          any = true;
+          var block = document.createElement('div');
+          var title = document.createElement('p');
+          title.className = 'font-semibold text-slate-200';
+          title.textContent = pair[1];
+          var list = document.createElement('ul');
+          list.className = 'mt-1 list-none space-y-0.5 p-0';
+          var rows = data[pair[0]] || [];
+          if (!rows.length) {
+            var empty = document.createElement('li');
+            empty.className = 'text-slate-500';
+            empty.textContent = 'none';
+            list.appendChild(empty);
+          } else {
+            rows.forEach(function (row) {
+              var li = document.createElement('li');
+              li.textContent = row.username || '';
+              list.appendChild(li);
+            });
+          }
+          block.appendChild(title);
+          block.appendChild(list);
+          body.appendChild(block);
+        });
+        box.classList.toggle('hidden', !any);
+      } catch {
+        box.classList.add('hidden');
+      }
     }
 
     var ownerStaffRequestList = document.getElementById('ownerStaffRequestList');

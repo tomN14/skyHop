@@ -58,6 +58,11 @@ const FEATURE_LIST_ROLES_SUPPLEMENT = `
             <li>Mod Admin: the owner sets hours, or -1 for permanent. Admin powers while active, then they return to their previous role</li>
           </ul>`;
 
+const FEATURE_LIST_GD_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Graphic Designer is a separate flag. They add shop items (name, price, sell price, optional credits). Credits show on the shop slot only when filled. Staff roles stay mutually exclusive. Each tier can see its own tier and lower, never a higher one. Graphic Designers see other Graphic Designers</li>
+          </ul>`;
+
 const FEATURE_LIST_COPY_SUPPLEMENT = `
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Copy a published user level into your drafts. The creator can turn off Allow copies in the editor</li>
@@ -71,6 +76,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('Awarded User Levels')) html += FEATURE_LIST_SUPPLEMENT;
       if (!html.includes('Mod Admin')) html += FEATURE_LIST_ROLES_SUPPLEMENT;
       if (!html.includes('Allow copies')) html += FEATURE_LIST_COPY_SUPPLEMENT;
+      if (!html.includes('Graphic Designer')) html += FEATURE_LIST_GD_SUPPLEMENT;
       return html;
     }
   }

@@ -111,6 +111,24 @@ export function hasAdminPowers(role) {
   return role === 'admin' || role === 'mod_admin';
 }
 
+export function isGraphicDesigner(user) {
+  return !!(user && user.graphicDesigner);
+}
+
+export function canManageShop(user) {
+  return effectiveRole(user) === 'owner' || isGraphicDesigner(user);
+}
+
+/** Lists a person may see. A lower staff tier never includes a higher one. */
+export function staffRosterKeys(role, graphicDesigner) {
+  const keys = [];
+  if (role === 'owner' || hasAdminPowers(role)) keys.push('admins', 'moderators', 'reportAdvisors');
+  else if (role === 'moderator') keys.push('moderators', 'reportAdvisors');
+  else if (role === 'report_advisor') keys.push('reportAdvisors');
+  if (role === 'owner' || graphicDesigner) keys.push('graphicDesigners');
+  return keys;
+}
+
 export function isStaffRole(role) {
   return role === 'moderator' || hasAdminPowers(role) || role === 'owner';
 }

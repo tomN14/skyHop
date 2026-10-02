@@ -56,6 +56,7 @@ function mapUser(row) {
     appealDeclineReason: row.appeal_decline_reason || null,
     adminUntilMs: row.admin_until_ms != null ? Number(row.admin_until_ms) : null,
     adminFallbackRole: row.admin_fallback_role ?? null,
+    graphicDesigner: !!row.graphic_designer,
   };
 }
 
@@ -83,6 +84,7 @@ async function updateUserRow(sb, userId, patch) {
     if (msg.includes('appeal_decline_reason')) delete rest.appeal_decline_reason;
     if (msg.includes('admin_until_ms')) delete rest.admin_until_ms;
     if (msg.includes('admin_fallback_role')) delete rest.admin_fallback_role;
+    if (msg.includes('graphic_designer')) delete rest.graphic_designer;
     if (!Object.keys(rest).length) return;
     ({ error } = await sb.from('skyhop_users').update(rest).eq('id', userId));
   }
@@ -660,6 +662,31 @@ export function createSupabaseStore() {
         .order('username');
       if (error) throw new Error(error.message);
       return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async listGraphicDesigners() {
+      const { data, error } = await sb
+        .from('skyhop_users')
+        .select('id, username')
+        .eq('graphic_designer', true)
+        .order('username');
+      if (error) {
+        if (String(error.message).includes('graphic_designer')) return [];
+        throw new Error(error.message);
+      }
+      return (data || []).map((r) => ({ id: r.id, username: r.username }));
+    },
+
+    async setGraphicDesigner(userId, on) {
+      const u = await this.findUserById(userId);
+      if (!u) throw new Error('User not found');
+      const { error } = await sb.from('skyhop_users').update({ graphic_designer: !!on }).eq('id', userId);
+      if (error) {
+        if (String(error.message).includes('graphic_designer')) {
+          throw new Error('Run server/supabase/extend_v29_graphic_designer.sql in Supabase, then try again.');
+        }
+        throw new Error(error.message);
+      }
     },
 
     async setReportAdvisorRole(userId, isAdvisor) {

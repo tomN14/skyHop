@@ -93,6 +93,11 @@
     return !!(me && me.role === 'owner');
   }
 
+  function canManageShop() {
+    var me = window.__skyhopLastMe;
+    return isOwner() || !!(me && me.graphicDesigner);
+  }
+
   function updateCoinDisplay() {
     var el = document.getElementById('shopCoinBalance');
     var me = window.__skyhopLastMe;
@@ -159,7 +164,7 @@
     for (var slot = 0; slot < slotsPerPage; slot++) {
       var cell = document.createElement('div');
       cell.className =
-        'flex min-h-[11.5rem] flex-col items-center justify-start rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:min-h-[12.5rem]';
+        'flex relative min-h-[11.5rem] flex-col items-center justify-start rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:min-h-[12.5rem]';
       var it = itemAt(shopPage, slot);
       if (!it) {
         cell.classList.add('border-dashed', 'opacity-60');
@@ -266,7 +271,7 @@
         }
       }
       cell.appendChild(btn);
-      if (isOwner()) {
+      if (canManageShop()) {
         var tools = document.createElement('div');
         tools.className = 'mt-2 flex w-full max-w-[8rem] gap-1';
         var editBtn = document.createElement('button');
@@ -276,25 +281,34 @@
         editBtn.addEventListener('click', function () {
           openOwnerAddShop();
         });
-        var removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'flex-1 rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40';
-        removeBtn.textContent = 'Remove';
-        (function (item) {
-          removeBtn.addEventListener('click', function () {
-            showConfirm('Take ' + (item.label || item.texture) + ' off the shop?', function () {
-              return api('/api/owner/shop/items/hide', {
-                method: 'POST',
-                body: JSON.stringify({ id: item.id }),
-              }).then(function () {
-                return loadShopCatalog();
+        tools.appendChild(editBtn);
+        if (isOwner()) {
+          var removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'flex-1 rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40';
+          removeBtn.textContent = 'Remove';
+          (function (item) {
+            removeBtn.addEventListener('click', function () {
+              showConfirm('Take ' + (item.label || item.texture) + ' off the shop?', function () {
+                return api('/api/owner/shop/items/hide', {
+                  method: 'POST',
+                  body: JSON.stringify({ id: item.id }),
+                }).then(function () {
+                  return loadShopCatalog();
+                });
               });
             });
-          });
-        })(it);
-        tools.appendChild(editBtn);
-        tools.appendChild(removeBtn);
+          })(it);
+          tools.appendChild(removeBtn);
+        }
         cell.appendChild(tools);
+      }
+      if (it.credits) {
+        cell.classList.add('pb-6');
+        var credits = document.createElement('p');
+        credits.className = 'pointer-events-none absolute bottom-2 right-2 max-w-[70%] truncate text-right text-[10px] text-slate-400';
+        credits.textContent = 'Credits: ' + it.credits;
+        cell.appendChild(credits);
       }
       grid.appendChild(cell);
     }
@@ -343,12 +357,14 @@
   }
 
   function openOwnerAddShop() {
-    if (!isOwner()) return;
+    if (!canManageShop()) return;
     closeShop();
     var screen = document.getElementById('screenOwnerAddShop');
     if (!screen) return;
     screen.classList.remove('hidden');
     screen.classList.add('flex');
+    var kicker = document.getElementById('ownerShopKicker');
+    if (kicker) kicker.textContent = isOwner() ? 'Owner' : 'Graphic Designer';
     updateOwnerTierPreview();
     void loadOwnerShopManage();
   }
@@ -366,9 +382,9 @@
     wrap.textContent = labelText;
     var input = document.createElement('input');
     input.className = 'mt-0.5 block w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-    if (labelText === 'Name' || labelText === 'Creator') {
+    if (labelText === 'Name' || labelText === 'Creator' || labelText === 'Credits') {
       input.type = 'text';
-      input.maxLength = labelText === 'Creator' ? 40 : 80;
+      input.maxLength = labelText === 'Name' ? 80 : 40;
       input.value = value || '';
     } else {
       input.type = 'number';
@@ -433,12 +449,15 @@
     if (!isHidden) {
       var name = ownerField('Name', it.label || '');
       var creator = ownerField('Creator', it.creator || '');
+      var credits = ownerField('Credits', it.credits || '');
       var buy = ownerField('Buy', it.price);
       var sell = ownerField('Sell', it.sellPrice);
       name.wrap.className += ' mt-2';
       creator.wrap.className += ' mt-2';
+      credits.wrap.className += ' mt-2';
       li.appendChild(name.wrap);
       li.appendChild(creator.wrap);
+      li.appendChild(credits.wrap);
       var prices = document.createElement('div');
       prices.className = 'mt-2 grid grid-cols-2 gap-2';
       prices.appendChild(buy.wrap);
@@ -460,6 +479,7 @@
             id: it.id,
             label: name.input.value,
             creator: creator.input.value,
+            credits: credits.input.value,
             price: Number(buy.input.value),
             sellPrice: Number(sell.input.value),
           }),
@@ -478,6 +498,7 @@
       remove.type = 'button';
       remove.className = 'mt-2 ml-2 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-950/40';
       remove.textContent = 'Remove from shop';
+      if (!isOwner()) remove.classList.add('hidden');
       remove.addEventListener('click', function () {
         setOwnerManageErr('');
         remove.disabled = true;
@@ -522,7 +543,7 @@
       kept.className = 'mt-2 text-xs text-slate-400';
       kept.textContent = (it.label || it.texture) + ' · buy ' + String(it.price) + ' · sell ' + String(it.sellPrice);
       li.appendChild(kept);
-      li.appendChild(back);
+      if (isOwner()) li.appendChild(back);
     }
     return li;
   }
@@ -557,8 +578,8 @@
 
   async function submitOwnerShopItem() {
     setOwnerShopErr('');
-    if (!isOwner()) {
-      setOwnerShopErr('Owner only.');
+    if (!canManageShop()) {
+      setOwnerShopErr('Owner or Graphic Designer only.');
       return;
     }
     var fileEl = document.getElementById('ownerShopImage');
@@ -566,6 +587,7 @@
     var creatorEl = document.getElementById('ownerShopCreator');
     var priceEl = document.getElementById('ownerShopPrice');
     var sellEl = document.getElementById('ownerShopSell');
+    var creditsEl = document.getElementById('ownerShopCredits');
     var btn = document.getElementById('ownerShopSubmit');
     var file = fileEl && fileEl.files && fileEl.files[0];
     if (!file) {
@@ -592,6 +614,7 @@
           'X-Shop-Creator': encodeURIComponent(String((creatorEl && creatorEl.value) || '').slice(0, 40)),
           'X-Shop-Price': String((priceEl && priceEl.value) || ''),
           'X-Shop-Sell-Price': String((sellEl && sellEl.value) || ''),
+          'X-Shop-Credits': encodeURIComponent(String((creditsEl && creditsEl.value) || '').slice(0, 40)),
         },
         body: file,
       });
@@ -611,6 +634,7 @@
       if (creatorEl) creatorEl.value = '';
       if (priceEl) priceEl.value = '';
       if (sellEl) sellEl.value = '';
+      if (creditsEl) creditsEl.value = '';
       updateOwnerTierPreview();
       closeOwnerAddShop();
       var screen = document.getElementById('screenCoinShop');
@@ -629,7 +653,7 @@
 
   function syncOwnerAddShopFab() {
     var fab = document.getElementById('btnOwnerAddShopFab');
-    var show = isOwner();
+    var show = canManageShop();
     if (fab) {
       fab.classList.toggle('hidden', !show);
       if (show) fab.style.display = 'flex';
