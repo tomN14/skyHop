@@ -306,7 +306,7 @@
       find.input.autocomplete = 'off';
       find.input.placeholder = 'Name or ticker';
       findWrap.appendChild(find.wrap);
-      var found = el('div', 'absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-52 overflow-y-auto rounded-xl border border-white/15 bg-slate-900 shadow-xl');
+      var found = el('div', 'absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-80 overflow-y-auto rounded-xl border border-white/15 bg-slate-900 shadow-xl');
       findWrap.appendChild(found);
       finder.appendChild(findWrap);
       function hideFound() {
@@ -321,7 +321,7 @@
           return;
         }
         found.classList.remove('hidden');
-        list.slice(0, 12).forEach(function (c) {
+        list.forEach(function (c) {
           found.appendChild(
             button(
               c.name + (c.ticker ? ' · ' + c.ticker : '') + ' · ' + c.kind + ' · ' + money(c.shareExact),
