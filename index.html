@@ -808,7 +808,7 @@
             <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
-            <li>An 8% weekly tax funds the Sky Hop National Bank. It lends at 14.32% and pays 1.2% on savings. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
+            <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
             <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
           </ul>
@@ -996,6 +996,15 @@
           <p class="text-[11px] font-sem text-sky-200/90">Random companies</p>
           <p class="mt-1 text-[11px] text-slate-500">Creates 60 public companies on your account. Each is a racing firm, a bank, or an insurer, with its own ticker. Tickers do not match each other or any ticker already in use.</p>
           <button id="ownerBtnSeedCompanies" type="button" class="mt-3 w-full rounded-xl border border-sky-500/50 bg-sky-950/50 px-4 py-2.5 text-sm font-semibold text-sky-100 hover:bg-sky-900/40">Generate 60 companies</button>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-emerald-200/90">Sky Hop National Bank rates</p>
+          <p class="mt-1 text-[11px] text-slate-500">Deposit rate and loan rate for SHNB. Use a decimal: 0.012 is 1.2%, and 0.1432 is 14.32%. Savings use the new deposit rate on the next week. A loan that is already open keeps its old rate.</p>
+          <label class="mt-3 block text-[11px] text-slate-500">Deposit rate</label>
+          <input id="ownerNationalSave" type="number" min="0" max="1" step="0.0001" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="0.012" />
+          <label class="mt-3 block text-[11px] text-slate-500">Loan rate</label>
+          <input id="ownerNationalLoan" type="number" min="0" max="1" step="0.0001" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="0.1432" />
+          <button id="ownerBtnNationalRates" type="button" class="mt-3 w-full rounded-xl border border-emerald-500/50 bg-emerald-950/50 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-900/40">Save SHNB rates</button>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admins</p>

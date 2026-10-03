@@ -81,7 +81,7 @@ const FEATURE_LIST_FINANCIAL = `
             <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
-            <li>An 8% weekly tax funds the Sky Hop National Bank. It lends at 14.32% and pays 1.2% on savings. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
+            <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
             <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
           </ul>`;
@@ -115,6 +115,9 @@ function withFinancialSection(html) {
   const oldFund = 'The briefcase registers a company and edits the ones you already own';
   const nextFund = 'The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company';
   if (htmlNext.includes(oldFund)) htmlNext = htmlNext.split(oldFund).join(nextFund);
+  const oldRates = 'It lends at 14.32% and pays 1.2% on savings.';
+  const nextRates = 'The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans.';
+  if (htmlNext.includes(oldRates)) htmlNext = htmlNext.split(oldRates).join(nextRates);
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';

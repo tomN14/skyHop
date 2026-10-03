@@ -3227,6 +3227,38 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/owner/national-rates' && (req.method === 'GET' || req.method === 'POST')) {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      if (req.method === 'GET') {
+        json(res, 200, await Economy.nationalRates(store));
+        return true;
+      }
+      let body = {};
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const user = await store.findUserById(sess.userId);
+      if (!user) throw new Error('User not found');
+      const rates = await Economy.setNationalRates(store, user, body);
+      json(res, 200, { ok: true, ...rates, message: 'Sky Hop National Bank rates saved.' });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/owner/account-transfer/request' && req.method === 'POST') {
     try {
       const sess = await getActiveSessionUser(req);

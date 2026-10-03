@@ -79,6 +79,8 @@ async function loadState(store) {
     deposits: (row.national && row.national.deposits) || {},
     weekIn: Math.max(0, Math.floor(Number(row.national && row.national.weekIn) || 0)),
     weekOut: Math.max(0, Math.floor(Number(row.national && row.national.weekOut) || 0)),
+    savingsRate: row.national && row.national.savingsRate != null && Number.isFinite(Number(row.national.savingsRate)) ? Number(row.national.savingsRate) : NATIONAL_SAVE,
+    loanRate: row.national && row.national.loanRate != null && Number.isFinite(Number(row.national.loanRate)) ? Number(row.national.loanRate) : NATIONAL_LOAN,
   };
   state.companies = Array.isArray(row.companies) ? row.companies : [];
   state.loans = Array.isArray(row.loans) ? row.loans : [];
@@ -162,6 +164,16 @@ async function indexReturns() {
 const NATIONAL_SHARES = 7_000_000_000;
 const NATIONAL_LISTED = 2_000_000_000;
 const NATIONAL_OPEN = 135.52;
+
+function nationalSave(state) {
+  const x = Number(state.national && state.national.savingsRate);
+  return Number.isFinite(x) ? x : NATIONAL_SAVE;
+}
+
+function nationalLoan(state) {
+  const x = Number(state.national && state.national.loanRate);
+  return Number.isFinite(x) ? x : NATIONAL_LOAN;
+}
 
 function addTax(state, n) {
   const x = Math.max(0, Math.floor(Number(n) || 0));
@@ -504,7 +516,7 @@ async function applyWeek(store, state) {
   }
   for (const id of Object.keys(state.national.deposits)) {
     const bal = Math.floor(Number(state.national.deposits[id]) || 0);
-    const interest = Math.floor(bal * NATIONAL_SAVE);
+    const interest = Math.floor(bal * nationalSave(state));
     if (interest > 0) state.national.deposits[id] = bal + interest;
   }
 
@@ -615,8 +627,8 @@ function present(state, user, people) {
       registerCost: REGISTER_COST,
       overhead: OVERHEAD,
       taxRate: TAX_RATE,
-      nationalLoan: NATIONAL_LOAN,
-      nationalSave: NATIONAL_SAVE,
+      nationalLoan: nationalLoan(state),
+      nationalSave: nationalSave(state),
       bankruptAt: BANKRUPT_AT,
       shares: SHARE_COUNT,
       heistPrivate: HEIST_PRIVATE,
@@ -628,8 +640,8 @@ function present(state, user, people) {
     national: {
       taxPool: state.national.taxPool,
       yourDeposit: Math.floor(Number(state.national.deposits[me]) || 0),
-      savingsRate: NATIONAL_SAVE,
-      loanRate: NATIONAL_LOAN,
+      savingsRate: nationalSave(state),
+      loanRate: nationalLoan(state),
       stock: {
         id: natStock.id,
         ticker: natStock.ticker,
@@ -832,6 +844,23 @@ export async function seedRandomCompanies(store, user) {
       made.push({ name, ticker, kind });
     }
     return { created: made.length, companies: made };
+  });
+}
+
+export async function nationalRates(store) {
+  const state = await loadState(store);
+  return { savingsRate: nationalSave(state), loanRate: nationalLoan(state) };
+}
+
+export async function setNationalRates(store, user, body) {
+  if (!isOwnerUser(user)) throw new Error('Owner only.');
+  return withState(store, async (state) => {
+    if (body.savingsRate != null) state.national.savingsRate = clampRate(body.savingsRate);
+    if (body.loanRate != null) state.national.loanRate = clampRate(body.loanRate);
+    const nat = ensureNationalStock(state);
+    nat.interestRate = nationalSave(state);
+    nat.loanRate = nationalLoan(state);
+    return { savingsRate: nationalSave(state), loanRate: nationalLoan(state) };
   });
 }
 
@@ -1203,7 +1232,7 @@ export async function borrow(store, user, { lender, amount, forCompany, companyI
   return withState(store, async (state) => {
     const firm = forCompany ? ownedCompany(state, user.id, companyId) : null;
     if (forCompany && !firm) throw new Error('Pick one of your companies.');
-    let rate = NATIONAL_LOAN;
+    let rate = nationalLoan(state);
     if (lender === 'national') {
       /* Too big to fail: the loan is created even when the tax pool is empty. */
     } else {
@@ -1211,7 +1240,7 @@ export async function borrow(store, user, { lender, amount, forCompany, companyI
       if (!bank || bank.sovereign || bank.kind !== 'bank') throw new Error('That bank is not open.');
       if (bank.cash < n) throw new Error('That bank does not have the cash.');
       bank.cash -= n;
-      rate = Number(bank.loanRate) || NATIONAL_LOAN;
+      rate = Number(bank.loanRate) || nationalLoan(state);
     }
     if (!isOwnerUser(user)) {
       const book = skyScore(state, user);

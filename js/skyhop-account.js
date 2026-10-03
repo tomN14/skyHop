@@ -2065,6 +2065,7 @@
         void refreshOwnerStaffRequests();
         void refreshOwnerAdvisors();
         void refreshOwnerGraphics();
+        void loadOwnerNationalRates();
       });
     }
 
@@ -3089,6 +3090,46 @@
             body: JSON.stringify({ from: fromName, to: toName }),
           });
           setOwnerAdminMsg(data.message || 'Confirmation email sent.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var ownerNationalSave = document.getElementById('ownerNationalSave');
+    var ownerNationalLoan = document.getElementById('ownerNationalLoan');
+    var ownerBtnNationalRates = document.getElementById('ownerBtnNationalRates');
+    async function loadOwnerNationalRates() {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner' || !ownerNationalSave || !ownerNationalLoan) return;
+      try {
+        var rates = await api('/api/owner/national-rates', {
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + tok },
+        });
+        if (rates && rates.savingsRate != null) ownerNationalSave.value = String(rates.savingsRate);
+        if (rates && rates.loanRate != null) ownerNationalLoan.value = String(rates.loanRate);
+      } catch (e) {
+        setOwnerAdminMsg(String(e.message || e), true);
+      }
+    }
+    if (ownerBtnNationalRates) {
+      ownerBtnNationalRates.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        try {
+          var data = await api('/api/owner/national-rates', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              savingsRate: Number(ownerNationalSave && ownerNationalSave.value),
+              loanRate: Number(ownerNationalLoan && ownerNationalLoan.value),
+            }),
+          });
+          setOwnerAdminMsg(data.message || 'Sky Hop National Bank rates saved.', false);
         } catch (e) {
           setOwnerAdminMsg(String(e.message || e), true);
         }
