@@ -17,7 +17,7 @@
     'menu.account': 'Account & cloud stats',
     'menu.suggest': 'Suggestions',
     'lang.label': 'Language',
-    'lang.hint': 'This changes Account and cloud stats. The rest of the game stays in English. English is the default.',
+    'lang.hint': 'Choose the language for the whole game here. English is the default.',
     'acc.kicker': 'Cloud profile',
     'acc.title': 'Account',
     'acc.close': 'Close',
@@ -96,7 +96,7 @@
       'menu.account': 'Cuenta y estadísticas',
       'menu.suggest': 'Sugerencias',
       'lang.label': 'Idioma',
-      'lang.hint': 'Esto cambia Cuenta y estadísticas. El resto del juego sigue en inglés. El inglés es el predeterminado.',
+      'lang.hint': 'Elige aquí el idioma de todo el juego. El inglés es el predeterminado.',
       'acc.kicker': 'Perfil en la nube',
       'acc.title': 'Cuenta',
       'acc.close': 'Cerrar',
@@ -173,7 +173,7 @@
       'menu.account': 'Compte et statistiques',
       'menu.suggest': 'Suggestions',
       'lang.label': 'Langue',
-      'lang.hint': 'Ceci change le compte et les statistiques. Le reste du jeu reste en anglais. L’anglais est la langue par défaut.',
+      'lang.hint': 'Choisis ici la langue de tout le jeu. L’anglais est la langue par défaut.',
       'acc.kicker': 'Profil cloud',
       'acc.title': 'Compte',
       'acc.close': 'Fermer',
@@ -250,7 +250,7 @@
       'menu.account': 'Konto und Statistiken',
       'menu.suggest': 'Vorschläge',
       'lang.label': 'Sprache',
-      'lang.hint': 'Das ändert Konto und Statistiken. Der Rest des Spiels bleibt Englisch. Englisch ist die Vorgabe.',
+      'lang.hint': 'Wähle hier die Sprache für das ganze Spiel. Englisch ist die Vorgabe.',
       'acc.kicker': 'Cloud-Profil',
       'acc.title': 'Konto',
       'acc.close': 'Schließen',
@@ -327,7 +327,7 @@
       'menu.account': 'Conta e estatísticas',
       'menu.suggest': 'Sugestões',
       'lang.label': 'Idioma',
-      'lang.hint': 'Isto muda a Conta e as estatísticas. O resto do jogo continua em inglês. Inglês é o padrão.',
+      'lang.hint': 'Escolha aqui o idioma do jogo inteiro. Inglês é o padrão.',
       'acc.kicker': 'Perfil na nuvem',
       'acc.title': 'Conta',
       'acc.close': 'Fechar',
@@ -404,7 +404,7 @@
       'menu.account': '账户和统计',
       'menu.suggest': '建议',
       'lang.label': '语言',
-      'lang.hint': '这里只改账户和统计。游戏其他部分仍是英文。默认是英文。',
+      'lang.hint': '在这里选择整个游戏的语言。默认是英文。',
       'acc.kicker': '云端资料',
       'acc.title': '账户',
       'acc.close': '关闭',
@@ -481,7 +481,7 @@
       'menu.account': 'アカウントと統計',
       'menu.suggest': '提案',
       'lang.label': '言語',
-      'lang.hint': 'アカウントと統計だけが変わります。ゲームの他の部分は英語のままです。初期設定は英語です。',
+      'lang.hint': 'ここでゲーム全体の言語を選びます。初期設定は英語です。',
       'acc.kicker': 'クラウドプロフィール',
       'acc.title': 'アカウント',
       'acc.close': '閉じる',
@@ -558,7 +558,7 @@
       'menu.account': '계정과 통계',
       'menu.suggest': '제안',
       'lang.label': '언어',
-      'lang.hint': '계정과 통계만 바뀝니다. 게임의 나머지 부분은 영어입니다. 기본값은 영어입니다.',
+      'lang.hint': '여기서 게임 전체의 언어를 고릅니다. 기본값은 영어입니다.',
       'acc.kicker': '클라우드 프로필',
       'acc.title': '계정',
       'acc.close': '닫기',
@@ -647,18 +647,129 @@
   }
 
   function apply() {
-    document.querySelectorAll('[data-i18n]').forEach(function (node) {
-      var key = node.getAttribute('data-i18n');
-      if (!key) return;
-      node.textContent = t(key);
+    applying = true;
+    try {
+      document.querySelectorAll('[data-i18n]').forEach(function (node) {
+        var key = node.getAttribute('data-i18n');
+        if (!key) return;
+        node.textContent = t(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(function (node) {
+        var key = node.getAttribute('data-i18n-placeholder');
+        if (!key) return;
+        node.setAttribute('placeholder', t(key));
+      });
+      document.querySelectorAll('.js-lang-select').forEach(function (sel) {
+        if (sel.value !== current) sel.value = current;
+      });
+      if (document.body) walk(document.body);
+    } finally {
+      applying = false;
+    }
+  }
+
+  var applying = false;
+  var SKIP_TAG = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1 };
+
+  function phrase(en) {
+    if (current === 'en') return en;
+    var packs = window.SKYHOP_PHRASES;
+    var pack = packs && packs[current];
+    if (pack && Object.prototype.hasOwnProperty.call(pack, en)) return pack[en];
+    return null;
+  }
+
+  function translateTextNode(node) {
+    var parent = node.parentElement;
+    if (!parent || SKIP_TAG[parent.tagName]) return;
+    if (parent.closest && parent.closest('[data-i18n], [data-no-i18n]')) return;
+    if (node.__en == null) node.__en = node.nodeValue;
+    var original = node.__en;
+    if (original == null) return;
+    var trimmed = String(original).trim();
+    if (!trimmed || !/[A-Za-zÀ-ÿ]/.test(trimmed)) return;
+    var next = current === 'en' ? trimmed : phrase(trimmed) || trimmed;
+    var lead = String(original).match(/^\s*/)[0];
+    var trail = String(original).match(/\s*$/)[0];
+    var value = lead + next + trail;
+    if (node.nodeValue !== value) node.nodeValue = value;
+  }
+
+  function translateAttrs(el) {
+    if (!el || el.nodeType !== 1 || SKIP_TAG[el.tagName]) return;
+    ['placeholder', 'title', 'aria-label'].forEach(function (attr) {
+      if (attr === 'placeholder' && el.hasAttribute('data-i18n-placeholder')) return;
+      if (!el.hasAttribute(attr)) return;
+      var storeKey = '__skyhop_' + attr;
+      if (el[storeKey] == null) el[storeKey] = el.getAttribute(attr);
+      var original = el[storeKey];
+      var trimmed = String(original == null ? '' : original).trim();
+      if (!trimmed) return;
+      var next = current === 'en' ? trimmed : phrase(trimmed) || trimmed;
+      if (el.getAttribute(attr) !== next) el.setAttribute(attr, next);
     });
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(function (node) {
-      var key = node.getAttribute('data-i18n-placeholder');
-      if (!key) return;
-      node.setAttribute('placeholder', t(key));
-    });
-    document.querySelectorAll('.js-lang-select').forEach(function (sel) {
-      if (sel.value !== current) sel.value = current;
+  }
+
+  function walk(node) {
+    if (!node) return;
+    if (node.nodeType === 3) {
+      translateTextNode(node);
+      return;
+    }
+    if (node.nodeType !== 1 || SKIP_TAG[node.tagName]) return;
+    translateAttrs(node);
+    var kids = node.childNodes;
+    for (var i = 0; i < kids.length; i += 1) walk(kids[i]);
+  }
+
+  function noteFreshText(node) {
+    var incoming = node.nodeValue;
+    if (current === 'en' || node.__en == null) {
+      node.__en = incoming;
+      return;
+    }
+    var trimmed = String(node.__en).trim();
+    var expected = phrase(trimmed) || trimmed;
+    var lead = String(node.__en).match(/^\s*/)[0];
+    var trail = String(node.__en).match(/\s*$/)[0];
+    if (incoming !== lead + expected + trail) node.__en = incoming;
+  }
+
+  function watch() {
+    if (!document.body || window.__skyhopI18nWatch) return;
+    window.__skyhopI18nWatch = true;
+    new MutationObserver(function (list) {
+      if (applying) return;
+      applying = true;
+      try {
+        list.forEach(function (m) {
+          if (m.type === 'characterData') {
+            noteFreshText(m.target);
+            translateTextNode(m.target);
+          } else if (m.type === 'childList') {
+            m.addedNodes.forEach(walk);
+          } else if (m.type === 'attributes') {
+            var attr = m.attributeName;
+            if (attr === 'placeholder' || attr === 'title' || attr === 'aria-label') {
+              var el = m.target;
+              var storeKey = '__skyhop_' + attr;
+              var now = el.getAttribute(attr);
+              var prev = el[storeKey];
+              var prevShown = prev == null ? null : (current === 'en' ? String(prev).trim() : phrase(String(prev).trim()) || String(prev).trim());
+              if (prev == null || now !== prevShown) el[storeKey] = now;
+              translateAttrs(el);
+            }
+          }
+        });
+      } finally {
+        applying = false;
+      }
+    }).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['placeholder', 'title', 'aria-label'],
     });
   }
 
@@ -720,6 +831,7 @@
     current = savedCode();
     document.querySelectorAll('.js-lang-select').forEach(fillSelect);
     apply();
+    watch();
   }
 
   window.SkyHopI18n = {
