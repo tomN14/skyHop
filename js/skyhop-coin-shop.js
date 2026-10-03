@@ -227,7 +227,14 @@
               );
             } else {
               showConfirm(
-                'Confirm buying ' + (item.label || item.texture) + '?\n\nFor ' + String(item.price) + ' coins',
+                'Confirm buying ' +
+                  (item.label || item.texture) +
+                  '?\n\nFor ' +
+                  String(item.price) +
+                  ' coins' +
+                  (item.creator
+                    ? '\n\n45% goes to ' + item.creator + '. The rest goes to the Sky Hop National Bank.'
+                    : '\n\nThe coins go to the Sky Hop National Bank.'),
                 function () {
                   return api('/api/shop/buy', {
                     method: 'POST',

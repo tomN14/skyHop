@@ -668,6 +668,15 @@ export async function economyView(store, user) {
   return withState(store, async (state) => present(state, user, await holders(store)));
 }
 
+/** Shop and other sinks. Coins already left a wallet. */
+export async function receiveBankCoins(store, amount) {
+  const n = Math.floor(Number(amount) || 0);
+  if (n <= 0) return;
+  return withState(store, async (state) => {
+    addTax(state, n);
+  });
+}
+
 export async function registerCompany(store, user, { name, kind }) {
   const clean = String(name || '').trim().slice(0, 24);
   if (clean.length < 2) throw new Error('Company name must be 2–24 characters.');

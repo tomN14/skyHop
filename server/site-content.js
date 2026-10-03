@@ -93,6 +93,11 @@ const FEATURE_LIST_CREDIT_SUPPLEMENT = `
             <li>Sky Hop scores run from 300 to 850 and follow payments, debt, history, recent loans, and saving. SHNB has 7 billion shares and opens at $135.52</li>
           </ul>`;
 
+const FEATURE_LIST_SHOP_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Buying a shop skin sends 45% of the price, rounded up, to the creator named on that skin. The rest goes to the Sky Hop National Bank. Each newly unlocked achievement pays 75 coins</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -107,6 +112,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('ticker')) html += FEATURE_LIST_STOCKS_SUPPLEMENT;
       if (!html.includes('$0.00')) html += FEATURE_LIST_MULTI_SUPPLEMENT;
       if (!html.includes('Sky Hop score')) html += FEATURE_LIST_CREDIT_SUPPLEMENT;
+      if (!html.includes('45%')) html += FEATURE_LIST_SHOP_SUPPLEMENT;
       return html;
     }
   }

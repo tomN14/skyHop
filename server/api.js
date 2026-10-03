@@ -1303,15 +1303,27 @@ export async function handleApi(req, res) {
         return true;
       }
       const infinite = effectiveRole(sess.user) === 'owner';
+      const price = Math.max(0, Math.floor(Number(item.price) || 0));
       if (!infinite) {
         const u = await store.findUserById(sess.userId);
         if (!u) throw new Error('User not found');
         const bal = u.coins != null ? Number(u.coins) : 0;
-        if (bal < item.price) {
+        if (bal < price) {
           json(res, 400, { error: 'Not enough coins.' });
           return true;
         }
-        await store.incrementUserCoins(sess.userId, -item.price);
+        await store.incrementUserCoins(sess.userId, -price);
+        const creatorName = String(item.creator || '').trim();
+        let toCreator = 0;
+        if (creatorName && price > 0 && typeof store.findUserByUsername === 'function') {
+          const cut = Math.ceil(price * 0.45);
+          const author = await store.findUserByUsername(creatorName);
+          if (author && effectiveRole(author) !== 'owner' && cut > 0) {
+            await store.incrementUserCoins(author.id, cut);
+            toCreator = cut;
+          }
+        }
+        if (price - toCreator > 0) await Economy.receiveBankCoins(store, price - toCreator);
       }
       await store.addTextureGrant(sess.userId, item.texture);
       const me = await buildMePayload(sess.userId);
