@@ -447,6 +447,7 @@
     const accLogged = document.getElementById('accLoggedBlock');
     const accGuest = document.getElementById('accGuestBlock');
     const accUserLabel = document.getElementById('accUserLabel');
+    const accStatCredit = document.getElementById('accStatCredit');
     const accStatRuns = document.getElementById('accStatRuns');
     const accStatCoins = document.getElementById('accStatCoins');
     const accStatDeathTotal = document.getElementById('accStatDeathTotal');
@@ -525,6 +526,11 @@
       const me = window.__skyhopLastMe;
       const coins = me && me.coins != null ? me.coins : 0;
       const inf = me && me.coinsInfinite;
+      if (accStatCredit) {
+        const credit = me && me.credit;
+        accStatCredit.textContent =
+          credit && credit.score != null ? credit.score + ' · ' + credit.band : 'Unscored';
+      }
       if (accStatCoins) accStatCoins.textContent = inf ? '∞' : String(coins);
       if (accStatRuns) accStatRuns.textContent = String(st.runCount != null ? st.runCount : 0);
       if (accStatDeathTotal) accStatDeathTotal.textContent = String(st.totalDeaths != null ? st.totalDeaths : 0);
@@ -3038,6 +3044,49 @@
             method: 'POST',
             headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: un }),
+          });
+          setOwnerAdminMsg(data.message || 'Confirmation email sent.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+
+    var ownerBtnTransfer = document.getElementById('ownerBtnTransfer');
+    if (ownerBtnTransfer) {
+      ownerBtnTransfer.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        var fromEl = document.getElementById('ownerTransferFrom');
+        var toEl = document.getElementById('ownerTransferTo');
+        var fromName = fromEl && fromEl.value ? String(fromEl.value).trim() : '';
+        var toName = toEl && toEl.value ? String(toEl.value).trim() : '';
+        if (!fromName || !toName) {
+          setOwnerAdminMsg('Enter both usernames.', true);
+          return;
+        }
+        if (
+          !window.confirm(
+            'Copy account data from "' +
+              fromName +
+              '" onto "' +
+              toName +
+              '"?\n\n' +
+              fromName +
+              ' keeps everything. ' +
+              toName +
+              ' receives a copy of the coins, runs, achievements, skins, World 1 clear, collected stage coins, and levels.\n\nPasswords, roles, bans, friends, and companies stay on the original account.\n\nIf you click OK, a confirmation email is sent. Open the link within 60 seconds and confirm on that page.'
+          )
+        ) {
+          return;
+        }
+        try {
+          var data = await api('/api/owner/account-transfer/request', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: fromName, to: toName }),
           });
           setOwnerAdminMsg(data.message || 'Confirmation email sent.', false);
         } catch (e) {

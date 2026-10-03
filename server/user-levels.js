@@ -240,6 +240,41 @@ export async function levelsSetAllowCopy(userId, levelId, allow) {
   return { ok: true, allowCopy: on };
 }
 
+/** Copy every level the source authored onto another account. Source rows stay. */
+export async function duplicateOwnedLevels(fromUserId, toUserId) {
+  let rows = [];
+  if (useSupabase()) {
+    const sb = sbClient();
+    let res = await sb
+      .from('skyhop_user_levels')
+      .select('title, data, published, beaten_verified, allow_copy')
+      .eq('author_id', fromUserId);
+    if (res.error && /allow_copy/i.test(String(res.error.message))) {
+      res = await sb
+        .from('skyhop_user_levels')
+        .select('title, data, published, beaten_verified')
+        .eq('author_id', fromUserId);
+    }
+    if (res.error) throw new Error(res.error.message);
+    rows = res.data || [];
+  } else {
+    rows = fileLoad().levels.filter((L) => L.author_id === fromUserId);
+  }
+  let n = 0;
+  for (const row of rows) {
+    if (!row || !row.data) continue;
+    try {
+      const created = await levelsCreate(toUserId, row.title, row.data, copyAllowed(row));
+      if (row.beaten_verified) await levelsMarkBeaten(toUserId, created.id);
+      if (row.published && row.beaten_verified) await levelsPublish(toUserId, created.id);
+      n += 1;
+    } catch {
+      /* leave a level that no longer validates on the source only */
+    }
+  }
+  return n;
+}
+
 export async function levelsCopy(userId, levelId) {
   let row = null;
   if (useSupabase()) {

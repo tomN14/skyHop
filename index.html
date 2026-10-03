@@ -59,6 +59,14 @@
       right: max(0.75rem, env(safe-area-inset-right, 0px));
       bottom: calc(20.5rem + env(safe-area-inset-bottom, 0px));
     }
+    #btnInsurersFab {
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+      bottom: calc(23.75rem + env(safe-area-inset-bottom, 0px));
+    }
+    #btnBanksFab {
+      right: max(0.75rem, env(safe-area-inset-right, 0px));
+      bottom: calc(27rem + env(safe-area-inset-bottom, 0px));
+    }
     #btnModDashboardFab {
       right: max(0.75rem, env(safe-area-inset-right, 0px));
       bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
@@ -87,9 +95,13 @@
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(21rem + env(safe-area-inset-bottom, 0px));
     }
-    #btnAdminBanFab {
+    #btnNationalFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(24.25rem + env(safe-area-inset-bottom, 0px));
+    }
+    #btnAdminBanFab {
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      bottom: calc(27.5rem + env(safe-area-inset-bottom, 0px));
     }
     #btnCoinShopFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
@@ -113,6 +125,8 @@
       #btnEconomyFab { right: 1.25rem; bottom: 15rem; }
       #btnRacesFab { right: 1.25rem; bottom: 18.25rem; }
       #btnStocksFab { right: 1.25rem; bottom: 21.5rem; }
+      #btnInsurersFab { right: 1.25rem; bottom: 24.75rem; }
+      #btnBanksFab { right: 1.25rem; bottom: 28rem; }
       #btnModDashboardFab { right: 1.25rem; bottom: 5.25rem; }
       #btnFriendsFab { right: 1.25rem; bottom: 1.25rem; }
       #btnModInbox { left: 3rem; bottom: calc(9rem + env(safe-area-inset-bottom, 0px)); }
@@ -120,7 +134,8 @@
       #btnOwnerStrikesFab { left: 3rem; bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnKeybindsFab { left: 3rem; bottom: calc(19.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnSplGuideFab { left: 3rem; bottom: calc(22.75rem + env(safe-area-inset-bottom, 0px)); }
-      #btnAdminBanFab { left: 3rem; bottom: calc(26rem + env(safe-area-inset-bottom, 0px)); }
+      #btnNationalFab { left: 3rem; bottom: calc(26rem + env(safe-area-inset-bottom, 0px)); }
+      #btnAdminBanFab { left: 3rem; bottom: calc(29.25rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
       #btnPublicSessionsFab { left: 3rem; bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
       #btnRolePowersFab { left: calc(3rem + 3.5rem); bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
@@ -600,6 +615,7 @@
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
             <p class="text-xs font-sem text-violet-300">Statistics (all submitted full runs)</p>
             <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-3">
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Sky Hop score</dt><dd id="accStatCredit" class="font-mono text-lg text-sky-200">Unscored</dd></div>
               <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Runs</dt><dd id="accStatRuns" class="font-mono text-lg text-white">0</dd></div>
               <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Coins</dt><dd id="accStatCoins" class="font-mono text-lg text-amber-200">0</dd></div>
               <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Deaths (total)</dt><dd id="accStatDeathTotal" class="font-mono text-lg text-white">0</dd></div>
@@ -751,7 +767,7 @@
             <li>Admins (more than one): moderator powers, promote mods, 1-day bans (2/week); longer bans and demotions go to the owner</li>
             <li>Mod Admin: the owner sets how many hours it lasts, or -1 for permanent. While it is active they have Admin powers. When it ends they return to their previous role</li>
             <li>Report Advisor: pending reports only — dismiss or escalate to the owner; no dashboard, owner tools, or bans. They can see other Report Advisors</li>
-            <li>Companies cost 1,000 coins, and you can register more than one. A new company starts at a random price from $0.00 to $1.00. Racing companies can host several tournaments at once, each with its own entry fee, prize, description, and start time. Entry closes after the start. Banks hold deposits and loans. Insurers cover market losses. Public firms have 1,000 shares and a ticker. An 8% weekly tax funds the Sky Hop National Bank, which lends at 14.32% and pays 1.2% on savings. A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare and a failure is a 1-day ban</li>
+            <li>Companies cost 1,000 coins, and you can register more than one. A new company starts at a random price from $0.00 to $1.00. Racing companies can host several tournaments at once, each with its own entry fee, prize, description, and start time. Entry closes after the start. Banks hold deposits and loans. Insurers cover market losses. Public firms have 1,000 shares and a ticker. An 8% weekly tax funds the Sky Hop National Bank, which lends at 14.32% and pays 1.2% on savings. A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare and a failure is a 1-day ban. Private banks and insurers each have a search button. The briefcase only registers a company. SHNB is the button above the level script guide</li>
             <li>Graphic Designer is separate from staff. A player, Report Advisor, moderator, or Admin can also be one. They add shop items and set the name, price, sell price, and optional credits. Credits show as Credits: name in the bottom right of a shop slot, and stay hidden when blank</li>
             <li>Moderator, Admin, and Report Advisor are one role each. Mods see other mods and Report Advisors. Admins see Admins, mods, and Report Advisors, and can read the Graphic Designer power list. A lower tier cannot see a higher tier. Graphic Designers see other Graphic Designers only</li>
             <li>Owner: edit / append built-in World 1 &amp; World 2 stages; Upload ALL saves them to Play</li>
@@ -946,7 +962,7 @@
           <div>
             <p class="text-xs font-sem uppercase tracking-widest text-rose-400">Owner only</p>
             <h3 class="mt-1 text-xl font-bold text-white">Account administration</h3>
-            <p class="mt-1 text-[11px] text-slate-500">Disable limits levels and racing. Delete is permanent (email confirmation required).</p>
+            <p class="mt-1 text-[11px] text-slate-500">Disable limits levels and racing. Delete is permanent (email confirmation required). A transfer copies data onto another account and leaves the original in place.</p>
           </div>
           <button id="btnOwnerAdminClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
         </div>
@@ -956,6 +972,15 @@
           <button id="ownerBtnDisable" type="button" class="rounded-xl border border-amber-500/50 bg-amber-950/50 px-4 py-2.5 text-sm font-semibold text-amber-100 hover:bg-amber-900/40">Disable account…</button>
           <button id="ownerBtnEnable" type="button" class="rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-900/40">Re-enable account…</button>
           <button id="ownerBtnDelete" type="button" class="rounded-xl border border-rose-600/60 bg-rose-950/60 px-4 py-2.5 text-sm font-semibold text-rose-100 hover:bg-rose-900/50">Delete account permanently…</button>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-teal-200/90">Account transfer</p>
+          <p class="mt-1 text-[11px] text-slate-500">Copies coins, runs, achievements, unlocked skins, the World 1 clear, collected stage coins, and levels onto the second account. The first account keeps all of it. Passwords, roles, bans, friends, and companies are not copied. A popup starts it, then you confirm from the email link.</p>
+          <label class="mt-3 block text-[11px] text-slate-500">Copy from</label>
+          <input id="ownerTransferFrom" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username that already has the data" />
+          <label class="mt-3 block text-[11px] text-slate-500">Copy onto</label>
+          <input id="ownerTransferTo" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username that receives the copy" />
+          <button id="ownerBtnTransfer" type="button" class="mt-3 w-full rounded-xl border border-teal-500/50 bg-teal-950/50 px-4 py-2.5 text-sm font-semibold text-teal-100 hover:bg-teal-900/40">Transfer account data…</button>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-emerald-200/90">🛡️ Admins</p>
@@ -1190,6 +1215,7 @@
           <p class="mt-1 text-lg font-semibold text-white"><span id="modDashProfUser">—</span> <span id="modDashProfRole" class="text-xs font-normal text-slate-400"></span></p>
           <p id="modDashProfOwnerNote" class="mt-1 hidden text-xs text-amber-200/90">Site owner — levels are view-only for staff.</p>
           <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+            <div><dt class="text-slate-500">Sky Hop score</dt><dd id="modDashStatCredit" class="font-mono text-sky-200">Unscored</dd></div>
             <div><dt class="text-slate-500">Runs</dt><dd id="modDashStatRuns" class="font-mono text-white">0</dd></div>
             <div><dt class="text-slate-500">Coins</dt><dd id="modDashStatCoins" class="font-mono text-amber-200">0</dd></div>
             <div><dt class="text-slate-500">Deaths</dt><dd id="modDashStatDeaths" class="font-mono text-white">0</dd></div>
@@ -2168,6 +2194,39 @@ end;</pre>
       </div>
     </div>
 
+  <div id="screenBanks" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-teal-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-teal-300">Banks</p>
+        <h2 class="text-lg font-bold text-white">Private banks</h2>
+      </div>
+      <button id="btnBanksClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="banksBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
+  <div id="screenInsurers" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-violet-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-violet-300">Insurance</p>
+        <h2 class="text-lg font-bold text-white">Policies</h2>
+      </div>
+      <button id="btnInsurersClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="insurersBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
+  <div id="screenNational" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-emerald-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-emerald-300">SHNB</p>
+        <h2 class="text-lg font-bold text-white">Sky Hop National Bank</h2>
+      </div>
+      <button id="btnNationalClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="nationalBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
   <div id="screenStocks" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
     <div class="flex shrink-0 items-center justify-between gap-3 border-b border-sky-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
       <div>
@@ -2194,7 +2253,7 @@ end;</pre>
     <div class="flex shrink-0 items-center justify-between gap-3 border-b border-emerald-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
       <div>
         <p class="text-xs font-sem uppercase tracking-widest text-emerald-300">Economy</p>
-        <h2 class="text-lg font-bold text-white">Companies and the National Bank</h2>
+        <h2 class="text-lg font-bold text-white">Register a company</h2>
       </div>
       <button id="btnEconomyClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
     </div>
@@ -2204,6 +2263,9 @@ end;</pre>
   <!-- Edge FABs live on body so position:fixed is always viewport-relative (avoid relative+fixed Tailwind clash). -->
   <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🚫</span>
+  </button>
+  <button id="btnNationalFab" type="button" title="Sky Hop National Bank" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
+    <span aria-hidden="true">🏛️</span>
   </button>
   <button id="btnSplGuideFab" type="button" title="SPL in SkyHop" class="skyhop-edge-fab border border-fuchsia-400/50 bg-slate-900/95 hover:bg-fuchsia-950/80">
     <span aria-hidden="true" class="font-mono text-[11px] font-semibold leading-none">&lt;/&gt;</span>
@@ -2223,13 +2285,19 @@ end;</pre>
   <button id="btnOwnerAddShopFab" type="button" title="Add shop item" class="skyhop-edge-fab hidden border border-amber-400/60 bg-slate-900/95 hover:bg-amber-950/80">
     <span aria-hidden="true">➕</span>
   </button>
+  <button id="btnBanksFab" type="button" title="Banks" class="skyhop-edge-fab border border-teal-400/55 bg-slate-900/95 hover:bg-teal-950/80">
+    <span aria-hidden="true">🏦</span>
+  </button>
+  <button id="btnInsurersFab" type="button" title="Insurance" class="skyhop-edge-fab border border-violet-400/55 bg-slate-900/95 hover:bg-violet-950/80">
+    <span aria-hidden="true">☂️</span>
+  </button>
   <button id="btnStocksFab" type="button" title="Stocks" class="skyhop-edge-fab border border-sky-400/55 bg-slate-900/95 hover:bg-sky-950/80">
     <span aria-hidden="true">📈</span>
   </button>
   <button id="btnRacesFab" type="button" title="Racing tournaments" class="skyhop-edge-fab border border-amber-400/55 bg-slate-900/95 hover:bg-amber-950/80">
     <span aria-hidden="true">🏁</span>
   </button>
-  <button id="btnEconomyFab" type="button" title="Companies and banks" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
+  <button id="btnEconomyFab" type="button" title="Register a company" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">💼</span>
   </button>
   <button id="btnOwnerAddWorldFab" type="button" title="Add world" class="skyhop-edge-fab hidden border border-violet-500/50 bg-slate-900/95 hover:bg-violet-950/80">

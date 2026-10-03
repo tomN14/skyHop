@@ -12,6 +12,7 @@ import {
   consumeDeleteTokenPublic,
   peekDeleteToken,
 } from './owner-delete.js';
+import { copyAccountData, consumeTransferToken, createTransferToken, peekTransferToken } from './account-transfer.js';
 import { sendOwnerMail } from './mail.js';
 import * as ShopItems from './shop-items.js';
 import * as CustomWorlds from './custom-worlds.js';
@@ -322,6 +323,7 @@ async function buildMePayload(userId, req = null) {
     achievements,
     promotionNotice: promotionNoticePayload(user),
     modsWarningNeeded: !user.modsWarningSeen && !user.mods_warning_seen,
+    credit: await Economy.creditSnapshot(store, user),
   };
 }
 
@@ -3116,7 +3118,7 @@ export async function handleApi(req, res) {
     }
   }
 
-  const deleteConfirmHtml = (title, bodyHtml, status = 200) => {
+  const deleteConfirmHtml = (title, bodyHtml, status = 200, headingColor = '#f87171') => {
     const esc = (s) =>
       String(s || '')
         .replace(/&/g, '&amp;')
@@ -3126,7 +3128,7 @@ export async function handleApi(req, res) {
     res.end(
       `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${esc(title)}</title></head>` +
         `<body style="font-family:system-ui;background:#0f172a;color:#e2e8f0;padding:2rem;max-width:32rem;margin:0 auto">` +
-        `<h1 style="color:#f87171">${esc(title)}</h1>${bodyHtml}</body></html>`
+        `<h1 style="color:${headingColor}">${esc(title)}</h1>${bodyHtml}</body></html>`
     );
   };
 
@@ -3200,6 +3202,167 @@ export async function handleApi(req, res) {
       );
     } catch (e) {
       deleteConfirmHtml('Deletion failed', `<p>${String(e.message || e)}</p>`, 500);
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/account-transfer/request' && req.method === 'POST') {
+    try {
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (effectiveRole(sess.user) !== 'owner') {
+        json(res, 403, { error: 'Owner only' });
+        return true;
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        json(res, 400, { error: 'Invalid JSON' });
+        return true;
+      }
+      const fromName = String(body.from || '').trim();
+      const toName = String(body.to || '').trim();
+      if (!fromName || !toName) {
+        json(res, 400, { error: 'Enter both usernames.' });
+        return true;
+      }
+      const from = await store.findUserByUsername(fromName);
+      const to = await store.findUserByUsername(toName);
+      if (!from || !to) {
+        json(res, 400, { error: 'User not found' });
+        return true;
+      }
+      if (Number(from.id) === Number(to.id)) {
+        json(res, 400, { error: 'Pick two different accounts.' });
+        return true;
+      }
+      const ownerEmail = String(process.env.SKYHOP_OWNER_EMAIL || '').trim();
+      if (!ownerEmail) {
+        json(res, 400, {
+          error: 'Set SKYHOP_OWNER_EMAIL on the server to receive transfer confirmation links.',
+        });
+        return true;
+      }
+      const { token } = createTransferToken(sess.userId, from.id, to.id);
+      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+      const proto = req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const confirmUrl = `${proto}://${host}/api/owner/account-transfer/confirm?token=${encodeURIComponent(token)}`;
+      const escName = (s) =>
+        String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;');
+      await sendOwnerMail({
+        to: ownerEmail,
+        subject: `Sky Hop — copy ${from.username} onto ${to.username}`,
+        text:
+          `You requested a copy of Sky Hop account data from "${from.username}" onto "${to.username}".\n\n` +
+          `${from.username} keeps everything. ${to.username} receives a copy of the coins, runs, achievements, skins, World 1 clear, collected stage coins, and levels.\n\n` +
+          `Open this link within 60 seconds, then click the button on the page:\n${confirmUrl}\n\n` +
+          `If this was not you, ignore this email.`,
+        html:
+          `<p>You requested a copy of account data from <strong>${escName(from.username)}</strong> onto <strong>${escName(to.username)}</strong>.</p>` +
+          `<p>${escName(from.username)} keeps everything. ${escName(to.username)} receives a copy of the coins, runs, achievements, skins, World 1 clear, collected stage coins, and levels.</p>` +
+          `<p><a href="${confirmUrl}">Open transfer confirmation page</a> — then click <strong>Yes — copy account data</strong> (expires 60 seconds after you started in Sky Hop).</p>`,
+      });
+      json(res, 200, {
+        ok: true,
+        message: 'Confirmation email sent. Open the link within 60 seconds and confirm on that page.',
+      });
+      return true;
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+      return true;
+    }
+  }
+
+  if (pathname === '/api/owner/account-transfer/confirm' && req.method === 'GET') {
+    try {
+      const token = u.searchParams.get('token');
+      const peek = peekTransferToken(token);
+      if (!peek.ok) {
+        deleteConfirmHtml(
+          'Transfer failed',
+          `<p>${String(peek.error).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`,
+          400,
+          '#5eead4'
+        );
+        return true;
+      }
+      const from = await store.findUserById(peek.fromUserId);
+      const to = await store.findUserById(peek.toUserId);
+      const fromName = from ? from.username : 'user #' + String(peek.fromUserId);
+      const toName = to ? to.username : 'user #' + String(peek.toUserId);
+      const esc = (s) =>
+        String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;');
+      const escAttr = (s) =>
+        String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;');
+      deleteConfirmHtml(
+        'Confirm account copy',
+        `<p>Copy account data from <strong>${esc(fromName)}</strong> onto <strong>${esc(toName)}</strong>.</p>` +
+          `<p>${esc(fromName)} keeps their coins, runs, achievements, skins, and levels. Nothing is removed.</p>` +
+          `<p style="color:#94a3b8;font-size:0.9rem">${esc(toName)} receives a copy of those. Passwords, roles, bans, friends, and companies stay on the original account. Doing this again adds the coins and runs again.</p>` +
+          `<p style="color:#94a3b8;font-size:0.9rem">Link expires 60 seconds after you started the transfer in Sky Hop.</p>` +
+          `<form method="POST" action="/api/owner/account-transfer/finalize" style="margin-top:1.5rem">` +
+          `<input type="hidden" name="token" value="${escAttr(token)}"/>` +
+          `<button type="submit" style="background:#0f766e;color:#fff;border:none;padding:0.75rem 1.25rem;border-radius:0.75rem;font-size:1rem;font-weight:600;cursor:pointer">Yes — copy account data</button>` +
+          `</form>`,
+        200,
+        '#5eead4'
+      );
+    } catch (e) {
+      deleteConfirmHtml('Transfer failed', `<p>${String(e.message || e)}</p>`, 500, '#5eead4');
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/account-transfer/finalize' && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      let token = '';
+      const ctype = String(req.headers['content-type'] || '');
+      if (ctype.includes('application/x-www-form-urlencoded')) {
+        token = new URLSearchParams(raw).get('token') || '';
+      } else {
+        try {
+          const j = JSON.parse(raw || '{}');
+          token = j.token || '';
+        } catch {
+          token = '';
+        }
+      }
+      const consumed = consumeTransferToken(token);
+      if (!consumed.ok) {
+        deleteConfirmHtml(
+          'Transfer failed',
+          `<p>${String(consumed.error).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</p>`,
+          400,
+          '#5eead4'
+        );
+        return true;
+      }
+      const result = await copyAccountData(store, consumed.fromUserId, consumed.toUserId);
+      const esc = (s) =>
+        String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;');
+      deleteConfirmHtml(
+        'Account data copied',
+        `<p><strong>${esc(result.from)}</strong> is unchanged.</p>` +
+          `<p><strong>${esc(result.to)}</strong> received ${result.coins} coins, ${result.runs} runs, ${result.achievements} achievements, ${result.skins} skins, and ${result.levels} levels.</p>`,
+        200,
+        '#5eead4'
+      );
+    } catch (e) {
+      deleteConfirmHtml('Transfer failed', `<p>${String(e.message || e)}</p>`, 500, '#5eead4');
     }
     return true;
   }
@@ -3373,6 +3536,7 @@ export async function handleApi(req, res) {
         coins: target.coins != null ? Number(target.coins) : 0,
         levelCount: levels.length,
         publishedLevelCount: publishedCount,
+        credit: await Economy.creditSnapshot(store, target),
       });
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });

@@ -41,17 +41,32 @@
     return b;
   }
 
-  function setMsg(text, bad) {
-    var msg = document.getElementById('economyMsg');
+  function setNamedMsg(id, text, bad) {
+    var msg = document.getElementById(id);
     if (!msg) return;
     msg.textContent = text || '';
     msg.className = 'mt-2 text-sm ' + (bad ? 'text-rose-300' : 'text-emerald-200');
   }
 
-  function post(path, body, draw) {
-    setMsg('');
+  function setMsg(text, bad) {
+    setNamedMsg('economyMsg', text, bad);
+  }
+
+  function setRaceMsg(text, bad) {
+    setNamedMsg('racesMsg', text, bad);
+  }
+
+  function post(path, body, draw, msgId) {
+    if (msgId) setNamedMsg(msgId, '', false);
+    else if (draw) setRaceMsg('', false);
+    else setMsg('', false);
     var note = '';
     var failed = false;
+    function write(text, bad) {
+      if (msgId) setNamedMsg(msgId, text, bad);
+      else if (draw) setRaceMsg(text, bad);
+      else setMsg(text, bad);
+    }
     return api(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -61,19 +76,17 @@
         if (data && data.message) note = data.message;
         if (data && data.ok === false) failed = true;
         if (data && data.banned) {
-          setMsg(note || 'Banned.', true);
+          write(note || 'Banned.', true);
           return null;
         }
         return data && data.view ? data.view : data;
       })
       .then(function (view) {
         if (view) (draw || render)(view);
-        if (note && !draw) setMsg(note, failed);
-        if (note && draw) setRaceMsg(note, failed);
+        if (note) write(note, failed);
       })
       .catch(function (e) {
-        if (draw) setRaceMsg(String(e.message || e), true);
-        else setMsg(String(e.message || e), true);
+        write(String(e.message || e), true);
       });
   }
 
@@ -110,49 +123,16 @@
       el(
         'p',
         'text-xs text-slate-400',
-        'Registering costs ' +
+        'Register a racing company, a bank, or an insurer for ' +
           rules.registerCost +
-          ' coins. Each week the server takes ' +
-          pct(rules.taxRate) +
-          ' of wallet coins and company cash for the Sky Hop National Bank. Savings pay ' +
-          pct(rules.nationalSave) +
-          '. Loans cost ' +
-          pct(rules.nationalLoan) +
-          '. Overhead is ' +
-          rules.overhead +
-          ' coins. A company whose week is under ' +
-          rules.bankruptAt +
-          ' coins is closed and its stock goes to zero. Share prices move with the S&P 500 plus a small random swing. A failed heist is a 1-day ban.'
+          ' coins. Open a company you already own to edit it. Banks, insurers, stocks, races, and the National Bank each have their own button.'
       )
     );
     var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
     msg.id = 'economyMsg';
     body.appendChild(msg);
 
-    var credit = data.credit || {};
-    var scoreCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
-    scoreCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop score'));
-    scoreCard.appendChild(
-      el(
-        'p',
-        'mt-1 text-sm text-white',
-        credit.score == null ? 'Unscored' : credit.score + ' · ' + credit.band
-      )
-    );
-    scoreCard.appendChild(
-      el(
-        'p',
-        'mt-1 text-[11px] text-slate-400',
-        'Runs from 300 to 850. It moves with on-time payments, debt against what you hold, how long you have banked, loans opened in the last two weeks, and whether you both save and borrow. Under 500, new loans are refused. A higher score borrows more, and pays less interest. Saving with no loan still builds a file.'
-      )
-    );
-    body.appendChild(scoreCard);
-
     var yours = data.yourCompanies || [];
-    var ownedIds = {};
-    yours.forEach(function (row) {
-      ownedIds[row.id] = true;
-    });
     var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     card.appendChild(el('h3', 'text-sm font-semibold text-white', yours.length ? 'Register another company' : 'Start a company'));
     var name = field('Name', '', 'text');
@@ -383,151 +363,6 @@
       })[0];
       if (chosen) paintMine(chosen);
     }
-
-    var nat = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
-    nat.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop National Bank'));
-    nat.appendChild(
-      el(
-        'p',
-        'mt-1 text-xs text-slate-400',
-        'Tax pool ' +
-          data.national.taxPool +
-          ' · your deposit ' +
-          data.national.yourDeposit +
-          ' · savings ' +
-          pct(data.national.savingsRate) +
-          ' · loans ' +
-          pct(data.national.loanRate) +
-          '. This bank cannot go bankrupt. A successful heist returns 75% of the loss from the tax pool. SHNB is public: ' +
-          commas((data.national.stock || {}).shareCount || 0) +
-          ' shares, ' +
-          commas((data.national.stock || {}).listed || 0) +
-          ' listed, now ' +
-          money((data.national.stock || {}).shareExact || 0) +
-          '. Its price moves with the market, its own swing, and how much tax it takes in.'
-      )
-    );
-    var natAmt = field('Amount', 100);
-    nat.appendChild(natAmt.wrap);
-    var natRow = el('div', 'mt-2 flex flex-wrap gap-2');
-    natRow.appendChild(button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-      post('/api/economy/deposit', { bankId: 'national', amount: Number(natAmt.input.value) });
-    }));
-    natRow.appendChild(button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-      post('/api/economy/withdraw', { bankId: 'national', amount: Number(natAmt.input.value) });
-    }));
-    natRow.appendChild(button('Borrow personally', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
-      post('/api/economy/borrow', { lender: 'national', amount: Number(natAmt.input.value), forCompany: false });
-    }));
-    natRow.appendChild(
-      button('Heist the National Bank', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
-        if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.016%.')) return;
-        post('/api/economy/heist', { bankId: 'national' });
-      })
-    );
-    nat.appendChild(natRow);
-    if (data.national.stock) {
-      var sh = field('SHNB shares to buy', 1);
-      nat.appendChild(sh.wrap);
-      nat.appendChild(
-        button('Buy SHNB', 'mt-2 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-          post('/api/economy/shares/buy', { companyId: data.national.stock.id, qty: Number(sh.input.value) });
-        })
-      );
-    }
-    body.appendChild(nat);
-
-    if (data.loans && data.loans.length) {
-      var loans = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
-      loans.appendChild(el('h3', 'text-sm font-semibold text-white', 'Your loans'));
-      data.loans.forEach(function (loan) {
-        var line = el('div', 'mt-2 flex flex-wrap items-center gap-2');
-        line.appendChild(el('p', 'text-xs text-slate-300', loan.lender + ' · ' + loan.principal + ' at ' + pct(loan.rate)));
-        var repayAmt = field('Repay', loan.principal);
-        line.appendChild(repayAmt.wrap);
-        line.appendChild(
-          button('Repay', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-            post('/api/economy/repay', { loanId: loan.id, amount: Number(repayAmt.input.value) });
-          })
-        );
-        loans.appendChild(line);
-      });
-      body.appendChild(loans);
-    }
-
-    var market = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
-    market.appendChild(el('h3', 'text-sm font-semibold text-white', 'Companies'));
-    market.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Share prices and charts are on the stock button.'));
-    (data.companies || []).forEach(function (c) {
-      if (ownedIds[c.id] || c.sovereign) return;
-      var box = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
-      box.appendChild(el('p', 'text-sm font-semibold text-white', c.name));
-      box.appendChild(
-        el(
-          'p',
-          'text-[11px] text-slate-400',
-          c.kind +
-            ' · ' +
-            c.ownerName +
-            ' · ' +
-            (c.ticker ? c.ticker + ' · ' : '') +
-            (c.isPublic ? money(c.shareExact) + ' · ' + c.listed + ' listed · you own ' + c.yourShares : 'private')
-        )
-      );
-      if (c.kind === 'bank') {
-        var amt = field('Bank amount', 100);
-        box.appendChild(amt.wrap);
-        var bankRow = el('div', 'mt-2 flex flex-wrap gap-2');
-        bankRow.appendChild(button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-          post('/api/economy/deposit', { bankId: c.id, amount: Number(amt.input.value) });
-        }));
-        bankRow.appendChild(button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-          post('/api/economy/withdraw', { bankId: c.id, amount: Number(amt.input.value) });
-        }));
-        bankRow.appendChild(button('Borrow', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
-          post('/api/economy/borrow', { lender: c.id, amount: Number(amt.input.value), forCompany: false });
-        }));
-        bankRow.appendChild(
-          button('Heist', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
-            if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.04%.')) return;
-            post('/api/economy/heist', { bankId: c.id });
-          })
-        );
-        box.appendChild(bankRow);
-        box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Your deposit here: ' + (c.yourDeposit || 0)));
-      }
-      if (c.kind === 'insurance') {
-        box.appendChild(
-          el('p', 'mt-1 text-[11px] text-slate-400', 'Premium ' + c.premium + ' · coverage ' + c.coverage + (c.insured ? ' · you are covered' : ''))
-        );
-        box.appendChild(
-          button(c.insured ? 'Renew policy' : 'Buy policy', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/policy', { companyId: c.id });
-          })
-        );
-      }
-      if (c.kind === 'racing' && c.tournaments && c.tournaments.length) {
-        c.tournaments.forEach(function (t) {
-          var race = el('div', 'mt-2 rounded-lg border border-white/10 p-2');
-          race.appendChild(el('p', 'text-xs text-white', t.description || 'Untitled tournament'));
-          race.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', tournamentLine(t)));
-          if (t.started) {
-            race.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Entry is closed.'));
-          } else if (!t.youEntered) {
-            race.appendChild(
-              button('Enter', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-                post('/api/economy/tournament/enter', { companyId: c.id, tournamentId: t.id });
-              })
-            );
-          } else {
-            race.appendChild(el('p', 'mt-1 text-[11px] text-emerald-300', 'You entered.'));
-          }
-          box.appendChild(race);
-        });
-      }
-      market.appendChild(box);
-    });
-    body.appendChild(market);
   }
 
   function openEconomy() {
@@ -555,11 +390,305 @@
     screen.classList.remove('flex');
   }
 
-  function setRaceMsg(text, bad) {
-    var msg = document.getElementById('racesMsg');
-    if (!msg) return;
-    msg.textContent = text || '';
-    msg.className = 'mt-2 text-sm ' + (bad ? 'text-rose-300' : 'text-emerald-200');
+  function creditCard(data) {
+    var credit = data.credit || {};
+    var scoreCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    scoreCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop score'));
+    scoreCard.appendChild(
+      el('p', 'mt-1 text-sm text-white', credit.score == null ? 'Unscored' : credit.score + ' · ' + credit.band)
+    );
+    scoreCard.appendChild(
+      el(
+        'p',
+        'mt-1 text-[11px] text-slate-400',
+        'Runs from 300 to 850. It moves with on-time payments, debt against what you hold, how long you have banked, loans opened in the last two weeks, and whether you both save and borrow. Under 500, new loans are refused. A higher score borrows more, and pays less interest. Saving with no loan still builds a file.'
+      )
+    );
+    return scoreCard;
+  }
+
+  function loansBlock(data, draw, msgId) {
+    if (!data.loans || !data.loans.length) return null;
+    var loans = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    loans.appendChild(el('h3', 'text-sm font-semibold text-white', 'Your loans'));
+    data.loans.forEach(function (loan) {
+      var line = el('div', 'mt-2 flex flex-wrap items-center gap-2');
+      line.appendChild(el('p', 'text-xs text-slate-300', loan.lender + ' · ' + loan.principal + ' at ' + pct(loan.rate)));
+      var repayAmt = field('Repay', loan.principal);
+      line.appendChild(repayAmt.wrap);
+      line.appendChild(
+        button('Repay', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+          post('/api/economy/repay', { loanId: loan.id, amount: Number(repayAmt.input.value) }, draw, msgId);
+        })
+      );
+      loans.appendChild(line);
+    });
+    return loans;
+  }
+
+  function categoryFinder(parent, items, placeholder, onPick) {
+    var wrap = el('div', 'relative mt-3');
+    var find = field('Name or ticker', '', 'text');
+    find.input.maxLength = 24;
+    find.input.autocomplete = 'off';
+    find.input.placeholder = placeholder;
+    wrap.appendChild(find.wrap);
+    var found = el('div', 'absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-52 overflow-y-auto rounded-xl border border-white/15 bg-slate-900 shadow-xl');
+    wrap.appendChild(found);
+    parent.appendChild(wrap);
+    function hide() {
+      found.classList.add('hidden');
+      found.textContent = '';
+    }
+    function show(list) {
+      found.textContent = '';
+      found.classList.remove('hidden');
+      if (!list.length) {
+        found.appendChild(el('p', 'px-3 py-2 text-sm text-slate-400', 'No match.'));
+        return;
+      }
+      list.slice(0, 12).forEach(function (c) {
+        found.appendChild(
+          button(
+            c.name + (c.ticker ? ' · ' + c.ticker : ''),
+            'block w-full border-b border-white/10 px-3 py-2 text-left text-sm text-slate-200 last:border-b-0 hover:bg-slate-800',
+            function () {
+              find.input.value = c.name;
+              hide();
+              onPick(c);
+            }
+          )
+        );
+      });
+    }
+    function filter() {
+      var q = find.input.value.trim().toLowerCase();
+      var list = !q
+        ? items
+        : items.filter(function (c) {
+            return c.name.toLowerCase().indexOf(q) !== -1 || String(c.ticker || '').toLowerCase().indexOf(q) !== -1;
+          });
+      show(list);
+    }
+    find.input.addEventListener('input', filter);
+    find.input.addEventListener('focus', filter);
+    find.input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') hide();
+    });
+  }
+
+  var bankPick = '';
+  var insurerPick = '';
+
+  function paintBank(c, host) {
+    host.textContent = '';
+    var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name + (c.ticker ? ' · ' + c.ticker : '')));
+    box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', c.ownerName));
+    box.appendChild(
+      el(
+        'p',
+        'mt-2 text-sm text-slate-200',
+        'Deposits pay ' + pct(c.interestRate) + ' a week. Loans cost ' + pct(c.loanRate) + ' a week. Your deposit: ' + (c.yourDeposit || 0)
+      )
+    );
+    var amt = field('Amount', 100);
+    box.appendChild(amt.wrap);
+    var row = el('div', 'mt-2 flex flex-wrap gap-2');
+    row.appendChild(
+      button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+        post('/api/economy/deposit', { bankId: c.id, amount: Number(amt.input.value) }, renderBanks, 'banksMsg');
+      })
+    );
+    row.appendChild(
+      button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+        post('/api/economy/withdraw', { bankId: c.id, amount: Number(amt.input.value) }, renderBanks, 'banksMsg');
+      })
+    );
+    row.appendChild(
+      button('Borrow', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
+        post('/api/economy/borrow', { lender: c.id, amount: Number(amt.input.value), forCompany: false }, renderBanks, 'banksMsg');
+      })
+    );
+    row.appendChild(
+      button('Heist', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
+        if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.04%.')) return;
+        post('/api/economy/heist', { bankId: c.id }, renderBanks, 'banksMsg');
+      })
+    );
+    box.appendChild(row);
+    host.appendChild(box);
+  }
+
+  function renderBanks(data) {
+    var body = document.getElementById('banksBody');
+    if (!body || !data) return;
+    body.textContent = '';
+    body.appendChild(el('p', 'text-xs text-slate-400', 'Search a bank by name or ticker. Focus the box to see every private bank.'));
+    var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
+    msg.id = 'banksMsg';
+    body.appendChild(msg);
+    body.appendChild(creditCard(data));
+    var banks = (data.companies || []).filter(function (c) {
+      return c.kind === 'bank' && !c.sovereign;
+    });
+    var host = el('div', '');
+    categoryFinder(body, banks, 'Bank name or ticker', function (c) {
+      bankPick = c.id;
+      paintBank(c, host);
+    });
+    body.appendChild(host);
+    var chosen = banks.filter(function (c) {
+      return c.id === bankPick;
+    })[0];
+    if (chosen) paintBank(chosen, host);
+    var loans = loansBlock(data, renderBanks, 'banksMsg');
+    if (loans) body.appendChild(loans);
+  }
+
+  function paintInsurer(c, host) {
+    host.textContent = '';
+    var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name + (c.ticker ? ' · ' + c.ticker : '')));
+    box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', c.ownerName));
+    box.appendChild(
+      el(
+        'p',
+        'mt-2 text-sm text-slate-200',
+        'Weekly premium ' + c.premium + ' · coverage up to ' + c.coverage + (c.insured ? ' · you are covered' : '')
+      )
+    );
+    box.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'A policy pays a drop in the shares you hold, up to the coverage and the cash the company has.')
+    );
+    if (c.cash == null) {
+      box.appendChild(
+        button(c.insured ? 'Renew policy' : 'Buy policy', 'mt-3 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/policy', { companyId: c.id }, renderInsurers, 'insurersMsg');
+        })
+      );
+    } else {
+      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-400', 'This is your company. Set the premium and coverage from the briefcase.'));
+    }
+    host.appendChild(box);
+  }
+
+  function renderInsurers(data) {
+    var body = document.getElementById('insurersBody');
+    if (!body || !data) return;
+    body.textContent = '';
+    body.appendChild(el('p', 'text-xs text-slate-400', 'Search an insurer by name or ticker. Focus the box to see every insurance company.'));
+    var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
+    msg.id = 'insurersMsg';
+    body.appendChild(msg);
+    var firms = (data.companies || []).filter(function (c) {
+      return c.kind === 'insurance';
+    });
+    var host = el('div', '');
+    categoryFinder(body, firms, 'Insurer name or ticker', function (c) {
+      insurerPick = c.id;
+      paintInsurer(c, host);
+    });
+    body.appendChild(host);
+    var chosen = firms.filter(function (c) {
+      return c.id === insurerPick;
+    })[0];
+    if (chosen) paintInsurer(chosen, host);
+  }
+
+  function renderNational(data) {
+    var body = document.getElementById('nationalBody');
+    if (!body || !data || !data.national) return;
+    body.textContent = '';
+    var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
+    msg.id = 'nationalMsg';
+    body.appendChild(msg);
+    body.appendChild(creditCard(data));
+    var nat = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    nat.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop National Bank'));
+    nat.appendChild(
+      el(
+        'p',
+        'mt-1 text-xs text-slate-400',
+        'Tax pool ' +
+          data.national.taxPool +
+          ' · your deposit ' +
+          data.national.yourDeposit +
+          ' · savings ' +
+          pct(data.national.savingsRate) +
+          ' · loans ' +
+          pct(data.national.loanRate) +
+          '. This bank cannot go bankrupt. A successful heist returns 75% of the loss from the tax pool. SHNB is public: ' +
+          commas((data.national.stock || {}).shareCount || 0) +
+          ' shares, ' +
+          commas((data.national.stock || {}).listed || 0) +
+          ' listed, now ' +
+          money((data.national.stock || {}).shareExact || 0) +
+          '.'
+      )
+    );
+    var natAmt = field('Amount', 100);
+    nat.appendChild(natAmt.wrap);
+    var natRow = el('div', 'mt-2 flex flex-wrap gap-2');
+    natRow.appendChild(
+      button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+        post('/api/economy/deposit', { bankId: 'national', amount: Number(natAmt.input.value) }, renderNational, 'nationalMsg');
+      })
+    );
+    natRow.appendChild(
+      button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+        post('/api/economy/withdraw', { bankId: 'national', amount: Number(natAmt.input.value) }, renderNational, 'nationalMsg');
+      })
+    );
+    natRow.appendChild(
+      button('Borrow personally', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
+        post('/api/economy/borrow', { lender: 'national', amount: Number(natAmt.input.value), forCompany: false }, renderNational, 'nationalMsg');
+      })
+    );
+    natRow.appendChild(
+      button('Heist the National Bank', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
+        if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.016%.')) return;
+        post('/api/economy/heist', { bankId: 'national' }, renderNational, 'nationalMsg');
+      })
+    );
+    nat.appendChild(natRow);
+    if (data.national.stock) {
+      var sh = field('SHNB shares to buy', 1);
+      nat.appendChild(sh.wrap);
+      nat.appendChild(
+        button('Buy SHNB', 'mt-2 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/shares/buy', { companyId: data.national.stock.id, qty: Number(sh.input.value) }, renderNational, 'nationalMsg');
+        })
+      );
+    }
+    body.appendChild(nat);
+    var loans = loansBlock(data, renderNational, 'nationalMsg');
+    if (loans) body.appendChild(loans);
+  }
+
+  function openPanel(screenId, bodyId, draw) {
+    if (!getToken()) {
+      window.alert('Sign in from Account first.');
+      return;
+    }
+    var screen = document.getElementById(screenId);
+    if (!screen) return;
+    screen.classList.remove('hidden');
+    screen.classList.add('flex');
+    var body = document.getElementById(bodyId);
+    if (body) body.textContent = 'Loading…';
+    api('/api/economy', { method: 'GET' })
+      .then(draw)
+      .catch(function (e) {
+        if (body) body.textContent = String(e.message || e);
+      });
+  }
+
+  function closePanel(screenId) {
+    var screen = document.getElementById(screenId);
+    if (!screen) return;
+    screen.classList.add('hidden');
+    screen.classList.remove('flex');
   }
 
   function renderRaces(data) {
@@ -833,6 +962,18 @@
     if (racesClose) racesClose.addEventListener('click', closeRaces);
     if (stocks) stocks.addEventListener('click', openStocks);
     if (stocksClose) stocksClose.addEventListener('click', closeStocks);
+    var banks = document.getElementById('btnBanksFab');
+    var banksClose = document.getElementById('btnBanksClose');
+    var insurers = document.getElementById('btnInsurersFab');
+    var insurersClose = document.getElementById('btnInsurersClose');
+    var national = document.getElementById('btnNationalFab');
+    var nationalClose = document.getElementById('btnNationalClose');
+    if (banks) banks.addEventListener('click', function () { openPanel('screenBanks', 'banksBody', renderBanks); });
+    if (banksClose) banksClose.addEventListener('click', function () { closePanel('screenBanks'); });
+    if (insurers) insurers.addEventListener('click', function () { openPanel('screenInsurers', 'insurersBody', renderInsurers); });
+    if (insurersClose) insurersClose.addEventListener('click', function () { closePanel('screenInsurers'); });
+    if (national) national.addEventListener('click', function () { openPanel('screenNational', 'nationalBody', renderNational); });
+    if (nationalClose) nationalClose.addEventListener('click', function () { closePanel('screenNational'); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

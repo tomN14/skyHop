@@ -229,6 +229,8 @@
         if (el) el.textContent = t;
       };
       set('modDashStatRuns', String(st.runCount != null ? st.runCount : 0));
+      var credit = prof.credit || {};
+      set('modDashStatCredit', credit.score != null ? credit.score + ' · ' + credit.band : 'Unscored');
       set('modDashStatCoins', String(prof.coins != null ? prof.coins : 0));
       set('modDashStatDeaths', String(st.totalDeaths != null ? st.totalDeaths : 0));
       set('modDashStatBest', fmtClock(st.bestTimeMs));

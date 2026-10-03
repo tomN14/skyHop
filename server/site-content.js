@@ -98,6 +98,11 @@ const FEATURE_LIST_SHOP_SUPPLEMENT = `
             <li>Buying a shop skin sends 45% of the price, rounded up, to the creator named on that skin. The rest goes to the Sky Hop National Bank. Each newly unlocked achievement pays 75 coins</li>
           </ul>`;
 
+const FEATURE_LIST_PANELS_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Private banks and insurers each have a search button. The briefcase only registers a company. SHNB is the button above the level script guide, and the Sky Hop score is on the bank screen and on SHNB</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -113,6 +118,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('$0.00')) html += FEATURE_LIST_MULTI_SUPPLEMENT;
       if (!html.includes('Sky Hop score')) html += FEATURE_LIST_CREDIT_SUPPLEMENT;
       if (!html.includes('45%')) html += FEATURE_LIST_SHOP_SUPPLEMENT;
+      if (!html.includes('Private banks')) html += FEATURE_LIST_PANELS_SUPPLEMENT;
       return html;
     }
   }

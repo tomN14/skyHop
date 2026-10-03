@@ -668,6 +668,15 @@ export async function economyView(store, user) {
   return withState(store, async (state) => present(state, user, await holders(store)));
 }
 
+export async function creditSnapshot(store, user) {
+  if (!user) return { score: null, band: 'Unscored' };
+  const state = await loadState(store);
+  const nowWeek = Math.floor(Date.now() / WEEK_MS);
+  state.weekId = state.weekId == null ? nowWeek : Math.max(Number(state.weekId) || 0, nowWeek);
+  const book = skyScore(state, user);
+  return { score: book.score, band: book.band };
+}
+
 /** Shop and other sinks. Coins already left a wallet. */
 export async function receiveBankCoins(store, amount) {
   const n = Math.floor(Number(amount) || 0);

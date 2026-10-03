@@ -322,6 +322,49 @@ export function createSupabaseStore() {
       return { id: data && data.id != null ? Number(data.id) : null };
     },
 
+    async copyRunsOntoUser(userId, runs) {
+      const list = Array.isArray(runs) ? runs : [];
+      if (!list.length) return 0;
+      const rows = list.map((r) => {
+        const src = r.source === 'race' ? 'race' : 'campaign';
+        const row = {
+          user_id: userId,
+          time_ms: Math.max(0, Math.min(Number(r.timeMs) || 0, 48 * 60 * 60 * 1000)),
+          deaths: Math.max(0, Math.min(Math.floor(Number(r.deaths) || 0), 1_000_000)),
+          source: src,
+          created_at: Math.floor(Number(r.createdAt) || Date.now()),
+        };
+        if (src === 'campaign' && r.difficulty) {
+          const low = String(r.difficulty).toLowerCase();
+          if (low === 'easy' || low === 'normal' || low === 'hard') row.difficulty = low;
+        }
+        return row;
+      });
+      const { error } = await sb.from('skyhop_runs').insert(rows);
+      if (error) throw new Error(error.message);
+      return rows.length;
+    },
+
+    async copyOnlineCoinClaims(fromUserId, toUserId) {
+      const { data, error } = await sb
+        .from('skyhop_online_coin_claims')
+        .select('level_id, coin_index')
+        .eq('user_id', fromUserId);
+      if (error) throw new Error(error.message);
+      let n = 0;
+      for (const row of data || []) {
+        const { error: ins } = await sb.from('skyhop_online_coin_claims').insert({
+          user_id: toUserId,
+          level_id: row.level_id,
+          coin_index: row.coin_index,
+          created_at: Date.now(),
+        });
+        if (ins && ins.code !== '23505') throw new Error(ins.message);
+        if (!ins) n += 1;
+      }
+      return n;
+    },
+
     async campaignTimeRankTop10(runId, difficulty) {
       const diff = String(difficulty || '').toLowerCase();
       if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') return null;

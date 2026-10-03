@@ -342,6 +342,61 @@ export function createFileStore() {
       return { id };
     },
 
+    async copyRunsOntoUser(userId, runs) {
+      const list = Array.isArray(runs) ? runs : [];
+      if (!list.length) return 0;
+      const s = loadStore();
+      for (const r of list) {
+        const t = Math.max(0, Math.min(Number(r.timeMs) || 0, 48 * 60 * 60 * 1000));
+        const d = Math.max(0, Math.min(Math.floor(Number(r.deaths) || 0), 1_000_000));
+        const src = r.source === 'race' ? 'race' : 'campaign';
+        let diff = null;
+        if (src === 'campaign' && r.difficulty) {
+          const low = String(r.difficulty).toLowerCase();
+          if (low === 'easy' || low === 'normal' || low === 'hard') diff = low;
+        }
+        s.runs.push({
+          id: s.nextRunId++,
+          userId,
+          timeMs: t,
+          deaths: d,
+          source: src,
+          difficulty: diff,
+          createdAt: Math.floor(Number(r.createdAt) || Date.now()),
+        });
+      }
+      saveStore();
+      return list.length;
+    },
+
+    async copyOnlineCoinClaims(fromUserId, toUserId) {
+      const p = path.join(DATA_DIR, 'coin_claims.json');
+      if (!fs.existsSync(p)) return 0;
+      let j;
+      try {
+        j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      } catch {
+        return 0;
+      }
+      if (!Array.isArray(j.claims)) return 0;
+      const have = new Set(
+        j.claims
+          .filter((c) => Number(c.userId) === Number(toUserId))
+          .map((c) => String(c.levelId) + ':' + String(c.coinIndex))
+      );
+      const source = j.claims.filter((c) => Number(c.userId) === Number(fromUserId));
+      let n = 0;
+      for (const c of source) {
+        const key = String(c.levelId) + ':' + String(c.coinIndex);
+        if (have.has(key)) continue;
+        j.claims.push({ userId: toUserId, levelId: c.levelId, coinIndex: c.coinIndex, at: Date.now() });
+        have.add(key);
+        n += 1;
+      }
+      if (n) fs.writeFileSync(p, JSON.stringify(j), 'utf8');
+      return n;
+    },
+
     async campaignTimeRankTop10(runId, difficulty) {
       const diff = String(difficulty || '').toLowerCase();
       if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') return null;
