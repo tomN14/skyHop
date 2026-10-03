@@ -821,16 +821,47 @@
       );
     });
     box.appendChild(ranges);
-    if (q.alive && q.isPublic && q.listed > 0 && !q.viewerIsOwner) {
-      var qty = field('Shares to buy', 1);
+    if (q.alive && q.isPublic) {
+      if (q.yourShort > 0) box.appendChild(el('p', 'mt-1 text-[11px] text-amber-200', 'You are short ' + commas(q.yourShort) + ' shares.'));
+      var qty = field('Shares', 1);
+      var limit = field('Limit price, blank for a market order', '', 'number');
+      limit.input.step = '0.01';
+      limit.input.min = '0.01';
+      limit.input.placeholder = 'Market';
       box.appendChild(qty.wrap);
-      box.appendChild(
-        button('Buy', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-          post('/api/economy/shares/buy', { companyId: q.id, qty: Number(qty.input.value) }).then(function () {
+      box.appendChild(limit.wrap);
+      function send(side) {
+        var body = { companyId: q.id, side: side, qty: Number(qty.input.value) };
+        if (String(limit.input.value).trim() !== '') body.limit = Number(limit.input.value);
+        post('/api/economy/shares/trade', body, function () {
+          loadQuote(q.id, stockRange);
+        }, 'stocksMsg');
+      }
+      var row = el('div', 'mt-2 flex flex-wrap gap-2');
+      if (q.listed > 0 && !q.viewerIsOwner) {
+        row.appendChild(button('Buy', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () { send('buy'); }));
+      }
+      if (q.yourShares > 0 && !q.viewerIsOwner) {
+        row.appendChild(button('Sell', 'rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white', function () { send('sell'); }));
+      }
+      if (!q.viewerIsOwner) {
+        row.appendChild(button('Short', 'rounded-lg border border-amber-500/50 px-3 py-1.5 text-xs font-semibold text-amber-100', function () { send('short'); }));
+      }
+      if (q.yourShort > 0) {
+        row.appendChild(button('Cover', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () { send('cover'); }));
+      }
+      box.appendChild(row);
+      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Prices move every 6 hours. A limit order waits until the price reaches it. You can rest 3 per stock. A profitable week pays shareholders 2% of the company cash, capped by that profit. Shorts owe the same dividend.'));
+      (q.orders || []).forEach(function (order) {
+        var line = el('div', 'mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-300');
+        line.appendChild(el('span', '', order.side + ' ' + commas(order.qty) + ' at ' + money(order.limit)));
+        line.appendChild(button('Cancel', 'rounded border border-white/15 px-2 py-0.5 text-[10px] text-slate-200', function () {
+          post('/api/economy/shares/cancel', { companyId: q.id, orderId: order.id }, function () {
             loadQuote(q.id, stockRange);
-          });
-        })
-      );
+          }, 'stocksMsg');
+        }));
+        box.appendChild(line);
+      });
     }
   }
 
@@ -875,7 +906,10 @@
     var body = document.getElementById('stocksBody');
     if (!body) return;
     body.textContent = '';
-    body.appendChild(el('p', 'text-xs text-slate-400', 'Search by company name or ticker. Matches show under the box as you type. Each public company follows the S&P 500 by its own amount, plus its own daily swing.'));
+    body.appendChild(el('p', 'text-xs text-slate-400', 'Search by company name or ticker. Prices move every 6 hours. You can buy, sell, short, or set a limit price.'));
+    var stockMsg = el('p', 'mt-2 text-sm text-emerald-200', '');
+    stockMsg.id = 'stocksMsg';
+    body.appendChild(stockMsg);
     var searchWrap = el('div', 'relative mt-3');
     var search = field('Name or ticker', '', 'text');
     search.input.maxLength = 24;

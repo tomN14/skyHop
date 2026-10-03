@@ -68,40 +68,53 @@ const FEATURE_LIST_COPY_SUPPLEMENT = `
             <li>Copy a published user level into your drafts. The creator can turn off Allow copies in the editor</li>
           </ul>`;
 
-const FEATURE_LIST_ECONOMY_SUPPLEMENT = `
-          <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Companies cost 1,000 coins. The Sky Hop National Bank takes an 8% weekly tax, lends at 14.32%, and pays 1.2% on savings. A company under −500 coins of weekly profit is closed</li>
-          </ul>`;
-
-const FEATURE_LIST_RACES_SUPPLEMENT = `
-          <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Racing companies can host several tournaments at once. Each one has its own entry fee, prize, and description</li>
-          </ul>`;
-
-const FEATURE_LIST_STOCKS_SUPPLEMENT = `
-          <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Racing tournaments can set a start time. Entry closes after it. Owners can delete a company, which makes its shares worthless. Stocks are searched by name or ticker</li>
-          </ul>`;
-
-const FEATURE_LIST_MULTI_SUPPLEMENT = `
-          <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>You can register more than one company. A new company starts at a random price from $0.00 to $1.00</li>
-          </ul>`;
-
-const FEATURE_LIST_CREDIT_SUPPLEMENT = `
-          <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Sky Hop scores run from 300 to 850 and follow payments, debt, history, recent loans, and saving. SHNB has 7 billion shares and opens at $135.52</li>
-          </ul>`;
-
 const FEATURE_LIST_SHOP_SUPPLEMENT = `
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Buying a shop skin sends 45% of the price, rounded up, to the creator named on that skin. The rest goes to the Sky Hop National Bank. Each newly unlocked achievement pays 75 coins</li>
           </ul>`;
 
-const FEATURE_LIST_PANELS_SUPPLEMENT = `
+const FEATURE_LIST_FINANCIAL = `
+          <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Financial systems</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Private banks and insurers each have a search button. The briefcase only registers a company. SHNB is the button above the level script guide, and the Sky Hop score is on the bank screen and on SHNB</li>
+            <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company and edits the ones you already own</li>
+            <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
+            <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
+            <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
+            <li>A profitable week pays shareholders 2% of company cash, and never more than that profit. A short position owes the same dividend</li>
+            <li>An 8% weekly tax funds the Sky Hop National Bank. It lends at 14.32% and pays 1.2% on savings. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
+            <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
+            <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
           </ul>`;
+
+const OLD_FINANCIAL_LI = [
+  'Companies cost 1,000 coins',
+  'several tournaments',
+  'Stocks are searched by name or ticker',
+  'You can register more than one company',
+  'Sky Hop scores run from 300',
+  'Private banks',
+  'limit order',
+  'Shareholders can sell',
+];
+
+function stripOldFinancialBullets(html) {
+  let out = String(html || '');
+  for (const marker of OLD_FINANCIAL_LI) {
+    const re = new RegExp('<li>[^<]*' + marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^<]*</li>', 'g');
+    out = out.replace(re, '');
+  }
+  return out.replace(/<ul class="mt-1 list-disc space-y-0\.5 pl-4">\s*<\/ul>/g, '');
+}
+
+function withFinancialSection(html) {
+  if (String(html || '').includes('Financial systems')) return html;
+  const out = stripOldFinancialBullets(html);
+  const heading = 'Economy &amp; cosmetics</p>';
+  const at = out.indexOf(heading);
+  if (at === -1) return out + FEATURE_LIST_FINANCIAL;
+  const start = out.lastIndexOf('<p', at);
+  return out.slice(0, start) + FEATURE_LIST_FINANCIAL.trim() + '\n          ' + out.slice(start);
+}
 
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
@@ -112,14 +125,8 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('Mod Admin')) html += FEATURE_LIST_ROLES_SUPPLEMENT;
       if (!html.includes('Allow copies')) html += FEATURE_LIST_COPY_SUPPLEMENT;
       if (!html.includes('Graphic Designer')) html += FEATURE_LIST_GD_SUPPLEMENT;
-      if (!html.includes('Sky Hop National Bank')) html += FEATURE_LIST_ECONOMY_SUPPLEMENT;
-      if (!html.includes('several tournaments')) html += FEATURE_LIST_RACES_SUPPLEMENT;
-      if (!html.includes('ticker')) html += FEATURE_LIST_STOCKS_SUPPLEMENT;
-      if (!html.includes('$0.00')) html += FEATURE_LIST_MULTI_SUPPLEMENT;
-      if (!html.includes('Sky Hop score')) html += FEATURE_LIST_CREDIT_SUPPLEMENT;
       if (!html.includes('45%')) html += FEATURE_LIST_SHOP_SUPPLEMENT;
-      if (!html.includes('Private banks')) html += FEATURE_LIST_PANELS_SUPPLEMENT;
-      return html;
+      return withFinancialSection(html);
     }
   }
   return defaultFeatureListHtml();

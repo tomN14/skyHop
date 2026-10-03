@@ -3095,6 +3095,27 @@
       });
     }
 
+    var ownerBtnSeedCompanies = document.getElementById('ownerBtnSeedCompanies');
+    if (ownerBtnSeedCompanies) {
+      ownerBtnSeedCompanies.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        if (!tok || !me || me.role !== 'owner') return;
+        setOwnerAdminMsg('', false);
+        if (!window.confirm('Create 60 random companies on your account?\n\nEach is a racing firm, a bank, or an insurer, with a ticker that is not already used. This does not charge coins.')) return;
+        try {
+          var data = await api('/api/owner/seed-companies', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          setOwnerAdminMsg(data.message || 'Created 60 companies.', false);
+        } catch (e) {
+          setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+
     var ownerLbDifficulty = document.getElementById('ownerLbDifficulty');
     var ownerBtnRefreshLb = document.getElementById('ownerBtnRefreshLb');
     var ownerLbList = document.getElementById('ownerLbList');

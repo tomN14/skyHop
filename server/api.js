@@ -3206,6 +3206,27 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/owner/seed-companies' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      const user = await store.findUserById(sess.userId);
+      if (!user) throw new Error('User not found');
+      const result = await Economy.seedRandomCompanies(store, user);
+      json(res, 200, { ok: true, created: result.created, message: 'Created ' + result.created + ' companies on your account.' });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/owner/account-transfer/request' && req.method === 'POST') {
     try {
       const sess = await getActiveSessionUser(req);
@@ -4903,6 +4924,50 @@ export async function handleApi(req, res) {
     }
     try {
       json(res, 200, await Economy.buyShares(store, sess.user, body.companyId, body.qty));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/shares/trade' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const result = await Economy.tradeShares(store, sess.user, body.companyId, body.side, body.qty, body.limit);
+      json(res, 200, { view: result.view, message: result.message });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/shares/cancel' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const result = await Economy.cancelOrder(store, sess.user, body.companyId, body.orderId);
+      json(res, 200, { view: result.view, message: result.message });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

@@ -111,6 +111,7 @@ async function payWallet(store, userId, amount) {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PRICE_MS = 6 * 60 * 60 * 1000;
 let indexCache = { at: 0, map: {} };
 
 function hashStr(s) {
@@ -224,9 +225,9 @@ function pushHistory(c, t, p) {
   if (c.history.length > 3700) c.history.splice(0, c.history.length - 3700);
 }
 
-async function settlePrices(state) {
+async function settlePrices(store, state) {
   ensureNationalStock(state);
-  const target = Math.floor(Date.now() / DAY_MS);
+  const target = Math.floor(Date.now() / PRICE_MS);
   if (state.priceDay == null) {
     state.priceDay = target;
     for (const c of state.companies) {
@@ -236,25 +237,29 @@ async function settlePrices(state) {
     }
     return;
   }
+  if (target - state.priceDay > 400) state.priceDay = target;
   if (state.priceDay >= target) return;
   const returns = await indexReturns();
   let steps = 0;
-  while (state.priceDay < target && steps < 40) {
-    const day = state.priceDay + 1;
-    const market = returns[day] != null ? returns[day] : seededMarket(day);
+  while (state.priceDay < target && steps < 32) {
+    const slot = state.priceDay + 1;
+    const day = Math.floor((slot * PRICE_MS) / DAY_MS);
+    const full = returns[day] != null ? returns[day] : seededMarket(day);
+    const market = full / 4;
     state.indexChange = Math.round(market * 10000) / 10000;
     for (const c of state.companies) {
       if (!c.alive || !c.isPublic) continue;
       ensureMarket(c);
-      const noise = (unitNoise(c.noiseSeed, day) - 0.5) * 0.04;
+      const noise = (unitNoise(c.noiseSeed, slot) - 0.5) * 0.01;
       const perf = Math.max(-1, Math.min(1, Number(c.performance) || 0));
-      const change = Math.max(-0.15, Math.min(0.15, c.beta * market + noise + perf * 0.012));
+      const change = Math.max(-0.04, Math.min(0.04, c.beta * market + noise + perf * 0.003));
       const base = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
       c.shareExact = Math.max(0, Math.min(1_000_000, Math.round(base * (1 + change) * 100) / 100));
       c.sharePrice = Math.max(0, Math.min(1_000_000, Math.round(c.shareExact)));
-      pushHistory(c, day * DAY_MS, c.shareExact);
+      pushHistory(c, slot * PRICE_MS, c.shareExact);
+      await fillResting(store, state, c);
     }
-    state.priceDay = day;
+    state.priceDay = slot;
     steps += 1;
   }
 }
@@ -314,12 +319,17 @@ function sharesOf(company, userId) {
   return Math.max(0, Math.floor(Number(company.shares[uid(userId)]) || 0));
 }
 
+function shortOf(company, userId) {
+  return Math.max(0, Math.floor(Number((company.shorts || {})[uid(userId)]) || 0));
+}
+
 function portfolio(state, userId) {
   let n = 0;
   for (const c of state.companies) {
     if (!c.alive) continue;
     const px = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
     n += sharesOf(c, userId) * px;
+    n -= shortOf(c, userId) * px;
   }
   return n;
 }
@@ -424,6 +434,10 @@ async function applyWeek(store, state) {
     if (!c.alive || c.sovereign) continue;
     const scale = Math.max(250, Math.abs(Math.floor(Number(c.cash) || 0)) + OVERHEAD);
     c.performance = Math.max(-1, Math.min(1, Math.round(((Number(c.weekProfit) || 0) / scale) * 1000) / 1000));
+    if (c.isPublic && Number(c.weekProfit) > 0) {
+      const pot = Math.min(Math.floor(Math.max(0, c.cash) * 0.02), Math.floor(Number(c.weekProfit) || 0));
+      await payDividend(store, state, c, pot);
+    }
     c.weekProfit = 0;
     c.weekProfit -= OVERHEAD;
     c.cash = Math.max(0, Math.floor(Number(c.cash) || 0) - Math.min(OVERHEAD, Math.max(0, Math.floor(Number(c.cash) || 0))));
@@ -439,6 +453,10 @@ async function applyWeek(store, state) {
   const inn = Math.max(0, Math.floor(Number(state.national.weekIn) || 0));
   const out = Math.max(0, Math.floor(Number(state.national.weekOut) || 0));
   nat.performance = Math.max(-1, Math.min(1, Math.round(((inn - out) / Math.max(5000, state.national.taxPool)) * 1000) / 1000));
+  if (inn > out) {
+    const pot = Math.min(Math.floor(state.national.taxPool * 0.01), inn - out);
+    await payDividend(store, state, nat, pot);
+  }
   state.national.weekIn = 0;
   state.national.weekOut = 0;
 
@@ -546,6 +564,9 @@ async function applyWeek(store, state) {
       c.shares = {};
       c.listed = 0;
       c.sharePrice = 0;
+      c.shorts = {};
+      c.shortBill = {};
+      c.orders = [];
       c.deposits = {};
       c.policies = {};
       c.tournaments = [];
@@ -557,7 +578,7 @@ async function applyWeek(store, state) {
 }
 
 async function settle(store, state) {
-  await settlePrices(state);
+  await settlePrices(store, state);
   const target = Math.floor(Date.now() / WEEK_MS);
   if (state.weekId == null) state.weekId = target;
   let steps = 0;
@@ -731,6 +752,87 @@ export async function registerCompany(store, user, { name, kind }) {
   });
 }
 
+const SEED_LEFT = ['North', 'South', 'Silver', 'Gold', 'Iron', 'Cedar', 'Harbor', 'Summit', 'River', 'Crown', 'Bright', 'Swift', 'Grand', 'Amber', 'Coral', 'Frost', 'Dawn', 'Pine', 'Oak', 'Star', 'Moon', 'Wind', 'Stone', 'Copper', 'Maple', 'Quiet', 'High', 'East', 'West', 'Blue'];
+const SEED_RIGHT = ['Peak', 'Line', 'Gate', 'Yard', 'Works', 'House', 'Field', 'Trail', 'Dock', 'Bridge', 'Forge', 'Mill', 'Point', 'Ridge', 'Bay', 'Coast', 'Hill', 'Vale', 'Park', 'Lane', 'Court', 'Hall', 'Square', 'Tower', 'Grove', 'Reach', 'Bend', 'Basin', 'Wharf', 'Club'];
+const SEED_KINDS = ['racing', 'bank', 'insurance'];
+const TICKER_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function freshTicker(used) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const len = 3 + Math.floor(Math.random() * 3);
+    let ticker = '';
+    for (let i = 0; i < len; i += 1) ticker += TICKER_CHARS[Math.floor(Math.random() * TICKER_CHARS.length)];
+    if (!used.has(ticker)) return ticker;
+  }
+  throw new Error('Could not find a free ticker.');
+}
+
+function freshName(used) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const name = pick(SEED_LEFT) + ' ' + pick(SEED_RIGHT);
+    if (!used.has(name.toLowerCase())) return name;
+  }
+  throw new Error('Could not find a free company name.');
+}
+
+/** Owner tool. Creates public companies on that account. Does not charge coins. */
+export async function seedRandomCompanies(store, user) {
+  return withState(store, async (state) => {
+    const tickers = new Set();
+    const names = new Set();
+    for (const c of state.companies) {
+      const ticker = String(c.ticker || '').toUpperCase();
+      if (ticker) tickers.add(ticker);
+      if (c.alive && c.name) names.add(String(c.name).toLowerCase());
+    }
+    const made = [];
+    for (let i = 0; i < 60; i += 1) {
+      const name = freshName(names);
+      const ticker = freshTicker(tickers);
+      const kind = pick(SEED_KINDS);
+      names.add(name.toLowerCase());
+      tickers.add(ticker);
+      const opened = Math.round(Math.random() * 100) / 100;
+      const company = {
+        id: crypto.randomUUID(),
+        name,
+        kind,
+        ownerId: uid(user.id),
+        ownerName: user.username,
+        cash: 0,
+        isPublic: true,
+        sharePrice: Math.round(opened),
+        shareExact: opened,
+        listed: 0,
+        shares: { [uid(user.id)]: SHARE_COUNT },
+        alive: true,
+        weekProfit: 0,
+        interestRate: kind === 'bank' ? Math.round((0.004 + Math.random() * 0.03) * 10000) / 10000 : NATIONAL_SAVE,
+        loanRate: kind === 'bank' ? Math.round((0.06 + Math.random() * 0.2) * 10000) / 10000 : NATIONAL_LOAN,
+        premium: kind === 'insurance' ? 10 + Math.floor(Math.random() * 191) : 50,
+        coverage: kind === 'insurance' ? 50 + Math.floor(Math.random() * 951) : 200,
+        deposits: {},
+        policies: {},
+        tournaments: [],
+        tournament: null,
+        ticker,
+        beta: 0,
+        noiseSeed: 0,
+        history: [],
+      };
+      ensureMarket(company);
+      pushHistory(company, Date.now(), company.shareExact);
+      state.companies.push(company);
+      made.push({ name, ticker, kind });
+    }
+    return { created: made.length, companies: made };
+  });
+}
+
 export async function updateCompany(store, user, body) {
   return withState(store, async (state) => {
     const c = ownedCompany(state, user.id, body.companyId);
@@ -808,34 +910,237 @@ function clampMoney(n, min, max) {
   return x;
 }
 
-export async function buyShares(store, user, companyId, qty) {
-  const n = Math.floor(Number(qty));
-  if (!Number.isFinite(n) || n < 1 || n > NATIONAL_LISTED) throw new Error('Amount is out of range.');
-  return withState(store, async (state) => {
-    ensureNationalStock(state);
-    const c = companyById(state, companyId);
-    if (!c || !c.isPublic) throw new Error('That company is not on the market.');
-    if (!c.sovereign && uid(c.ownerId) === uid(user.id)) throw new Error('You already own those shares.');
-    const cap = c.sovereign ? c.listed : SHARE_COUNT;
-    if (n > cap || n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
-    const unit = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Number(c.sharePrice) || 0;
-    if (unit <= 0) throw new Error('That stock is worth $0.00.');
-    const cost = Math.max(1, Math.round(n * unit));
-    await chargeWallet(store, user, cost);
-    if (c.sovereign) addTax(state, cost);
-    else {
-      c.cash += cost;
-      c.weekProfit += cost;
+function unitPrice(c) {
+  const unit = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Number(c.sharePrice) || 0;
+  return Math.max(0, unit);
+}
+
+function tradeCost(qty, unit) {
+  if (!(unit > 0) || !(qty > 0)) return 0;
+  return Math.max(1, Math.round(qty * unit));
+}
+
+function buybackCash(state, c) {
+  const pool = Math.max(0, Math.floor(Number(state.national.taxPool) || 0));
+  if (c.sovereign) return pool;
+  return Math.max(0, Math.floor(Number(c.cash) || 0)) + pool;
+}
+
+function pullBuyback(state, c, amount) {
+  let need = Math.max(0, Math.floor(amount));
+  if (!c.sovereign) {
+    const take = Math.min(need, Math.max(0, Math.floor(Number(c.cash) || 0)));
+    c.cash -= take;
+    c.weekProfit = Math.floor(Number(c.weekProfit) || 0) - take;
+    need -= take;
+  }
+  const fromPool = Math.min(need, Math.max(0, Math.floor(Number(state.national.taxPool) || 0)));
+  if (fromPool > 0) {
+    state.national.taxPool -= fromPool;
+    state.national.weekOut = Math.max(0, Math.floor(Number(state.national.weekOut) || 0)) + fromPool;
+  }
+}
+
+function giveCash(state, c, amount) {
+  const n = Math.max(0, Math.floor(amount));
+  if (n <= 0) return;
+  if (c.sovereign) addTax(state, n);
+  else {
+    c.cash += n;
+    c.weekProfit = Math.floor(Number(c.weekProfit) || 0) + n;
+  }
+}
+
+function marketable(side, unit, limit) {
+  if (limit == null) return true;
+  if (side === 'buy' || side === 'cover') return unit <= limit + 0.0001;
+  return unit + 0.0001 >= limit;
+}
+
+async function payDividend(store, state, c, pot) {
+  const payout = Math.max(0, Math.floor(Number(pot) || 0));
+  if (payout < 1 || !c.shares) return;
+  let outstanding = 0;
+  for (const id of Object.keys(c.shares)) {
+    if (c.sovereign && id === 'national') continue;
+    outstanding += sharesOf(c, id);
+  }
+  if (outstanding < 1) return;
+  const cuts = [];
+  let spent = 0;
+  for (const id of Object.keys(c.shares)) {
+    if (c.sovereign && id === 'national') continue;
+    const held = sharesOf(c, id);
+    const cut = Math.floor((payout * held) / outstanding);
+    if (cut < 1) continue;
+    cuts.push({ id, cut });
+    spent += cut;
+  }
+  if (c.sovereign) {
+    if (spent > state.national.taxPool) return;
+    state.national.taxPool -= spent;
+    state.national.weekOut = Math.max(0, Math.floor(Number(state.national.weekOut) || 0)) + spent;
+  } else if (spent > c.cash) {
+    return;
+  } else {
+    c.cash -= spent;
+  }
+  for (const row of cuts) await payWallet(store, row.id, row.cut);
+  const per = payout / outstanding;
+  for (const id of Object.keys(c.shorts || {})) {
+    const due = Math.floor(shortOf(c, id) * per);
+    if (due < 1) continue;
+    const holder = await store.findUserById(id);
+    if (!holder) continue;
+    try {
+      await chargeWallet(store, holder, due);
+      giveCash(state, c, due);
+    } catch {
+      if (!c.shortBill || typeof c.shortBill !== 'object') c.shortBill = {};
+      c.shortBill[id] = Math.floor(Number(c.shortBill[id]) || 0) + due;
     }
+  }
+}
+
+async function executeTrade(store, state, user, c, side, qty) {
+  const n = Math.floor(Number(qty));
+  const capQty = c.sovereign ? 2_000_000_000 : SHARE_COUNT;
+  if (!Number.isFinite(n) || n < 1 || n > capQty) throw new Error('Amount is out of range.');
+  if (!c.isPublic) throw new Error('That company is not on the market.');
+  const unit = unitPrice(c);
+  if (unit <= 0) throw new Error('That stock is worth $0.00.');
+  const me = uid(user.id);
+  const cost = tradeCost(n, unit);
+  if (side === 'buy') {
+    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('You already own those shares.');
+    if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
+    await chargeWallet(store, user, cost);
+    giveCash(state, c, cost);
     c.shares[uid(c.ownerId)] = sharesOf(c, c.ownerId) - n;
-    c.shares[uid(user.id)] = sharesOf(c, user.id) + n;
+    c.shares[me] = sharesOf(c, user.id) + n;
     c.listed -= n;
     const total = c.shareCount || SHARE_COUNT;
     if (!c.sovereign && sharesOf(c, user.id) > total / 2 && sharesOf(c, c.ownerId) <= total / 2) {
-      c.ownerId = uid(user.id);
+      c.ownerId = me;
       c.ownerName = user.username;
     }
-    return present(state, user, await holders(store));
+    return 'Bought ' + n + ' shares.';
+  }
+  if (side === 'sell') {
+    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('List shares for sale from your company instead.');
+    if (n > sharesOf(c, user.id)) throw new Error('You do not own that many shares.');
+    if (buybackCash(state, c) < cost) throw new Error('The company cannot pay for those shares yet.');
+    pullBuyback(state, c, cost);
+    await payWallet(store, user.id, cost);
+    c.shares[me] = sharesOf(c, user.id) - n;
+    c.shares[uid(c.ownerId)] = sharesOf(c, c.ownerId) + n;
+    c.listed += n;
+    if (c.sovereign) c.listed = Math.min(c.listed, NATIONAL_LISTED);
+    return 'Sold ' + n + ' shares.';
+  }
+  if (side === 'short') {
+    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('You cannot short your own company.');
+    if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are available to borrow.');
+    const maxShort = c.sovereign ? 5000 : 200;
+    if (shortOf(c, user.id) + n > maxShort) throw new Error('You can be short at most ' + maxShort + ' shares.');
+    if (buybackCash(state, c) < cost) throw new Error('The company cannot pay for that short yet.');
+    pullBuyback(state, c, cost);
+    await payWallet(store, user.id, cost);
+    c.shares[uid(c.ownerId)] = sharesOf(c, c.ownerId) - n;
+    c.listed -= n;
+    if (!c.shorts || typeof c.shorts !== 'object') c.shorts = {};
+    c.shorts[me] = shortOf(c, user.id) + n;
+    return 'Shorted ' + n + ' shares.';
+  }
+  if (side === 'cover') {
+    const open = shortOf(c, user.id);
+    if (n > open) throw new Error('You are not short that many shares.');
+    const bill = n === open ? Math.floor(Number((c.shortBill || {})[me]) || 0) : 0;
+    await chargeWallet(store, user, cost + bill);
+    giveCash(state, c, cost + bill);
+    if (!c.shorts) c.shorts = {};
+    c.shorts[me] = open - n;
+    if (c.shorts[me] <= 0) {
+      delete c.shorts[me];
+      if (c.shortBill) delete c.shortBill[me];
+    }
+    c.shares[uid(c.ownerId)] = sharesOf(c, c.ownerId) + n;
+    c.listed += n;
+    if (c.sovereign) c.listed = Math.min(c.listed, NATIONAL_LISTED);
+    return 'Covered ' + n + ' shares.';
+  }
+  throw new Error('Unknown order.');
+}
+
+async function fillResting(store, state, c) {
+  if (!Array.isArray(c.orders) || !c.orders.length) return;
+  const unit = unitPrice(c);
+  const keep = [];
+  let fills = 0;
+  for (const order of c.orders) {
+    if (fills >= 4 || !marketable(order.side, unit, Number(order.limit))) {
+      keep.push(order);
+      continue;
+    }
+    const holder = await store.findUserById(order.userId);
+    if (!holder) continue;
+    try {
+      await executeTrade(store, state, holder, c, order.side, order.qty);
+      fills += 1;
+    } catch {
+      keep.push(order);
+    }
+  }
+  c.orders = keep.slice(0, 40);
+}
+
+export async function buyShares(store, user, companyId, qty) {
+  const traded = await tradeShares(store, user, companyId, 'buy', qty, null);
+  return traded.view;
+}
+
+export async function tradeShares(store, user, companyId, side, qty, limit) {
+  const want = String(side || '');
+  if (!['buy', 'sell', 'short', 'cover'].includes(want)) throw new Error('Unknown order.');
+  let limitPrice = null;
+  if (limit != null && limit !== '') {
+    limitPrice = Math.round(Number(limit) * 100) / 100;
+    if (!Number.isFinite(limitPrice) || limitPrice <= 0 || limitPrice > 1_000_000) throw new Error('Limit price must be above 0 and at most 1,000,000.');
+  }
+  return withState(store, async (state) => {
+    ensureNationalStock(state);
+    const c = companyById(state, companyId);
+    if (!c) throw new Error('That company is not on the market.');
+    const n = Math.floor(Number(qty));
+    if (!Number.isFinite(n) || n < 1) throw new Error('Amount is out of range.');
+    const unit = unitPrice(c);
+    if (limitPrice != null && !marketable(want, unit, limitPrice)) {
+      if (!Array.isArray(c.orders)) c.orders = [];
+      const mine = c.orders.filter((order) => uid(order.userId) === uid(user.id));
+      if (mine.length >= 3) throw new Error('You can rest 3 limit orders on this stock.');
+      if (c.orders.length >= 40) throw new Error('This stock has too many resting orders.');
+      c.orders.push({
+        id: crypto.randomUUID(),
+        userId: uid(user.id),
+        side: want,
+        qty: n,
+        limit: limitPrice,
+      });
+      return { view: await present(state, user, await holders(store)), message: 'Limit order is resting until the price reaches it.' };
+    }
+    const message = await executeTrade(store, state, user, c, want, qty);
+    return { view: await present(state, user, await holders(store)), message };
+  });
+}
+
+export async function cancelOrder(store, user, companyId, orderId) {
+  return withState(store, async (state) => {
+    const c = companyById(state, companyId);
+    if (!c || !Array.isArray(c.orders)) throw new Error('Order not found.');
+    const before = c.orders.length;
+    c.orders = c.orders.filter((order) => !(order.id === orderId && uid(order.userId) === uid(user.id)));
+    if (c.orders.length === before) throw new Error('Order not found.');
+    return { view: await present(state, user, await holders(store)), message: 'Limit order cancelled.' };
   });
 }
 
@@ -1000,6 +1305,9 @@ export async function deleteCompany(store, user, companyId) {
     c.listed = 0;
     c.sharePrice = 0;
     c.shareExact = 0;
+    c.shorts = {};
+    c.shortBill = {};
+    c.orders = [];
     pushHistory(c, Date.now(), 0);
     c.deposits = {};
     c.policies = {};
@@ -1072,6 +1380,7 @@ function stockCard(c, user) {
     shareCount: c.shareCount || SHARE_COUNT,
     sovereign: !!c.sovereign,
     yourShares: c.shares ? sharesOf(c, user.id) : 0,
+    yourShort: shortOf(c, user.id),
     viewerIsOwner: uid(c.ownerId) === uid(user.id),
   };
 }
@@ -1098,7 +1407,13 @@ export async function stockQuote(store, user, companyId, range) {
   return withState(store, async (state) => {
     const c = state.companies.find((row) => row.id === companyId);
     if (!c) throw new Error('Company not found.');
-    return { ...stockCard(c, user), ...chartSeries(c, key) };
+    return {
+      ...stockCard(c, user),
+      ...chartSeries(c, key),
+      orders: (Array.isArray(c.orders) ? c.orders : [])
+        .filter((order) => uid(order.userId) === uid(user.id))
+        .map((order) => ({ id: order.id, side: order.side, qty: order.qty, limit: order.limit })),
+    };
   });
 }
 
