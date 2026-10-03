@@ -78,7 +78,7 @@ const FEATURE_LIST_FINANCIAL = `
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
             <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
-            <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
+            <li>Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers cover market losses. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
             <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
@@ -118,6 +118,9 @@ function withFinancialSection(html) {
   const oldRates = 'It lends at 14.32% and pays 1.2% on savings.';
   const nextRates = 'The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans.';
   if (htmlNext.includes(oldRates)) htmlNext = htmlNext.split(oldRates).join(nextRates);
+  const oldBanks = 'Banks hold deposits and loans. Insurers cover market losses.';
+  const nextBanks = 'Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers cover market losses.';
+  if (htmlNext.includes(oldBanks)) htmlNext = htmlNext.split(oldBanks).join(nextBanks);
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';

@@ -5041,7 +5041,7 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      json(res, 200, await Economy.deposit(store, sess.user, body.bankId, body.amount));
+      json(res, 200, await Economy.deposit(store, sess.user, body.bankId, body.amount, body.accountId));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -5062,7 +5062,28 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      json(res, 200, await Economy.withdraw(store, sess.user, body.bankId, body.amount));
+      json(res, 200, await Economy.withdraw(store, sess.user, body.bankId, body.amount, body.accountId));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/account' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(res, 200, await Economy.openBankAccount(store, sess.user, body.bankId));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

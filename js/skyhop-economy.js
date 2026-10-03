@@ -221,15 +221,25 @@
         var loanRate = field('Loan rate (0.1432 = 14.32%)', mine.loanRate);
         card.appendChild(saveRate.wrap);
         card.appendChild(loanRate.wrap);
+        var accountCap = field('Max coins per account (1,000,000 to 50,000,000)', mine.accountCap || 10000000);
+        var accountLimit = field('Accounts one player can open (1 to 15)', mine.accountLimit || 1);
+        card.appendChild(accountCap.wrap);
+        card.appendChild(accountLimit.wrap);
         card.appendChild(
           button('Save bank rates', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/company', { companyId: mine.id, interestRate: Number(saveRate.input.value), loanRate: Number(loanRate.input.value) });
+            post('/api/economy/company', {
+              companyId: mine.id,
+              interestRate: Number(saveRate.input.value),
+              loanRate: Number(loanRate.input.value),
+              accountCap: Number(accountCap.input.value),
+              accountLimit: Number(accountLimit.input.value),
+            });
           })
         );
         if (mine.deposits && mine.deposits.length) {
           card.appendChild(el('p', 'mt-3 text-[11px] font-semibold text-slate-300', 'Deposits'));
           mine.deposits.forEach(function (d) {
-            card.appendChild(el('p', 'text-[11px] text-slate-400', d.username + ': ' + d.amount));
+            card.appendChild(el('p', 'text-[11px] text-slate-400', d.username + ': ' + commas(d.amount) + (d.accounts && d.accounts.length ? ' · ' + d.accounts.map(function (a) { return a.label + ' ' + commas(a.balance); }).join(', ') : '')));
           });
         }
       }
@@ -493,6 +503,41 @@
     });
   }
 
+  function paintAccounts(box, accounts, cap, limit, bankId, draw, msgId) {
+    box.appendChild(
+      el(
+        'p',
+        'mt-2 text-[11px] text-slate-500',
+        'Each account holds up to ' + commas(cap) + ' coins. You can open ' + limit + '. Interest stops when an account is full.'
+      )
+    );
+    (accounts || []).forEach(function (acct) {
+      var line = el('div', 'mt-2 rounded-xl border border-white/10 p-2');
+      line.appendChild(el('p', 'text-xs text-slate-200', acct.label + ' · ' + commas(acct.balance) + ' / ' + commas(cap)));
+      var amt = field('Amount', 100);
+      line.appendChild(amt.wrap);
+      var row = el('div', 'mt-2 flex flex-wrap gap-2');
+      row.appendChild(
+        button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/deposit', { bankId: bankId, accountId: acct.id, amount: Number(amt.input.value) }, draw, msgId);
+        })
+      );
+      row.appendChild(
+        button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+          post('/api/economy/withdraw', { bankId: bankId, accountId: acct.id, amount: Number(amt.input.value) }, draw, msgId);
+        })
+      );
+      line.appendChild(row);
+      box.appendChild(line);
+    });
+    if ((accounts || []).length < limit) {
+      box.appendChild(
+        button('Open account', 'mt-2 rounded-lg border border-emerald-500/40 px-3 py-1.5 text-xs font-semibold text-emerald-100', function () {
+          post('/api/economy/account', { bankId: bankId }, draw, msgId);
+        })
+      );
+    }
+  }
   var bankPick = '';
   var insurerPick = '';
 
@@ -505,22 +550,13 @@
       el(
         'p',
         'mt-2 text-sm text-slate-200',
-        'Deposits pay ' + pct(c.interestRate) + ' a week. Loans cost ' + pct(c.loanRate) + ' a week. Your deposit: ' + (c.yourDeposit || 0)
+        'Deposits pay ' + pct(c.interestRate) + ' a week. Loans cost ' + pct(c.loanRate) + ' a week.'
       )
     );
-    var amt = field('Amount', 100);
+    paintAccounts(box, c.yourAccounts, c.accountCap, c.accountLimit, c.id, renderBanks, 'banksMsg');
+    var amt = field('Borrow amount', 100);
     box.appendChild(amt.wrap);
     var row = el('div', 'mt-2 flex flex-wrap gap-2');
-    row.appendChild(
-      button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-        post('/api/economy/deposit', { bankId: c.id, amount: Number(amt.input.value) }, renderBanks, 'banksMsg');
-      })
-    );
-    row.appendChild(
-      button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-        post('/api/economy/withdraw', { bankId: c.id, amount: Number(amt.input.value) }, renderBanks, 'banksMsg');
-      })
-    );
     row.appendChild(
       button('Borrow', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
         post('/api/economy/borrow', { lender: c.id, amount: Number(amt.input.value), forCompany: false }, renderBanks, 'banksMsg');
@@ -634,6 +670,10 @@
           pct(data.national.savingsRate) +
           ' · loans ' +
           pct(data.national.loanRate) +
+          '. Each account holds up to ' +
+          commas(data.national.accountCap) +
+          ' coins, and you can open ' +
+          data.national.accountLimit +
           '. This bank cannot go bankrupt. A successful heist returns 75% of the loss from the tax pool. SHNB is public: ' +
           commas((data.national.stock || {}).shareCount || 0) +
           ' shares, ' +
@@ -643,19 +683,10 @@
           '.'
       )
     );
-    var natAmt = field('Amount', 100);
+    paintAccounts(nat, data.national.yourAccounts, data.national.accountCap, data.national.accountLimit, 'national', renderNational, 'nationalMsg');
+    var natAmt = field('Borrow amount', 100);
     nat.appendChild(natAmt.wrap);
     var natRow = el('div', 'mt-2 flex flex-wrap gap-2');
-    natRow.appendChild(
-      button('Deposit', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-        post('/api/economy/deposit', { bankId: 'national', amount: Number(natAmt.input.value) }, renderNational, 'nationalMsg');
-      })
-    );
-    natRow.appendChild(
-      button('Withdraw', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
-        post('/api/economy/withdraw', { bankId: 'national', amount: Number(natAmt.input.value) }, renderNational, 'nationalMsg');
-      })
-    );
     natRow.appendChild(
       button('Borrow personally', 'rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs font-semibold text-amber-100', function () {
         post('/api/economy/borrow', { lender: 'national', amount: Number(natAmt.input.value), forCompany: false }, renderNational, 'nationalMsg');

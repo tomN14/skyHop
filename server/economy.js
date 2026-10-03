@@ -11,6 +11,8 @@ const OVERHEAD = 100;
 const TAX_RATE = 0.08;
 const NATIONAL_LOAN = 0.1432;
 const NATIONAL_SAVE = 0.012;
+const NATIONAL_ACCOUNT_CAP = 10_000_000;
+const NATIONAL_ACCOUNT_LIMIT = 5;
 const BANKRUPT_AT = -500;
 const SHARE_COUNT = 1000;
 const HEIST_PRIVATE = 0.0004;
@@ -82,7 +84,11 @@ async function loadState(store) {
     savingsRate: row.national && row.national.savingsRate != null && Number.isFinite(Number(row.national.savingsRate)) ? Number(row.national.savingsRate) : NATIONAL_SAVE,
     loanRate: row.national && row.national.loanRate != null && Number.isFinite(Number(row.national.loanRate)) ? Number(row.national.loanRate) : NATIONAL_LOAN,
   };
+  state.national.deposits = normalizeBook(state.national.deposits);
   state.companies = Array.isArray(row.companies) ? row.companies : [];
+  for (const c of state.companies) {
+    if (c && c.deposits) c.deposits = normalizeBook(c.deposits);
+  }
   state.loans = Array.isArray(row.loans) ? row.loans : [];
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
   state.credit = row.credit && typeof row.credit === 'object' ? row.credit : {};
@@ -346,10 +352,72 @@ function portfolio(state, userId) {
   return n;
 }
 
-function sumMap(map) {
+function normalizeBook(book) {
+  const src = book && typeof book === 'object' ? book : {};
+  for (const id of Object.keys(src)) {
+    const raw = src[id];
+    if (Array.isArray(raw)) {
+      src[id] = raw
+        .filter((row) => row && row.id)
+        .map((row) => ({ id: String(row.id), balance: Math.max(0, Math.floor(Number(row.balance) || 0)) }));
+      if (!src[id].length) delete src[id];
+    } else {
+      const n = Math.max(0, Math.floor(Number(raw) || 0));
+      if (n > 0) src[id] = [{ id: 'legacy-' + id, balance: n }];
+      else delete src[id];
+    }
+  }
+  return src;
+}
+
+function readAccounts(book, userId) {
+  normalizeBook(book);
+  const raw = book[uid(userId)];
+  return Array.isArray(raw) ? raw : [];
+}
+
+function ensureAccounts(book, userId) {
+  const key = uid(userId);
+  normalizeBook(book);
+  if (!Array.isArray(book[key])) book[key] = [];
+  return book[key];
+}
+
+function accountsTotal(list) {
+  return (list || []).reduce((sum, acct) => sum + Math.max(0, Math.floor(Number(acct.balance) || 0)), 0);
+}
+
+function bookTotal(book) {
+  normalizeBook(book);
   let n = 0;
-  for (const k of Object.keys(map || {})) n += Math.max(0, Math.floor(Number(map[k]) || 0));
+  for (const id of Object.keys(book || {})) n += accountsTotal(book[id]);
   return n;
+}
+
+function bankRules(company) {
+  if (!company) return { cap: NATIONAL_ACCOUNT_CAP, limit: NATIONAL_ACCOUNT_LIMIT };
+  const cap = Math.floor(Number(company.accountCap) || 10_000_000);
+  const limit = Math.floor(Number(company.accountLimit) || 1);
+  return {
+    cap: Math.max(1_000_000, Math.min(50_000_000, cap)),
+    limit: Math.max(1, Math.min(15, limit)),
+  };
+}
+
+function publicAccounts(book, userId) {
+  return readAccounts(book, userId).map((acct, index) => ({
+    id: acct.id,
+    balance: acct.balance,
+    label: 'Account ' + (index + 1),
+  }));
+}
+
+function addAccountInterest(acct, rate, cap) {
+  const bal = Math.max(0, Math.floor(Number(acct.balance) || 0));
+  const room = Math.max(0, cap - bal);
+  const add = Math.min(Math.floor(bal * rate), room);
+  acct.balance = bal + add;
+  return add;
 }
 
 function touchCredit(state, id) {
@@ -367,10 +435,10 @@ function touchCredit(state, id) {
 function userAssets(state, user) {
   const me = uid(user.id);
   let assets = coinsOf(user);
-  assets += Math.floor(Number((state.national.deposits || {})[me]) || 0);
+  assets += accountsTotal(readAccounts(state.national.deposits, me));
   for (const c of state.companies) {
     if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
-    assets += Math.floor(Number((c.deposits || {})[me]) || 0);
+    assets += accountsTotal(readAccounts(c.deposits, me));
   }
   return assets;
 }
@@ -505,19 +573,17 @@ async function applyWeek(store, state) {
   for (const c of state.companies) {
     if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
     const rate = Number(c.interestRate) || 0;
+    const rules = bankRules(c);
+    normalizeBook(c.deposits);
+    let credited = 0;
     for (const id of Object.keys(c.deposits || {})) {
-      const bal = Math.floor(Number(c.deposits[id]) || 0);
-      const interest = Math.floor(bal * rate);
-      if (interest > 0) {
-        c.deposits[id] = bal + interest;
-        c.weekProfit -= interest;
-      }
+      for (const acct of c.deposits[id]) credited += addAccountInterest(acct, rate, rules.cap);
     }
+    c.weekProfit -= credited;
   }
+  normalizeBook(state.national.deposits);
   for (const id of Object.keys(state.national.deposits)) {
-    const bal = Math.floor(Number(state.national.deposits[id]) || 0);
-    const interest = Math.floor(bal * nationalSave(state));
-    if (interest > 0) state.national.deposits[id] = bal + interest;
+    for (const acct of state.national.deposits[id]) addAccountInterest(acct, nationalSave(state), NATIONAL_ACCOUNT_CAP);
   }
 
   for (const key of Object.keys(due)) {
@@ -527,19 +593,20 @@ async function applyWeek(store, state) {
     else file.late += 1;
   }
   const indebted = new Set(Object.keys(due));
-  const savers = new Set(Object.keys(state.national.deposits || {}));
+  const savers = new Set();
+  normalizeBook(state.national.deposits);
+  for (const id of Object.keys(state.national.deposits || {})) {
+    if (accountsTotal(state.national.deposits[id]) > 0) savers.add(uid(id));
+  }
   for (const c of state.companies) {
     if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
+    normalizeBook(c.deposits);
     for (const id of Object.keys(c.deposits || {})) {
-      if (Math.floor(Number(c.deposits[id]) || 0) > 0) savers.add(uid(id));
+      if (accountsTotal(c.deposits[id]) > 0) savers.add(uid(id));
     }
   }
   for (const id of savers) {
     if (indebted.has(uid(id))) continue;
-    if (Math.floor(Number(state.national.deposits[id]) || 0) <= 0) {
-      const holds = state.companies.some((c) => c.alive && !c.sovereign && c.kind === 'bank' && Math.floor(Number((c.deposits || {})[id]) || 0) > 0);
-      if (!holds) continue;
-    }
     touchCredit(state, id).onTime += 1;
   }
 
@@ -639,7 +706,10 @@ function present(state, user, people) {
     indexChange: state.indexChange,
     national: {
       taxPool: state.national.taxPool,
-      yourDeposit: Math.floor(Number(state.national.deposits[me]) || 0),
+      yourDeposit: accountsTotal(readAccounts(state.national.deposits, me)),
+      yourAccounts: publicAccounts(state.national.deposits, me),
+      accountCap: NATIONAL_ACCOUNT_CAP,
+      accountLimit: NATIONAL_ACCOUNT_LIMIT,
       savingsRate: nationalSave(state),
       loanRate: nationalLoan(state),
       stock: {
@@ -686,14 +756,18 @@ function detailCompany(c, user, people, ownerView) {
     loanRate: c.kind === 'bank' ? c.loanRate : undefined,
     premium: c.kind === 'insurance' ? c.premium : undefined,
     coverage: c.kind === 'insurance' ? c.coverage : undefined,
-    yourDeposit: c.kind === 'bank' ? Math.floor(Number((c.deposits || {})[me]) || 0) : undefined,
+    yourDeposit: c.kind === 'bank' ? accountsTotal(readAccounts(c.deposits, me)) : undefined,
+    yourAccounts: c.kind === 'bank' ? publicAccounts(c.deposits, me) : undefined,
+    accountCap: c.kind === 'bank' ? bankRules(c).cap : undefined,
+    accountLimit: c.kind === 'bank' ? bankRules(c).limit : undefined,
     insured: c.kind === 'insurance' ? !!(c.policies || {})[me] : undefined,
     tournaments: c.kind === 'racing' ? tournamentsOf(c).map((t) => publicTournament(t, me, ownerView)) : [],
   };
   if (ownerView && c.kind === 'bank') {
     row.deposits = Object.keys(c.deposits || {}).map((id) => ({
       username: nameOf(people, id),
-      amount: Math.floor(Number(c.deposits[id]) || 0),
+      amount: accountsTotal(c.deposits[id]),
+      accounts: (c.deposits[id] || []).map((acct, index) => ({ label: 'Account ' + (index + 1), balance: acct.balance })),
     }));
   }
   return row;
@@ -911,6 +985,12 @@ export async function updateCompany(store, user, body) {
     if (c.kind === 'bank') {
       if (body.interestRate != null) c.interestRate = clampRate(body.interestRate);
       if (body.loanRate != null) c.loanRate = clampRate(body.loanRate);
+      if (body.accountCap != null) c.accountCap = clampMoney(body.accountCap, 1_000_000, 50_000_000);
+      if (body.accountLimit != null) {
+        const slots = Math.floor(Number(body.accountLimit));
+        if (!Number.isFinite(slots) || slots < 1 || slots > 15) throw new Error('A profile can open 1 to 15 accounts.');
+        c.accountLimit = slots;
+      }
     }
     if (c.kind === 'insurance') {
       if (body.premium != null) c.premium = clampMoney(body.premium, 0, 1_000_000);
@@ -1186,40 +1266,62 @@ export async function cancelOrder(store, user, companyId, orderId) {
   });
 }
 
-export async function deposit(store, user, bankId, amount) {
-  const n = clampMoney(amount, 1, 1_000_000_000);
+function findAccount(list, accountId) {
+  const want = String(accountId || '');
+  if (want) return list.find((acct) => acct.id === want) || null;
+  if (list.length === 1) return list[0];
+  return null;
+}
+
+export async function openBankAccount(store, user, bankId) {
   return withState(store, async (state) => {
-    if (bankId === 'national') {
-      await chargeWallet(store, user, n);
-      state.national.deposits[uid(user.id)] = Math.floor(Number(state.national.deposits[uid(user.id)]) || 0) + n;
-      state.national.vault += n;
-    } else {
-      const c = companyById(state, bankId);
-      if (!c || c.sovereign || c.kind !== 'bank') throw new Error('That bank is not open.');
-      await chargeWallet(store, user, n);
-      c.deposits[uid(user.id)] = Math.floor(Number((c.deposits || {})[uid(user.id)]) || 0) + n;
-      c.cash += n;
-    }
+    const national = bankId === 'national';
+    const bank = national ? null : companyById(state, bankId);
+    if (!national && (!bank || bank.sovereign || bank.kind !== 'bank')) throw new Error('That bank is not open.');
+    const book = national ? state.national.deposits : bank.deposits;
+    const rules = national ? { cap: NATIONAL_ACCOUNT_CAP, limit: NATIONAL_ACCOUNT_LIMIT } : bankRules(bank);
+    const list = ensureAccounts(book, user.id);
+    if (list.length >= rules.limit) throw new Error('You can open ' + rules.limit + ' account' + (rules.limit === 1 ? '' : 's') + ' at this bank.');
+    list.push({ id: crypto.randomUUID(), balance: 0 });
     return present(state, user, await holders(store));
   });
 }
 
-export async function withdraw(store, user, bankId, amount) {
+export async function deposit(store, user, bankId, amount, accountId) {
   const n = clampMoney(amount, 1, 1_000_000_000);
   return withState(store, async (state) => {
-    if (bankId === 'national') {
-      const bal = Math.floor(Number(state.national.deposits[uid(user.id)]) || 0);
-      if (bal < n) throw new Error('Not enough in that account.');
-      state.national.deposits[uid(user.id)] = bal - n;
-      state.national.vault = Math.max(0, (state.national.vault || 0) - n);
-    } else {
-      const c = companyById(state, bankId);
-      if (!c || c.sovereign || c.kind !== 'bank') throw new Error('That bank is not open.');
-      const bal = Math.floor(Number((c.deposits || {})[uid(user.id)]) || 0);
-      if (bal < n || c.cash < n) throw new Error('That bank cannot cover this withdrawal.');
-      c.deposits[uid(user.id)] = bal - n;
-      c.cash -= n;
-    }
+    const national = bankId === 'national';
+    const bank = national ? null : companyById(state, bankId);
+    if (!national && (!bank || bank.sovereign || bank.kind !== 'bank')) throw new Error('That bank is not open.');
+    const book = national ? state.national.deposits : bank.deposits;
+    const rules = national ? { cap: NATIONAL_ACCOUNT_CAP, limit: NATIONAL_ACCOUNT_LIMIT } : bankRules(bank);
+    const list = readAccounts(book, user.id);
+    const acct = findAccount(list, accountId);
+    if (!acct) throw new Error(list.length ? 'Choose which account to deposit into.' : 'Open an account first.');
+    if (acct.balance + n > rules.cap) throw new Error('That account can hold ' + rules.cap.toLocaleString('en-US') + ' coins.');
+    await chargeWallet(store, user, n);
+    acct.balance += n;
+    if (national) state.national.vault += n;
+    else bank.cash += n;
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function withdraw(store, user, bankId, amount, accountId) {
+  const n = clampMoney(amount, 1, 1_000_000_000);
+  return withState(store, async (state) => {
+    const national = bankId === 'national';
+    const bank = national ? null : companyById(state, bankId);
+    if (!national && (!bank || bank.sovereign || bank.kind !== 'bank')) throw new Error('That bank is not open.');
+    const book = national ? state.national.deposits : bank.deposits;
+    const list = readAccounts(book, user.id);
+    const acct = findAccount(list, accountId);
+    if (!acct) throw new Error(list.length ? 'Choose which account to withdraw from.' : 'You have no account here.');
+    if (acct.balance < n) throw new Error('Not enough in that account.');
+    if (!national && bank.cash < n) throw new Error('That bank cannot cover this withdrawal.');
+    acct.balance -= n;
+    if (national) state.national.vault = Math.max(0, (state.national.vault || 0) - n);
+    else bank.cash -= n;
     const prev = coinsOf(user);
     await payWallet(store, user.id, n);
     if (!isOwnerUser(user)) user.coins = prev + n;
@@ -1326,13 +1428,13 @@ export async function deleteCompany(store, user, companyId) {
   return withState(store, async (state) => {
     const c = ownedCompany(state, user.id, companyId);
     if (!c) throw new Error('You do not own that company.');
-    const owed = sumMap(c.deposits);
+    const owed = bookTotal(c.deposits);
     let cash = Math.max(0, Math.floor(Number(c.cash) || 0));
     if (owed > 0 && cash > 0) {
       const pool = Math.min(cash, owed);
       let paid = 0;
       for (const id of Object.keys(c.deposits || {})) {
-        const bal = Math.floor(Number(c.deposits[id]) || 0);
+        const bal = accountsTotal(c.deposits[id]);
         const part = Math.floor(pool * (bal / owed));
         if (part > 0) {
           await payWallet(store, id, part);
@@ -1519,15 +1621,18 @@ export async function heist(store, user, bankId) {
       return { ok: false, banned: true, message: 'The heist failed. You are banned for 1 day.' };
     }
     const book = national ? state.national.deposits : bank.deposits;
+    normalizeBook(book);
     let stolen = 0;
-    const drained = {};
+    const drained = [];
     for (const id of Object.keys(book || {})) {
-      const bal = Math.floor(Number(book[id]) || 0);
-      const take = Math.floor(bal * HEIST_DRAIN);
-      if (take <= 0) continue;
-      book[id] = bal - take;
-      drained[id] = take;
-      stolen += take;
+      for (const acct of book[id]) {
+        const bal = Math.floor(Number(acct.balance) || 0);
+        const take = Math.floor(bal * HEIST_DRAIN);
+        if (take <= 0) continue;
+        acct.balance = bal - take;
+        drained.push({ id, acct, take });
+        stolen += take;
+      }
     }
     if (!national) {
       const fromCash = Math.min(bank.cash, stolen);
@@ -1544,9 +1649,9 @@ export async function heist(store, user, bankId) {
       state.national.taxPool -= reimbursed;
       if (reimbursed > 0) {
         state.national.vault += reimbursed;
-        for (const id of Object.keys(drained)) {
-          const back = Math.floor((drained[id] / stolen) * reimbursed);
-          state.national.deposits[id] = Math.floor(Number(state.national.deposits[id]) || 0) + back;
+        for (const row of drained) {
+          const back = Math.floor((row.take / stolen) * reimbursed);
+          row.acct.balance += back;
         }
       }
     }
