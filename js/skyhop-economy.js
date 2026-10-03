@@ -131,6 +131,15 @@
     var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
     msg.id = 'economyMsg';
     body.appendChild(msg);
+    if (window.__skyhopLastMe && data.coins != null) {
+      window.__skyhopLastMe.coins = data.coins;
+      if (data.coinsInfinite != null) window.__skyhopLastMe.coinsInfinite = !!data.coinsInfinite;
+      var coinLabel = data.coinsInfinite ? '∞' : String(data.coins);
+      var accCoins = document.getElementById('accStatCoins');
+      if (accCoins) accCoins.textContent = coinLabel;
+      var shopCoins = document.getElementById('shopCoinBalance');
+      if (shopCoins) shopCoins.textContent = coinLabel;
+    }
 
     var yours = data.yourCompanies || [];
     var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
@@ -280,6 +289,13 @@
           card.appendChild(race);
         });
       }
+      var fundAmt = field('Add your own coins', 1000);
+      card.appendChild(fundAmt.wrap);
+      card.appendChild(
+        button('Fund from your coins', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/company/fund', { companyId: mine.id, amount: Number(fundAmt.input.value) });
+        })
+      );
       var borrowAmt = field('Borrow for the company', 1000);
       card.appendChild(borrowAmt.wrap);
       card.appendChild(

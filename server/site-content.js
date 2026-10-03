@@ -76,7 +76,7 @@ const FEATURE_LIST_SHOP_SUPPLEMENT = `
 const FEATURE_LIST_FINANCIAL = `
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Financial systems</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
-            <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company and edits the ones you already own</li>
+            <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
             <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
             <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
@@ -112,6 +112,9 @@ function withFinancialSection(html) {
   const nextDividend = 'A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share';
   let htmlNext = String(html || '');
   if (htmlNext.includes(oldDividend)) htmlNext = htmlNext.split(oldDividend).join(nextDividend);
+  const oldFund = 'The briefcase registers a company and edits the ones you already own';
+  const nextFund = 'The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company';
+  if (htmlNext.includes(oldFund)) htmlNext = htmlNext.split(oldFund).join(nextFund);
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';

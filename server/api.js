@@ -4873,6 +4873,27 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/economy/company/fund' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(res, 200, await Economy.fundCompany(store, sess.user, body.companyId, body.amount));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/economy/company/delete' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {

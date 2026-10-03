@@ -835,6 +835,17 @@ export async function seedRandomCompanies(store, user) {
   });
 }
 
+export async function fundCompany(store, user, companyId, amount) {
+  const n = clampMoney(amount, 1, 1_000_000_000);
+  return withState(store, async (state) => {
+    const c = ownedCompany(state, user.id, companyId);
+    if (!c) throw new Error('You do not own that company.');
+    await chargeWallet(store, user, n);
+    c.cash += n;
+    return present(state, user, await holders(store));
+  });
+}
+
 export async function updateCompany(store, user, body) {
   return withState(store, async (state) => {
     const c = ownedCompany(state, user.id, body.companyId);
