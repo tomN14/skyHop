@@ -35,10 +35,11 @@ function emptyState() {
     weekId: null,
     priceDay: null,
     indexChange: 0,
-    national: { taxPool: 0, vault: 0, deposits: {} },
+    national: { taxPool: 0, vault: 0, deposits: {}, weekIn: 0, weekOut: 0 },
     companies: [],
     loans: [],
     marks: {},
+    credit: {},
   };
 }
 
@@ -76,10 +77,13 @@ async function loadState(store) {
     taxPool: Math.max(0, Math.floor(Number(row.national && row.national.taxPool) || 0)),
     vault: Math.max(0, Math.floor(Number(row.national && row.national.vault) || 0)),
     deposits: (row.national && row.national.deposits) || {},
+    weekIn: Math.max(0, Math.floor(Number(row.national && row.national.weekIn) || 0)),
+    weekOut: Math.max(0, Math.floor(Number(row.national && row.national.weekOut) || 0)),
   };
   state.companies = Array.isArray(row.companies) ? row.companies : [];
   state.loans = Array.isArray(row.loans) ? row.loans : [];
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
+  state.credit = row.credit && typeof row.credit === 'object' ? row.credit : {};
   return state;
 }
 
@@ -154,6 +158,56 @@ async function indexReturns() {
   }
 }
 
+const NATIONAL_SHARES = 7_000_000_000;
+const NATIONAL_LISTED = 2_000_000_000;
+const NATIONAL_OPEN = 135.52;
+
+function addTax(state, n) {
+  const x = Math.max(0, Math.floor(Number(n) || 0));
+  if (x <= 0) return;
+  state.national.taxPool += x;
+  state.national.weekIn = Math.max(0, Math.floor(Number(state.national.weekIn) || 0)) + x;
+}
+
+function ensureNationalStock(state) {
+  let c = state.companies.find((row) => row && row.sovereign);
+  if (c) return c;
+  c = {
+    id: 'national-bank',
+    name: 'Sky Hop National Bank',
+    ticker: 'SHNB',
+    kind: 'bank',
+    sovereign: true,
+    ownerId: 'national',
+    ownerName: 'Sky Hop',
+    cash: 0,
+    isPublic: true,
+    shareExact: NATIONAL_OPEN,
+    sharePrice: Math.round(NATIONAL_OPEN),
+    listed: NATIONAL_LISTED,
+    shareCount: NATIONAL_SHARES,
+    shares: { national: NATIONAL_SHARES },
+    alive: true,
+    weekProfit: 0,
+    performance: 0,
+    interestRate: NATIONAL_SAVE,
+    loanRate: NATIONAL_LOAN,
+    premium: 0,
+    coverage: 0,
+    deposits: {},
+    policies: {},
+    tournaments: [],
+    tournament: null,
+    beta: 0,
+    noiseSeed: 0,
+    history: [],
+  };
+  ensureMarket(c);
+  pushHistory(c, Date.now(), c.shareExact);
+  state.companies.push(c);
+  return c;
+}
+
 function ensureMarket(c) {
   if (!c.noiseSeed) c.noiseSeed = hashStr(c.id || c.name || 'co');
   if (!(Number(c.beta) > 0)) {
@@ -171,6 +225,7 @@ function pushHistory(c, t, p) {
 }
 
 async function settlePrices(state) {
+  ensureNationalStock(state);
   const target = Math.floor(Date.now() / DAY_MS);
   if (state.priceDay == null) {
     state.priceDay = target;
@@ -192,7 +247,8 @@ async function settlePrices(state) {
       if (!c.alive || !c.isPublic) continue;
       ensureMarket(c);
       const noise = (unitNoise(c.noiseSeed, day) - 0.5) * 0.04;
-      const change = Math.max(-0.15, Math.min(0.15, c.beta * market + noise));
+      const perf = Math.max(-1, Math.min(1, Number(c.performance) || 0));
+      const change = Math.max(-0.15, Math.min(0.15, c.beta * market + noise + perf * 0.012));
       const base = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
       c.shareExact = Math.max(0, Math.min(1_000_000, Math.round(base * (1 + change) * 100) / 100));
       c.sharePrice = Math.max(0, Math.min(1_000_000, Math.round(c.shareExact)));
@@ -274,6 +330,82 @@ function sumMap(map) {
   return n;
 }
 
+function touchCredit(state, id) {
+  if (!state.credit || typeof state.credit !== 'object') state.credit = {};
+  const key = uid(id);
+  if (!state.credit[key]) {
+    state.credit[key] = { openedWeek: state.weekId, onTime: 0, late: 0, paidOff: 0, opens: [] };
+  }
+  const file = state.credit[key];
+  if (file.openedWeek == null) file.openedWeek = state.weekId;
+  if (!Array.isArray(file.opens)) file.opens = [];
+  return file;
+}
+
+function userAssets(state, user) {
+  const me = uid(user.id);
+  let assets = coinsOf(user);
+  assets += Math.floor(Number((state.national.deposits || {})[me]) || 0);
+  for (const c of state.companies) {
+    if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
+    assets += Math.floor(Number((c.deposits || {})[me]) || 0);
+  }
+  return assets;
+}
+
+function userDebt(state, userId) {
+  const me = uid(userId);
+  let debt = 0;
+  for (const loan of state.loans) {
+    if (loan.borrowerType === 'user' && uid(loan.borrowerId) === me) debt += Math.floor(Number(loan.principal) || 0);
+    if (loan.borrowerType === 'company') {
+      const firm = state.companies.find((c) => c.alive && c.id === loan.borrowerId && uid(c.ownerId) === me);
+      if (firm) debt += Math.floor((Number(loan.principal) || 0) * 0.5);
+    }
+  }
+  return debt;
+}
+
+function scoreBand(score) {
+  if (score == null) return 'Unscored';
+  if (score >= 790) return 'Prime';
+  if (score >= 720) return 'Strong';
+  if (score >= 640) return 'Steady';
+  if (score >= 550) return 'Uneven';
+  return 'Thin';
+}
+
+function skyScore(state, user) {
+  const me = uid(user.id);
+  const file = state.credit && state.credit[me];
+  const assets = userAssets(state, user);
+  const debt = userDebt(state, user.id);
+  if (!file) return { score: null, band: 'Unscored', assets, debt };
+  const events = Math.max(0, Math.floor(file.onTime) || 0) + Math.max(0, Math.floor(file.late) || 0);
+  const pay = events === 0 ? 0.62 : (Math.floor(file.onTime) || 0) / events;
+  const load = debt <= 0 ? 0.12 : Math.min(1.5, debt / Math.max(80, assets));
+  const ageWeeks = Math.max(0, (state.weekId || 0) - (Number(file.openedWeek) || state.weekId || 0));
+  const age = Math.min(1, ageWeeks / 20);
+  const recent = (file.opens || []).filter((w) => (state.weekId || 0) - Number(w) <= 2).length;
+  const recentHit = Math.min(1, recent / 3);
+  const saves = assets > coinsOf(user);
+  const borrows = debt > 0 || (Math.floor(file.paidOff) || 0) > 0;
+  const mix = (saves ? 0.45 : 0) + (borrows ? 0.55 : 0);
+  const raw = 280 + pay * 230 + (1 - Math.min(1, load)) * 160 + age * 90 + (1 - recentHit) * 50 + mix * 40;
+  const score = Math.max(300, Math.min(850, Math.round(raw)));
+  return { score, band: scoreBand(score), assets, debt };
+}
+
+function loanSpread(score) {
+  if (score == null) return { mult: 1.12, room: 1.5, floor: 250, refuse: false };
+  if (score < 500) return { mult: 1, room: 0, floor: 0, refuse: true };
+  if (score >= 790) return { mult: 0.88, room: 5, floor: 0, refuse: false };
+  if (score >= 720) return { mult: 0.95, room: 3, floor: 0, refuse: false };
+  if (score >= 640) return { mult: 1, room: 1.5, floor: 0, refuse: false };
+  if (score >= 550) return { mult: 1.28, room: 0.8, floor: 0, refuse: false };
+  return { mult: 1.65, room: 0.4, floor: 0, refuse: false };
+}
+
 async function applyWeek(store, state) {
   const people = await holders(store);
   const before = {};
@@ -284,12 +416,14 @@ async function applyWeek(store, state) {
     const tax = Math.floor(coinsOf(p) * TAX_RATE);
     if (tax > 0) {
       await store.incrementUserCoins(p.id, -tax);
-      state.national.taxPool += tax;
+      addTax(state, tax);
     }
   }
 
   for (const c of state.companies) {
-    if (!c.alive) continue;
+    if (!c.alive || c.sovereign) continue;
+    const scale = Math.max(250, Math.abs(Math.floor(Number(c.cash) || 0)) + OVERHEAD);
+    c.performance = Math.max(-1, Math.min(1, Math.round(((Number(c.weekProfit) || 0) / scale) * 1000) / 1000));
     c.weekProfit = 0;
     c.weekProfit -= OVERHEAD;
     c.cash = Math.max(0, Math.floor(Number(c.cash) || 0) - Math.min(OVERHEAD, Math.max(0, Math.floor(Number(c.cash) || 0))));
@@ -297,10 +431,18 @@ async function applyWeek(store, state) {
     if (tax > 0) {
       c.cash -= tax;
       c.weekProfit -= tax;
-      state.national.taxPool += tax;
+      addTax(state, tax);
     }
   }
 
+  const nat = ensureNationalStock(state);
+  const inn = Math.max(0, Math.floor(Number(state.national.weekIn) || 0));
+  const out = Math.max(0, Math.floor(Number(state.national.weekOut) || 0));
+  nat.performance = Math.max(-1, Math.min(1, Math.round(((inn - out) / Math.max(5000, state.national.taxPool)) * 1000) / 1000));
+  state.national.weekIn = 0;
+  state.national.weekOut = 0;
+
+  const due = {};
   for (const loan of state.loans) {
     const principal = Math.max(0, Math.floor(Number(loan.principal) || 0));
     const rate = Number(loan.rate) || 0;
@@ -316,10 +458,20 @@ async function applyWeek(store, state) {
       const firm = companyById(state, loan.borrowerId);
       if (firm) firm.weekProfit -= interest;
     }
+    const who = loan.borrowerType === 'company'
+      ? (companyById(state, loan.borrowerId) || {}).ownerId
+      : loan.borrowerId;
+    if (who && who !== 'national') {
+      const key = uid(who);
+      if (!due[key]) due[key] = { interest: 0, paid: 0 };
+      due[key].interest += interest;
+      due[key].paid += Math.max(0, Math.floor(Number(loan.paidWeek) || 0));
+    }
+    loan.paidWeek = 0;
   }
 
   for (const c of state.companies) {
-    if (!c.alive || c.kind !== 'bank') continue;
+    if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
     const rate = Number(c.interestRate) || 0;
     for (const id of Object.keys(c.deposits || {})) {
       const bal = Math.floor(Number(c.deposits[id]) || 0);
@@ -334,6 +486,29 @@ async function applyWeek(store, state) {
     const bal = Math.floor(Number(state.national.deposits[id]) || 0);
     const interest = Math.floor(bal * NATIONAL_SAVE);
     if (interest > 0) state.national.deposits[id] = bal + interest;
+  }
+
+  for (const key of Object.keys(due)) {
+    const row = due[key];
+    const file = touchCredit(state, key);
+    if (row.paid >= row.interest) file.onTime += 1;
+    else file.late += 1;
+  }
+  const indebted = new Set(Object.keys(due));
+  const savers = new Set(Object.keys(state.national.deposits || {}));
+  for (const c of state.companies) {
+    if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
+    for (const id of Object.keys(c.deposits || {})) {
+      if (Math.floor(Number(c.deposits[id]) || 0) > 0) savers.add(uid(id));
+    }
+  }
+  for (const id of savers) {
+    if (indebted.has(uid(id))) continue;
+    if (Math.floor(Number(state.national.deposits[id]) || 0) <= 0) {
+      const holds = state.companies.some((c) => c.alive && !c.sovereign && c.kind === 'bank' && Math.floor(Number((c.deposits || {})[id]) || 0) > 0);
+      if (!holds) continue;
+    }
+    touchCredit(state, id).onTime += 1;
   }
 
   for (const c of state.companies) {
@@ -364,9 +539,9 @@ async function applyWeek(store, state) {
   for (const p of people) state.marks[uid(p.id)] = portfolio(state, p.id);
 
   for (const c of state.companies) {
-    if (!c.alive) continue;
+    if (!c.alive || c.sovereign) continue;
     if (c.weekProfit < BANKRUPT_AT) {
-      state.national.taxPool += Math.max(0, Math.floor(Number(c.cash) || 0));
+      addTax(state, Math.max(0, Math.floor(Number(c.cash) || 0)));
       c.cash = 0;
       c.shares = {};
       c.listed = 0;
@@ -407,9 +582,12 @@ function present(state, user, people) {
   const me = uid(user.id);
   const mine = myCompanies(state, user.id);
   const ownedIds = new Set(mine.map((c) => c.id));
-  return {
+    const book = skyScore(state, user);
+    const natStock = ensureNationalStock(state);
+    return {
     coins: coinsOf(user),
     coinsInfinite: isOwnerUser(user),
+    credit: book,
     rules: {
       registerCost: REGISTER_COST,
       overhead: OVERHEAD,
@@ -429,6 +607,13 @@ function present(state, user, people) {
       yourDeposit: Math.floor(Number(state.national.deposits[me]) || 0),
       savingsRate: NATIONAL_SAVE,
       loanRate: NATIONAL_LOAN,
+      stock: {
+        id: natStock.id,
+        ticker: natStock.ticker,
+        shareExact: natStock.shareExact,
+        listed: natStock.listed,
+        shareCount: natStock.shareCount,
+      },
     },
     yourCompanies: mine.map((c) => detailCompany(c, user, people, true)),
     companies: state.companies.filter((c) => c.alive).map((c) => detailCompany(c, user, people, uid(c.ownerId) === me)),
@@ -456,6 +641,8 @@ function detailCompany(c, user, people, ownerView) {
     sharePrice: c.sharePrice,
     shareExact: Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100,
     listed: c.listed,
+    shareCount: c.shareCount || SHARE_COUNT,
+    sovereign: !!c.sovereign,
     yourShares: sharesOf(c, user.id),
     ownerShares: sharesOf(c, c.ownerId),
     cash: ownerView ? c.cash : undefined,
@@ -490,7 +677,7 @@ export async function registerCompany(store, user, { name, kind }) {
       throw new Error('That company name is taken.');
     }
     await chargeWallet(store, user, REGISTER_COST);
-    if (!isOwnerUser(user)) state.national.taxPool += REGISTER_COST;
+    if (!isOwnerUser(user)) addTax(state, REGISTER_COST);
     const opened = Math.round(Math.random() * 100) / 100;
     const company = {
       id: crypto.randomUUID(),
@@ -604,22 +791,29 @@ function clampMoney(n, min, max) {
 }
 
 export async function buyShares(store, user, companyId, qty) {
-  const n = clampMoney(qty, 1, SHARE_COUNT);
+  const n = Math.floor(Number(qty));
+  if (!Number.isFinite(n) || n < 1 || n > NATIONAL_LISTED) throw new Error('Amount is out of range.');
   return withState(store, async (state) => {
+    ensureNationalStock(state);
     const c = companyById(state, companyId);
     if (!c || !c.isPublic) throw new Error('That company is not on the market.');
-    if (uid(c.ownerId) === uid(user.id)) throw new Error('You already own those shares.');
-    if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
+    if (!c.sovereign && uid(c.ownerId) === uid(user.id)) throw new Error('You already own those shares.');
+    const cap = c.sovereign ? c.listed : SHARE_COUNT;
+    if (n > cap || n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
     const unit = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Number(c.sharePrice) || 0;
     if (unit <= 0) throw new Error('That stock is worth $0.00.');
     const cost = Math.max(1, Math.round(n * unit));
     await chargeWallet(store, user, cost);
-    c.cash += cost;
-    c.weekProfit += cost;
+    if (c.sovereign) addTax(state, cost);
+    else {
+      c.cash += cost;
+      c.weekProfit += cost;
+    }
     c.shares[uid(c.ownerId)] = sharesOf(c, c.ownerId) - n;
     c.shares[uid(user.id)] = sharesOf(c, user.id) + n;
     c.listed -= n;
-    if (sharesOf(c, user.id) > SHARE_COUNT / 2 && sharesOf(c, c.ownerId) <= SHARE_COUNT / 2) {
+    const total = c.shareCount || SHARE_COUNT;
+    if (!c.sovereign && sharesOf(c, user.id) > total / 2 && sharesOf(c, c.ownerId) <= total / 2) {
       c.ownerId = uid(user.id);
       c.ownerName = user.username;
     }
@@ -636,7 +830,7 @@ export async function deposit(store, user, bankId, amount) {
       state.national.vault += n;
     } else {
       const c = companyById(state, bankId);
-      if (!c || c.kind !== 'bank') throw new Error('That bank is not open.');
+      if (!c || c.sovereign || c.kind !== 'bank') throw new Error('That bank is not open.');
       await chargeWallet(store, user, n);
       c.deposits[uid(user.id)] = Math.floor(Number((c.deposits || {})[uid(user.id)]) || 0) + n;
       c.cash += n;
@@ -655,7 +849,7 @@ export async function withdraw(store, user, bankId, amount) {
       state.national.vault = Math.max(0, (state.national.vault || 0) - n);
     } else {
       const c = companyById(state, bankId);
-      if (!c || c.kind !== 'bank') throw new Error('That bank is not open.');
+      if (!c || c.sovereign || c.kind !== 'bank') throw new Error('That bank is not open.');
       const bal = Math.floor(Number((c.deposits || {})[uid(user.id)]) || 0);
       if (bal < n || c.cash < n) throw new Error('That bank cannot cover this withdrawal.');
       c.deposits[uid(user.id)] = bal - n;
@@ -678,10 +872,18 @@ export async function borrow(store, user, { lender, amount, forCompany, companyI
       /* Too big to fail: the loan is created even when the tax pool is empty. */
     } else {
       const bank = companyById(state, lender);
-      if (!bank || bank.kind !== 'bank') throw new Error('That bank is not open.');
+      if (!bank || bank.sovereign || bank.kind !== 'bank') throw new Error('That bank is not open.');
       if (bank.cash < n) throw new Error('That bank does not have the cash.');
       bank.cash -= n;
       rate = Number(bank.loanRate) || NATIONAL_LOAN;
+    }
+    if (!isOwnerUser(user)) {
+      const book = skyScore(state, user);
+      const spread = loanSpread(book.score);
+      if (spread.refuse) throw new Error('Your Sky Hop score is too low for a new loan.');
+      const room = Math.max(spread.floor, Math.floor(book.assets * spread.room) - book.debt);
+      if (n > Math.max(0, room)) throw new Error('That loan is too large for your Sky Hop score.');
+      rate = Math.min(0.75, Math.round(rate * spread.mult * 10000) / 10000);
     }
     if (firm) {
       firm.cash += n;
@@ -696,7 +898,11 @@ export async function borrow(store, user, { lender, amount, forCompany, companyI
       borrowerId: firm ? firm.id : uid(user.id),
       principal: n,
       rate,
+      paidWeek: 0,
     });
+    const borrower = firm ? firm.ownerId : user.id;
+    const file = touchCredit(state, borrower);
+    file.opens = file.opens.concat(state.weekId == null ? 0 : state.weekId).slice(-6);
     return present(state, user, await holders(store));
   });
 }
@@ -718,7 +924,7 @@ export async function repay(store, user, loanId, amount) {
     } else {
       await chargeWallet(store, user, pay);
     }
-    if (loan.lender === 'national') state.national.taxPool += pay;
+    if (loan.lender === 'national') addTax(state, pay);
     else {
       const bank = companyById(state, loan.lender);
       if (bank) {
@@ -727,7 +933,12 @@ export async function repay(store, user, loanId, amount) {
       } else state.national.taxPool += pay;
     }
     loan.principal -= pay;
-    if (loan.principal <= 0) state.loans = state.loans.filter((row) => row.id !== loan.id);
+    loan.paidWeek = Math.max(0, Math.floor(Number(loan.paidWeek) || 0)) + pay;
+    if (loan.principal <= 0) {
+      const who = loan.borrowerType === 'company' ? (firm || {}).ownerId : loan.borrowerId;
+      if (who) touchCredit(state, who).paidOff += 1;
+      state.loans = state.loans.filter((row) => row.id !== loan.id);
+    }
     return present(state, user, await holders(store));
   });
 }
@@ -840,6 +1051,8 @@ function stockCard(c, user) {
     sharePrice: c.alive ? c.sharePrice : 0,
     shareExact: c.alive ? Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100 : 0,
     listed: c.alive ? c.listed : 0,
+    shareCount: c.shareCount || SHARE_COUNT,
+    sovereign: !!c.sovereign,
     yourShares: c.shares ? sharesOf(c, user.id) : 0,
     viewerIsOwner: uid(c.ownerId) === uid(user.id),
   };
@@ -911,7 +1124,7 @@ export async function heist(store, user, bankId) {
   return withState(store, async (state) => {
     const national = bankId === 'national';
     const bank = national ? null : companyById(state, bankId);
-    if (!national && (!bank || bank.kind !== 'bank')) throw new Error('That bank is not open.');
+    if (!national && (!bank || bank.sovereign || bank.kind !== 'bank')) throw new Error('That bank is not open.');
     if (bank && uid(bank.ownerId) === uid(user.id)) throw new Error('You cannot heist your own bank.');
     const chance = national ? HEIST_NATIONAL : HEIST_PRIVATE;
     const success = Math.random() < chance;
@@ -950,6 +1163,7 @@ export async function heist(store, user, bankId) {
     let reimbursed = 0;
     if (national && stolen > 0) {
       state.national.vault = Math.max(0, (state.national.vault || 0) - stolen);
+      state.national.weekOut = Math.max(0, Math.floor(Number(state.national.weekOut) || 0)) + stolen;
       const want = Math.floor(stolen * FDIC);
       reimbursed = Math.min(want, state.national.taxPool);
       state.national.taxPool -= reimbursed;

@@ -88,6 +88,11 @@ const FEATURE_LIST_MULTI_SUPPLEMENT = `
             <li>You can register more than one company. A new company starts at a random price from $0.00 to $1.00</li>
           </ul>`;
 
+const FEATURE_LIST_CREDIT_SUPPLEMENT = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Sky Hop scores run from 300 to 850 and follow payments, debt, history, recent loans, and saving. SHNB has 7 billion shares and opens at $135.52</li>
+          </ul>`;
+
 export async function resolveFeatureListHtml(store) {
   if (typeof store.getSiteContentPayload === 'function') {
     const row = await store.getSiteContentPayload('feature_list');
@@ -101,6 +106,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('several tournaments')) html += FEATURE_LIST_RACES_SUPPLEMENT;
       if (!html.includes('ticker')) html += FEATURE_LIST_STOCKS_SUPPLEMENT;
       if (!html.includes('$0.00')) html += FEATURE_LIST_MULTI_SUPPLEMENT;
+      if (!html.includes('Sky Hop score')) html += FEATURE_LIST_CREDIT_SUPPLEMENT;
       return html;
     }
   }

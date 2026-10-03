@@ -83,6 +83,11 @@
     return '$' + x.toFixed(2);
   }
 
+  function commas(n) {
+    var x = Math.round(Number(n) || 0);
+    return x.toLocaleString('en-US');
+  }
+
   function pct(n) {
     return (Number(n) * 100).toFixed(2) + '%';
   }
@@ -123,6 +128,25 @@
     var msg = el('p', 'mt-2 text-sm text-emerald-200', '');
     msg.id = 'economyMsg';
     body.appendChild(msg);
+
+    var credit = data.credit || {};
+    var scoreCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    scoreCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Sky Hop score'));
+    scoreCard.appendChild(
+      el(
+        'p',
+        'mt-1 text-sm text-white',
+        credit.score == null ? 'Unscored' : credit.score + ' · ' + credit.band
+      )
+    );
+    scoreCard.appendChild(
+      el(
+        'p',
+        'mt-1 text-[11px] text-slate-400',
+        'Runs from 300 to 850. It moves with on-time payments, debt against what you hold, how long you have banked, loans opened in the last two weeks, and whether you both save and borrow. Under 500, new loans are refused. A higher score borrows more, and pays less interest. Saving with no loan still builds a file.'
+      )
+    );
+    body.appendChild(scoreCard);
 
     var yours = data.yourCompanies || [];
     var ownedIds = {};
@@ -374,7 +398,13 @@
           pct(data.national.savingsRate) +
           ' · loans ' +
           pct(data.national.loanRate) +
-          '. This bank cannot go bankrupt. A successful heist returns 75% of the loss from the tax pool.'
+          '. This bank cannot go bankrupt. A successful heist returns 75% of the loss from the tax pool. SHNB is public: ' +
+          commas((data.national.stock || {}).shareCount || 0) +
+          ' shares, ' +
+          commas((data.national.stock || {}).listed || 0) +
+          ' listed, now ' +
+          money((data.national.stock || {}).shareExact || 0) +
+          '. Its price moves with the market, its own swing, and how much tax it takes in.'
       )
     );
     var natAmt = field('Amount', 100);
@@ -396,6 +426,15 @@
       })
     );
     nat.appendChild(natRow);
+    if (data.national.stock) {
+      var sh = field('SHNB shares to buy', 1);
+      nat.appendChild(sh.wrap);
+      nat.appendChild(
+        button('Buy SHNB', 'mt-2 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/shares/buy', { companyId: data.national.stock.id, qty: Number(sh.input.value) });
+        })
+      );
+    }
     body.appendChild(nat);
 
     if (data.loans && data.loans.length) {
@@ -420,7 +459,7 @@
     market.appendChild(el('h3', 'text-sm font-semibold text-white', 'Companies'));
     market.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Share prices and charts are on the stock button.'));
     (data.companies || []).forEach(function (c) {
-      if (ownedIds[c.id]) return;
+      if (ownedIds[c.id] || c.sovereign) return;
       var box = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
       box.appendChild(el('p', 'text-sm font-semibold text-white', c.name));
       box.appendChild(
@@ -638,7 +677,7 @@
     box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', q.ownerName || ''));
     if (!q.alive) box.appendChild(el('p', 'mt-2 text-sm text-rose-200', 'Closed. Shares are worthless.'));
     else if (!q.isPublic) box.appendChild(el('p', 'mt-2 text-sm text-slate-300', 'Private. ' + money(q.shareExact)));
-    else box.appendChild(el('p', 'mt-2 text-sm text-slate-200', money(q.shareExact) + ' · ' + q.listed + ' listed · you own ' + q.yourShares));
+    else box.appendChild(el('p', 'mt-2 text-sm text-slate-200', money(q.shareExact) + ' · ' + commas(q.listed) + ' listed' + (q.sovereign ? ' of ' + commas(q.shareCount) : '') + ' · you own ' + commas(q.yourShares)));
     var change = el('p', 'mt-1 text-sm font-semibold ' + (q.pct >= 0 ? 'text-emerald-300' : 'text-rose-300'), signedPct(q.pct));
     box.appendChild(change);
     if (q.sinceListing) box.appendChild(el('p', 'text-[11px] text-slate-500', 'This range is longer than the listing. The change is from the first recorded price.'));
