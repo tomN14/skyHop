@@ -434,9 +434,10 @@ async function applyWeek(store, state) {
     if (!c.alive || c.sovereign) continue;
     const scale = Math.max(250, Math.abs(Math.floor(Number(c.cash) || 0)) + OVERHEAD);
     c.performance = Math.max(-1, Math.min(1, Math.round(((Number(c.weekProfit) || 0) / scale) * 1000) / 1000));
-    if (c.isPublic && Number(c.weekProfit) > 0) {
-      const pot = Math.min(Math.floor(Math.max(0, c.cash) * 0.02), Math.floor(Number(c.weekProfit) || 0));
-      await payDividend(store, state, c, pot);
+    const profit = Math.floor(Number(c.weekProfit) || 0);
+    if (c.isPublic && profit > 1) {
+      const pot = Math.min(Math.floor(Math.max(0, c.cash) * 0.02), profit - 1);
+      if (pot > 0) await payDividend(store, state, c, pot);
     }
     c.weekProfit = 0;
     c.weekProfit -= OVERHEAD;
@@ -453,9 +454,10 @@ async function applyWeek(store, state) {
   const inn = Math.max(0, Math.floor(Number(state.national.weekIn) || 0));
   const out = Math.max(0, Math.floor(Number(state.national.weekOut) || 0));
   nat.performance = Math.max(-1, Math.min(1, Math.round(((inn - out) / Math.max(5000, state.national.taxPool)) * 1000) / 1000));
-  if (inn > out) {
-    const pot = Math.min(Math.floor(state.national.taxPool * 0.01), inn - out);
-    await payDividend(store, state, nat, pot);
+  const net = inn - out;
+  if (net > 1) {
+    const pot = Math.min(Math.floor(state.national.taxPool * 0.01), net - 1);
+    if (pot > 0) await payDividend(store, state, nat, pot);
   }
   state.national.weekIn = 0;
   state.national.weekOut = 0;

@@ -851,7 +851,7 @@
         row.appendChild(button('Cover', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () { send('cover'); }));
       }
       box.appendChild(row);
-      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Prices move every 6 hours. A limit order waits until the price reaches it. You can rest 3 per stock. A profitable week pays shareholders 2% of the company cash, capped by that profit. Shorts owe the same dividend.'));
+      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Prices move every 6 hours. A limit order waits until the price reaches it. You can rest 3 per stock. A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. Shorts owe the same amount per share.'));
       (q.orders || []).forEach(function (order) {
         var line = el('div', 'mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-300');
         line.appendChild(el('span', '', order.side + ' ' + commas(order.qty) + ' at ' + money(order.limit)));

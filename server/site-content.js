@@ -80,7 +80,7 @@ const FEATURE_LIST_FINANCIAL = `
             <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
             <li>Banks hold deposits and loans. Insurers cover market losses. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
-            <li>A profitable week pays shareholders 2% of company cash, and never more than that profit. A short position owes the same dividend</li>
+            <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
             <li>An 8% weekly tax funds the Sky Hop National Bank. It lends at 14.32% and pays 1.2% on savings. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
             <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
@@ -95,6 +95,7 @@ const OLD_FINANCIAL_LI = [
   'Private banks',
   'limit order',
   'Shareholders can sell',
+  'pays shareholders 2%',
 ];
 
 function stripOldFinancialBullets(html) {
@@ -107,8 +108,12 @@ function stripOldFinancialBullets(html) {
 }
 
 function withFinancialSection(html) {
-  if (String(html || '').includes('Financial systems')) return html;
-  const out = stripOldFinancialBullets(html);
+  const oldDividend = 'A profitable week pays shareholders 2% of company cash, and never more than that profit. A short position owes the same dividend';
+  const nextDividend = 'A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share';
+  let htmlNext = String(html || '');
+  if (htmlNext.includes(oldDividend)) htmlNext = htmlNext.split(oldDividend).join(nextDividend);
+  if (htmlNext.includes('Financial systems')) return htmlNext;
+  const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';
   const at = out.indexOf(heading);
   if (at === -1) return out + FEATURE_LIST_FINANCIAL;
