@@ -41,6 +41,7 @@ function emptyState() {
     companies: [],
     loans: [],
     marks: {},
+    bankMarks: {},
     credit: {},
   };
 }
@@ -91,6 +92,7 @@ async function loadState(store) {
   }
   state.loans = Array.isArray(row.loans) ? row.loans : [];
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
+  state.bankMarks = row.bankMarks && typeof row.bankMarks === 'object' ? row.bankMarks : {};
   state.credit = row.credit && typeof row.credit === 'object' ? row.credit : {};
   return state;
 }
@@ -268,11 +270,11 @@ async function settlePrices(store, state) {
     for (const c of state.companies) {
       if (!c.alive || !c.isPublic) continue;
       ensureMarket(c);
-      const noise = (unitNoise(c.noiseSeed, slot) - 0.5) * 0.01;
+      const noise = (unitNoise(c.noiseSeed, slot) - 0.5) * 0.016;
       const perf = Math.max(-1, Math.min(1, Number(c.performance) || 0));
-      const change = Math.max(-0.04, Math.min(0.04, c.beta * market + noise + perf * 0.003));
+      const change = Math.max(-0.04, Math.min(0.04, c.beta * market + noise + perf * 0.006));
       const base = Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0);
-      c.shareExact = Math.max(0, Math.min(1_000_000, Math.round(base * (1 + change) * 100) / 100));
+      c.shareExact = Math.max(0, Math.min(1_000_000, Math.round(base * (1 + change) * 10000) / 10000));
       c.sharePrice = Math.max(0, Math.min(1_000_000, Math.round(c.shareExact)));
       pushHistory(c, slot * PRICE_MS, c.shareExact);
       await fillResting(store, state, c);
@@ -319,6 +321,12 @@ function findTournament(c, tournamentId) {
   return list.length === 1 ? list[0] : null;
 }
 
+function tickerTaken(state, ticker, exceptId) {
+  const want = String(ticker || '').trim().toUpperCase();
+  if (!want) return false;
+  return state.companies.some((c) => c.id !== exceptId && String(c.ticker || '').toUpperCase() === want);
+}
+
 function companyById(state, id) {
   return state.companies.find((c) => c.id === id && c.alive) || null;
 }
@@ -339,6 +347,35 @@ function sharesOf(company, userId) {
 
 function shortOf(company, userId) {
   return Math.max(0, Math.floor(Number((company.shorts || {})[uid(userId)]) || 0));
+}
+
+function bankHoldings(state, userId) {
+  let n = accountsTotal(readAccounts(state.national.deposits, userId));
+  for (const c of state.companies) {
+    if (!c.alive || c.sovereign || c.kind !== 'bank') continue;
+    n += accountsTotal(readAccounts(c.deposits, userId));
+  }
+  return n;
+}
+
+function policyTerms(c) {
+  const cover = c.cover === 'deposits' ? 'deposits' : 'stocks';
+  let rate = Number(c.payoutRate);
+  if (!Number.isFinite(rate)) rate = 1;
+  rate = Math.max(0.5, Math.min(1, Math.round(rate * 100) / 100));
+  return {
+    premium: Math.max(0, Math.floor(Number(c.premium) || 0)),
+    coverage: Math.max(0, Math.floor(Number(c.coverage) || 0)),
+    deductible: Math.max(0, Math.floor(Number(c.deductible) || 0)),
+    payoutRate: rate,
+    cover,
+  };
+}
+
+function claimAmount(loss, terms, cash) {
+  const after = Math.max(0, Math.floor(loss) - terms.deductible);
+  const share = Math.floor(after * terms.payoutRate);
+  return Math.min(terms.coverage, share, Math.max(0, Math.floor(cash)));
 }
 
 function portfolio(state, userId) {
@@ -612,21 +649,21 @@ async function applyWeek(store, state) {
 
   for (const c of state.companies) {
     if (!c.alive || c.kind !== 'insurance') continue;
-    const premium = Math.max(0, Math.floor(Number(c.premium) || 0));
-    const coverage = Math.max(0, Math.floor(Number(c.coverage) || 0));
+    const terms = policyTerms(c);
     for (const id of Object.keys(c.policies || {})) {
       const holder = await store.findUserById(id);
       if (!holder || isOwnerUser(holder)) continue;
-      if (coinsOf(holder) < premium) {
+      if (coinsOf(holder) < terms.premium) {
         delete c.policies[id];
         continue;
       }
-      await chargeWallet(store, holder, premium);
-      c.cash += premium;
-      c.weekProfit += premium;
-      const old = state.marks[uid(id)] != null ? Number(state.marks[uid(id)]) : before[uid(id)] || 0;
-      const loss = Math.max(0, old - portfolio(state, id));
-      const payout = Math.min(coverage, loss, c.cash);
+      await chargeWallet(store, holder, terms.premium);
+      c.cash += terms.premium;
+      c.weekProfit += terms.premium;
+      const loss = terms.cover === 'deposits'
+        ? Math.max(0, (state.bankMarks && state.bankMarks[uid(id)] != null ? Number(state.bankMarks[uid(id)]) : bankHoldings(state, id)) - bankHoldings(state, id))
+        : Math.max(0, (state.marks[uid(id)] != null ? Number(state.marks[uid(id)]) : before[uid(id)] || 0) - portfolio(state, id));
+      const payout = claimAmount(loss, terms, c.cash);
       if (payout > 0) {
         c.cash -= payout;
         c.weekProfit -= payout;
@@ -635,7 +672,11 @@ async function applyWeek(store, state) {
     }
   }
 
-  for (const p of people) state.marks[uid(p.id)] = portfolio(state, p.id);
+  if (!state.bankMarks || typeof state.bankMarks !== 'object') state.bankMarks = {};
+  for (const p of people) {
+    state.marks[uid(p.id)] = portfolio(state, p.id);
+    state.bankMarks[uid(p.id)] = bankHoldings(state, p.id);
+  }
 
   for (const c of state.companies) {
     if (!c.alive || c.sovereign) continue;
@@ -754,8 +795,11 @@ function detailCompany(c, user, people, ownerView) {
     weekProfit: ownerView ? c.weekProfit : undefined,
     interestRate: c.kind === 'bank' ? c.interestRate : undefined,
     loanRate: c.kind === 'bank' ? c.loanRate : undefined,
-    premium: c.kind === 'insurance' ? c.premium : undefined,
-    coverage: c.kind === 'insurance' ? c.coverage : undefined,
+    premium: c.kind === 'insurance' ? policyTerms(c).premium : undefined,
+    coverage: c.kind === 'insurance' ? policyTerms(c).coverage : undefined,
+    deductible: c.kind === 'insurance' ? policyTerms(c).deductible : undefined,
+    payoutRate: c.kind === 'insurance' ? policyTerms(c).payoutRate : undefined,
+    cover: c.kind === 'insurance' ? policyTerms(c).cover : undefined,
     yourDeposit: c.kind === 'bank' ? accountsTotal(readAccounts(c.deposits, me)) : undefined,
     yourAccounts: c.kind === 'bank' ? publicAccounts(c.deposits, me) : undefined,
     accountCap: c.kind === 'bank' ? bankRules(c).cap : undefined,
@@ -824,6 +868,9 @@ export async function registerCompany(store, user, { name, kind }) {
       loanRate: NATIONAL_LOAN,
       premium: 50,
       coverage: 200,
+      deductible: 50,
+      payoutRate: 0.8,
+      cover: 'stocks',
       deposits: {},
       policies: {},
       tournaments: [],
@@ -903,6 +950,9 @@ export async function seedRandomCompanies(store, user) {
         loanRate: kind === 'bank' ? Math.round((0.06 + Math.random() * 0.2) * 10000) / 10000 : NATIONAL_LOAN,
         premium: kind === 'insurance' ? 10 + Math.floor(Math.random() * 191) : 50,
         coverage: kind === 'insurance' ? 50 + Math.floor(Math.random() * 951) : 200,
+        deductible: kind === 'insurance' ? Math.floor(Math.random() * 501) : 0,
+        payoutRate: kind === 'insurance' ? Math.round((0.5 + Math.random() * 0.5) * 100) / 100 : 1,
+        cover: kind === 'insurance' && Math.random() < 0.5 ? 'deposits' : 'stocks',
         deposits: {},
         policies: {},
         tournaments: [],
@@ -965,7 +1015,7 @@ export async function updateCompany(store, user, body) {
     if (body.ticker != null) {
       const ticker = String(body.ticker || '').trim().toUpperCase();
       if (!/^[A-Z0-9]{1,5}$/.test(ticker)) throw new Error('Ticker must be 1–5 letters or numbers.');
-      const taken = state.companies.some((o) => o.alive && o.id !== c.id && String(o.ticker || '').toUpperCase() === ticker);
+      const taken = tickerTaken(state, ticker, c.id);
       if (taken) throw new Error('That ticker is taken.');
       c.ticker = ticker;
     }
@@ -995,6 +1045,17 @@ export async function updateCompany(store, user, body) {
     if (c.kind === 'insurance') {
       if (body.premium != null) c.premium = clampMoney(body.premium, 0, 1_000_000);
       if (body.coverage != null) c.coverage = clampMoney(body.coverage, 0, 1_000_000);
+      if (body.deductible != null) c.deductible = clampMoney(body.deductible, 0, 1_000_000);
+      if (body.payoutRate != null) {
+        const rate = Number(body.payoutRate);
+        if (!Number.isFinite(rate) || rate < 0.5 || rate > 1) throw new Error('The share of a loss must be from 0.5 to 1.');
+        c.payoutRate = Math.round(rate * 100) / 100;
+      }
+      if (body.cover != null) {
+        const cover = String(body.cover);
+        if (cover !== 'stocks' && cover !== 'deposits') throw new Error('Cover stocks or bank deposits.');
+        c.cover = cover;
+      }
     }
     if (c.kind === 'racing' && body.openTournament) {
       const list = tournamentsOf(c);

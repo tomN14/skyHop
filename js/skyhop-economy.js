@@ -245,12 +245,35 @@
       }
       if (mine.kind === 'insurance') {
         var premium = field('Weekly premium', mine.premium);
-        var coverage = field('Coverage per week', mine.coverage);
+        var coverage = field('Coverage cap per week', mine.coverage);
+        var deductible = field('Deductible', mine.deductible || 0);
+        var payoutRate = field('Share of the loss after the deductible (0.8 = 80%)', mine.payoutRate == null ? 0.8 : mine.payoutRate);
+        var cover = el('label', 'mt-2 block text-[11px] text-slate-500', 'Covers');
+        var coverSelect = document.createElement('select');
+        coverSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+        [['stocks', 'Stock losses'], ['deposits', 'Bank deposit losses']].forEach(function (pair) {
+          var opt = document.createElement('option');
+          opt.value = pair[0];
+          opt.textContent = pair[1];
+          if ((mine.cover || 'stocks') === pair[0]) opt.selected = true;
+          coverSelect.appendChild(opt);
+        });
+        cover.appendChild(coverSelect);
         card.appendChild(premium.wrap);
+        card.appendChild(deductible.wrap);
+        card.appendChild(payoutRate.wrap);
         card.appendChild(coverage.wrap);
+        card.appendChild(cover);
         card.appendChild(
           button('Save policy', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-            post('/api/economy/company', { companyId: mine.id, premium: Number(premium.input.value), coverage: Number(coverage.input.value) });
+            post('/api/economy/company', {
+              companyId: mine.id,
+              premium: Number(premium.input.value),
+              coverage: Number(coverage.input.value),
+              deductible: Number(deductible.input.value),
+              payoutRate: Number(payoutRate.input.value),
+              cover: coverSelect.value,
+            });
           })
         );
       }
@@ -607,11 +630,25 @@
       el(
         'p',
         'mt-2 text-sm text-slate-200',
-        'Weekly premium ' + c.premium + ' · coverage up to ' + c.coverage + (c.insured ? ' · you are covered' : '')
+        'Premium ' +
+          c.premium +
+          ' a week · deductible ' +
+          commas(c.deductible || 0) +
+          ' · pays ' +
+          pct(c.payoutRate == null ? 1 : c.payoutRate) +
+          ' of the rest · cap ' +
+          commas(c.coverage) +
+          ' · covers ' +
+          (c.cover === 'deposits' ? 'bank deposits' : 'stocks') +
+          (c.insured ? ' · you are covered' : '')
       )
     );
     box.appendChild(
-      el('p', 'mt-1 text-[11px] text-slate-500', 'A policy pays a drop in the shares you hold, up to the coverage and the cash the company has.')
+      el(
+        'p',
+        'mt-1 text-[11px] text-slate-500',
+        'You pay the deductible first. The insurer then pays its share of what is left, up to the cap and the cash it has. A stock policy and a deposit policy fit different holdings.'
+      )
     );
     if (c.cash == null) {
       box.appendChild(
@@ -620,7 +657,7 @@
         })
       );
     } else {
-      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-400', 'This is your company. Set the premium and coverage from the briefcase.'));
+      box.appendChild(el('p', 'mt-2 text-[11px] text-slate-400', 'This is your company. Set the policy from the briefcase.'));
     }
     host.appendChild(box);
   }
