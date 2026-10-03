@@ -17,6 +17,11 @@
     return window.SkyHopApiRequest(path, Object.assign({}, options, { headers: headers }));
   }
 
+  function tr(text) {
+    if (window.SkyHopI18n && typeof window.SkyHopI18n.text === 'function') return window.SkyHopI18n.text(text);
+    return text;
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -354,7 +359,7 @@
       );
       card.appendChild(
         button('Delete company', 'mt-4 rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
-          if (!window.confirm('Delete this company? Its shares become worthless. This cannot be undone.')) return;
+          if (!window.confirm(tr('Delete this company? Its shares become worthless. This cannot be undone.'))) return;
           post('/api/economy/company/delete', { companyId: mine.id });
         })
       );
@@ -603,7 +608,7 @@
     );
     row.appendChild(
       button('Heist', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
-        if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.04%.')) return;
+        if (!window.confirm(tr('A failed heist bans you for 1 day. The chance of success is 0.04%.'))) return;
         post('/api/economy/heist', { bankId: c.id }, renderBanks, 'banksMsg');
       })
     );
@@ -747,7 +752,7 @@
     );
     natRow.appendChild(
       button('Heist the National Bank', 'rounded-lg border border-rose-500/50 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
-        if (!window.confirm('A failed heist bans you for 1 day. The chance of success is 0.016%.')) return;
+        if (!window.confirm(tr('A failed heist bans you for 1 day. The chance of success is 0.016%.'))) return;
         post('/api/economy/heist', { bankId: 'national' }, renderNational, 'nationalMsg');
       })
     );

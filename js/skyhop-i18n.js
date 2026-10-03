@@ -679,16 +679,52 @@
     return null;
   }
 
+  var phraseList = null;
+  var phraseListLang = '';
+
+  function phraseEntries() {
+    var pack = window.SKYHOP_PHRASES && window.SKYHOP_PHRASES[current];
+    if (!pack) return [];
+    if (phraseList && phraseListLang === current) return phraseList;
+    phraseList = Object.keys(pack)
+      .filter(function (key) { return key.length >= 4; })
+      .sort(function (a, b) { return b.length - a.length; })
+      .map(function (key) {
+        var esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var pre = /^[A-Za-z0-9]/.test(key) ? '(^|[^A-Za-z0-9])' : '()';
+        var post = /[A-Za-z0-9]$/.test(key) ? '(?![A-Za-z0-9])' : '';
+        return { key: key, re: new RegExp(pre + esc + post, 'g'), to: pack[key] };
+      });
+    phraseListLang = current;
+    return phraseList;
+  }
+
+  function phraseText(english) {
+    var exact = phrase(english);
+    if (exact) return exact;
+    if (current === 'en') return english;
+    var out = english;
+    phraseEntries().forEach(function (row) {
+      if (out.indexOf(row.key) === -1) return;
+      row.re.lastIndex = 0;
+      out = out.replace(row.re, function (match, pre) {
+        return (pre || '') + row.to;
+      });
+    });
+    return out;
+  }
+
   function translateTextNode(node) {
     var parent = node.parentElement;
     if (!parent || SKIP_TAG[parent.tagName]) return;
-    if (parent.closest && parent.closest('[data-i18n], [data-no-i18n]')) return;
+    if (parent.closest && parent.closest('[data-i18n], [data-no-i18n], code, kbd, .font-mono')) return;
     if (node.__en == null) node.__en = node.nodeValue;
     var original = node.__en;
     if (original == null) return;
     var trimmed = String(original).trim();
     if (!trimmed || !/[A-Za-zÀ-ÿ]/.test(trimmed)) return;
-    var next = current === 'en' ? trimmed : phrase(trimmed) || trimmed;
+    if (/skyhop\.|test\.(while|if|for|else|break)/.test(trimmed) && trimmed.length > 80) return;
+    var next = current === 'en' ? trimmed : phraseText(trimmed);
     var lead = String(original).match(/^\s*/)[0];
     var trail = String(original).match(/\s*$/)[0];
     var value = lead + next + trail;
@@ -705,7 +741,7 @@
       var original = el[storeKey];
       var trimmed = String(original == null ? '' : original).trim();
       if (!trimmed) return;
-      var next = current === 'en' ? trimmed : phrase(trimmed) || trimmed;
+      var next = current === 'en' ? trimmed : phraseText(trimmed);
       if (el.getAttribute(attr) !== next) el.setAttribute(attr, next);
     });
   }
@@ -729,7 +765,7 @@
       return;
     }
     var trimmed = String(node.__en).trim();
-    var expected = phrase(trimmed) || trimmed;
+    var expected = phraseText(trimmed);
     var lead = String(node.__en).match(/^\s*/)[0];
     var trail = String(node.__en).match(/\s*$/)[0];
     if (incoming !== lead + expected + trail) node.__en = incoming;
@@ -755,7 +791,7 @@
               var storeKey = '__skyhop_' + attr;
               var now = el.getAttribute(attr);
               var prev = el[storeKey];
-              var prevShown = prev == null ? null : (current === 'en' ? String(prev).trim() : phrase(String(prev).trim()) || String(prev).trim());
+              var prevShown = prev == null ? null : phraseText(String(prev).trim());
               if (prev == null || now !== prevShown) el[storeKey] = now;
               translateAttrs(el);
             }
@@ -841,6 +877,7 @@
       return current;
     },
     apply: apply,
+    text: phraseText,
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
