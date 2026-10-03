@@ -18,6 +18,7 @@ import * as ShopItems from './shop-items.js';
 import * as CustomWorlds from './custom-worlds.js';
 import { store } from './store.js';
 import * as Economy from './economy.js';
+import * as Suggestions from './suggestions.js';
 import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
@@ -324,6 +325,8 @@ async function buildMePayload(userId, req = null) {
     promotionNotice: promotionNoticePayload(user),
     modsWarningNeeded: !user.modsWarningSeen && !user.mods_warning_seen,
     credit: await Economy.creditSnapshot(store, user),
+    locale: await Suggestions.getLocale(store, userId),
+    suggestionCount: Suggestions.canModerateSuggestions(role) ? await Suggestions.countPendingSuggestions(store) : 0,
   };
 }
 
@@ -460,6 +463,109 @@ export async function handleApi(req, res) {
       return true;
     }
     json(res, 200, me);
+    return true;
+  }
+
+  if (pathname === '/api/me/locale' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const saved = await Suggestions.setLocale(store, sess.userId, body.locale);
+      json(res, 200, { ok: true, locale: saved.locale });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/suggestions' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    const text = censorProfanity(String(body.text || '')).text;
+    try {
+      const saved = await Suggestions.submitSuggestion(store, sess.user, text);
+      json(res, 201, { ok: true, id: saved.id });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/mod/suggestions' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (!Suggestions.canModerateSuggestions(effectiveRole(sess.user))) {
+      json(res, 403, { error: 'Not allowed' });
+      return true;
+    }
+    try {
+      json(res, 200, { suggestions: await Suggestions.listPendingSuggestions(store) });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  {
+    const m = /^\/api\/mod\/suggestions\/([^/]+)\/(dismiss|send)$/.exec(pathname);
+    if (m && req.method === 'POST') {
+      const sess = await getActiveSessionUser(req);
+      if (!sess) {
+        json(res, 401, { error: 'Not logged in' });
+        return true;
+      }
+      if (!Suggestions.canModerateSuggestions(effectiveRole(sess.user))) {
+        json(res, 403, { error: 'Not allowed' });
+        return true;
+      }
+      try {
+        await Suggestions.actOnSuggestion(store, sess.user, m[1], m[2]);
+        json(res, 200, { ok: true });
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
+      return true;
+    }
+  }
+
+  if (pathname === '/api/owner/suggestions' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    try {
+      json(res, 200, { suggestions: await Suggestions.listSentSuggestions(store) });
+    } catch (e) {
+      json(res, 500, { error: String(e.message || e) });
+    }
     return true;
   }
 

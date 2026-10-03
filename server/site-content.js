@@ -73,13 +73,19 @@ const FEATURE_LIST_SHOP_SUPPLEMENT = `
             <li>Buying a shop skin sends 45% of the price, rounded up, to the creator named on that skin. The rest goes to the Sky Hop National Bank. Each newly unlocked achievement pays 75 coins</li>
           </ul>`;
 
+const FEATURE_LIST_COMMUNITY = `
+          <ul class="mt-1 list-disc space-y-0.5 pl-4">
+            <li>Suggestions are written in the Suggestions panel. Moderators can dismiss one or send it to the owner, who sees the suggestion, who wrote it, and which moderator sent it</li>
+            <li>Account and cloud stats can switch language. English is the default</li>
+          </ul>`;
+
 const FEATURE_LIST_FINANCIAL = `
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Financial systems</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
             <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
             <li>Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers set a premium, a deductible, the share of a loss they pay, a weekly cap, and whether they cover stocks or bank deposits. Search either list by name or ticker</li>
-            <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
+            <li>A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
             <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
@@ -124,6 +130,9 @@ function withFinancialSection(html) {
   const oldInsurers = 'Insurers cover market losses.';
   const nextInsurers = 'Insurers set a premium, a deductible, the share of a loss they pay, a weekly cap, and whether they cover stocks or bank deposits.';
   if (htmlNext.includes(oldInsurers)) htmlNext = htmlNext.split(oldInsurers).join(nextInsurers);
+  const oldQuote = 'A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover.';
+  const nextQuote = 'A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover.';
+  if (htmlNext.includes(oldQuote)) htmlNext = htmlNext.split(oldQuote).join(nextQuote);
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';
@@ -143,6 +152,7 @@ export async function resolveFeatureListHtml(store) {
       if (!html.includes('Allow copies')) html += FEATURE_LIST_COPY_SUPPLEMENT;
       if (!html.includes('Graphic Designer')) html += FEATURE_LIST_GD_SUPPLEMENT;
       if (!html.includes('45%')) html += FEATURE_LIST_SHOP_SUPPLEMENT;
+      if (!html.includes('Suggestions are written in the Suggestions panel')) html += FEATURE_LIST_COMMUNITY;
       return withFinancialSection(html);
     }
   }

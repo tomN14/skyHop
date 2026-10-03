@@ -88,7 +88,9 @@ async function loadState(store) {
   state.national.deposits = normalizeBook(state.national.deposits);
   state.companies = Array.isArray(row.companies) ? row.companies : [];
   for (const c of state.companies) {
-    if (c && c.deposits) c.deposits = normalizeBook(c.deposits);
+    if (!c || typeof c !== 'object') continue;
+    if (c.deposits) c.deposits = normalizeBook(c.deposits);
+    if (typeof c.quoteLocked !== 'boolean') c.quoteLocked = true;
   }
   state.loans = Array.isArray(row.loans) ? row.loans : [];
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
@@ -211,6 +213,7 @@ function ensureNationalStock(state) {
     alive: true,
     weekProfit: 0,
     performance: 0,
+    quoteLocked: true,
     interestRate: NATIONAL_SAVE,
     loanRate: NATIONAL_LOAN,
     premium: 0,
@@ -793,6 +796,7 @@ function detailCompany(c, user, people, ownerView) {
     ownerShares: sharesOf(c, c.ownerId),
     cash: ownerView ? c.cash : undefined,
     weekProfit: ownerView ? c.weekProfit : undefined,
+    quoteLocked: ownerView ? c.quoteLocked !== false : undefined,
     interestRate: c.kind === 'bank' ? c.interestRate : undefined,
     loanRate: c.kind === 'bank' ? c.loanRate : undefined,
     premium: c.kind === 'insurance' ? policyTerms(c).premium : undefined,
@@ -876,6 +880,7 @@ export async function registerCompany(store, user, { name, kind }) {
       tournaments: [],
       tournament: null,
       ticker: '',
+      quoteLocked: false,
       beta: 0,
       noiseSeed: 0,
       history: [],
@@ -958,6 +963,7 @@ export async function seedRandomCompanies(store, user) {
         tournaments: [],
         tournament: null,
         ticker,
+        quoteLocked: true,
         beta: 0,
         noiseSeed: 0,
         history: [],
@@ -1012,19 +1018,27 @@ export async function updateCompany(store, user, body) {
       } else if (c.listed > 0) throw new Error('Buy the listed shares back before going private.');
       else c.isPublic = false;
     }
-    if (body.ticker != null) {
+    const shown = Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100;
+    if (c.quoteLocked !== false) {
+      if (body.ticker != null) {
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        if (ticker !== String(c.ticker || '').toUpperCase()) throw new Error('The ticker is set and cannot be changed.');
+      }
+      if (body.sharePrice != null) {
+        const price = Math.round(Number(body.sharePrice) * 100) / 100;
+        if (!Number.isFinite(price) || price !== shown) throw new Error('The share price is set. Only the market moves it from here.');
+      }
+    } else if (body.ticker != null || body.sharePrice != null) {
       const ticker = String(body.ticker || '').trim().toUpperCase();
-      if (!/^[A-Z0-9]{1,5}$/.test(ticker)) throw new Error('Ticker must be 1–5 letters or numbers.');
-      const taken = tickerTaken(state, ticker, c.id);
-      if (taken) throw new Error('That ticker is taken.');
-      c.ticker = ticker;
-    }
-    if (body.sharePrice != null) {
+      if (!/^[A-Z0-9]{1,5}$/.test(ticker)) throw new Error('Set a ticker of 1–5 letters or numbers. You can only set it once.');
+      if (tickerTaken(state, ticker, c.id)) throw new Error('That ticker is taken.');
       const price = Math.round(Number(body.sharePrice) * 100) / 100;
       if (!Number.isFinite(price) || price < 0 || price > 1_000_000) throw new Error('Share price must be 0–1,000,000.');
+      c.ticker = ticker;
       c.sharePrice = Math.round(price);
       c.shareExact = price;
       pushHistory(c, Date.now(), price);
+      c.quoteLocked = true;
     }
     if (body.listed != null) {
       const listed = Math.floor(Number(body.listed));

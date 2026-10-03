@@ -496,6 +496,8 @@
       accAchList.innerHTML = (list || [])
         .map(function (a) {
           const on = a.unlocked;
+          const title = window.SkyHopI18n && a.id ? window.SkyHopI18n.t('ach.' + a.id + '.title', a.title) : a.title;
+          const desc = window.SkyHopI18n && a.id ? window.SkyHopI18n.t('ach.' + a.id + '.desc', a.desc) : a.desc;
           return (
             '<li class="rounded-lg border px-2 py-2 text-left text-xs ' +
             (on ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-100' : 'border-white/10 bg-slate-950/50 text-slate-500') +
@@ -504,15 +506,22 @@
             (on ? 'text-emerald-200' : 'text-slate-500') +
             '">' +
             (on ? '★ ' : '○ ') +
-            escapeHtml(a.title) +
+            escapeHtml(title) +
             '</span>' +
             '<p class="mt-0.5 text-[11px] leading-snug opacity-90">' +
-            escapeHtml(a.desc) +
+            escapeHtml(desc) +
             '</p></li>'
           );
         })
         .join('');
     }
+
+    window.addEventListener('skyhop-lang', function () {
+      var me = window.__skyhopLastMe;
+      if (!me) return;
+      renderStats(me.stats);
+      renderAchievements(me.achievements);
+    });
 
     function escapeHtml(s) {
       return String(s)
@@ -528,8 +537,9 @@
       const inf = me && me.coinsInfinite;
       if (accStatCredit) {
         const credit = me && me.credit;
-        accStatCredit.textContent =
-          credit && credit.score != null ? credit.score + ' · ' + credit.band : 'Unscored';
+        const bandName = credit && credit.band ? credit.band : 'Unscored';
+        const bandLabel = window.SkyHopI18n ? window.SkyHopI18n.t('band.' + bandName, bandName) : bandName;
+        accStatCredit.textContent = credit && credit.score != null ? credit.score + ' · ' + bandLabel : bandLabel;
       }
       if (accStatCoins) accStatCoins.textContent = inf ? '∞' : String(coins);
       if (accStatRuns) accStatRuns.textContent = String(st.runCount != null ? st.runCount : 0);
@@ -566,6 +576,7 @@
       } else {
         badge.classList.add('hidden');
       }
+      if (typeof window.SkyHopSyncSuggestions === 'function') window.SkyHopSyncSuggestions(me);
     }
 
     function meIsAdmin(me) {
@@ -1365,7 +1376,8 @@
       const sel = document.getElementById('accSkinSelect');
       const msg = document.getElementById('accSkinMsg');
       if (!sel) return;
-      sel.innerHTML = '<option value="">Default look</option>';
+      const look = window.SkyHopI18n ? window.SkyHopI18n.t('acc.defaultLook', 'Default look') : 'Default look';
+      sel.innerHTML = '<option value="">' + String(look).replace(/</g, '') + '</option>';
       var list = [];
       var shopByTex = {};
       try {

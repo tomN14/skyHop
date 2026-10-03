@@ -438,7 +438,10 @@
         <button id="btnAwardedLevels" type="button" class="mt-2 w-full rounded-2xl border-2 border-blue-500/55 bg-blue-950/50 px-6 py-3 text-sm font-semibold text-blue-100 shadow-lg hover:bg-blue-900/60">Awarded User Levels</button>
         <button id="btnOpenCollabMenu" type="button" class="mt-2 w-full rounded-2xl border-2 border-teal-500/45 bg-teal-950/50 px-6 py-3 text-sm font-semibold text-teal-100 shadow-lg hover:bg-teal-900/60">Collab (both worlds)</button>
         <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
-          Account &amp; cloud stats
+          <span data-i18n="menu.account">Account &amp; cloud stats</span>
+        </button>
+        <button id="btnOpenSuggestions" type="button" class="mt-2 w-full rounded-2xl border border-sky-500/40 bg-sky-950/40 px-6 py-3 text-sm font-semibold text-sky-100 transition hover:bg-sky-900/50">
+          <span data-i18n="menu.suggest">Suggestions</span>
         </button>
         <button id="btnOpenOwnerPage" type="button" class="mt-2 hidden w-full rounded-2xl border border-rose-500/45 bg-rose-950/40 px-6 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-900/50 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           Owner administration
@@ -530,8 +533,8 @@
       <div class="my-auto w-full max-w-lg rounded-3xl border border-violet-500/35 bg-gradient-to-br from-slate-900 to-violet-950/50 p-6 shadow-2xl md:max-w-xl md:p-8">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="text-sm font-sem uppercase tracking-widest text-violet-400">Cloud profile</p>
-            <h2 class="mt-1 text-2xl font-bold text-white">Account</h2>
+            <p class="text-sm font-sem uppercase tracking-widest text-violet-400" data-i18n="acc.kicker">Cloud profile</p>
+            <h2 class="mt-1 text-2xl font-bold text-white" data-i18n="acc.title">Account</h2>
             <p id="accServerHint" class="mt-1 text-[11px] text-slate-500">REST API: —</p>
             <details class="mt-2 text-left">
               <summary class="cursor-pointer text-[11px] text-slate-500 hover:text-slate-400">Advanced: different API host (optional)</summary>
@@ -539,50 +542,55 @@
               <input id="accApiBase" type="url" placeholder="Node server only — not Supabase (e.g. http://127.0.0.1:3001)" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-xs text-white" autocomplete="off" />
             </details>
           </div>
-          <button id="btnAccountClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+          <button id="btnAccountClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700" data-i18n="acc.close">Close</button>
+        </div>
+        <div class="mt-4 text-left">
+          <label class="block text-[11px] text-slate-500" data-i18n="lang.label">Language</label>
+          <select id="accLangSelect" class="js-lang-select mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white"></select>
+          <p class="mt-1 text-[11px] text-slate-500" data-i18n="lang.hint">This changes Account and cloud stats. The rest of the game stays in English. English is the default.</p>
         </div>
         <p id="accError" class="mt-3 hidden rounded-lg border border-rose-500/40 bg-rose-950/50 px-3 py-2 text-sm text-rose-200"></p>
 
         <div id="accGuestBlock" class="mt-4 space-y-4">
-          <p class="text-sm text-slate-400">Sign in on any device with the same username to see the same statistics. Uses the same host as the game (leaves Racing server blank on a hosted link, or set it in Racing first).</p>
+          <p class="text-sm text-slate-400" data-i18n="acc.signinBlurb">Sign in on any device with the same username to see the same statistics.</p>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-            <p class="text-xs font-sem text-violet-300">Log in</p>
-            <label class="mt-2 block text-[11px] text-slate-500">Username</label>
+            <p class="text-xs font-sem text-violet-300" data-i18n="acc.login">Log in</p>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.username">Username</label>
             <input id="accLoginUser" type="text" autocomplete="username" maxlength="24" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
-            <label class="mt-2 block text-[11px] text-slate-500">Password</label>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.password">Password</label>
             <input id="accLoginPass" type="password" autocomplete="current-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
-            <button id="accBtnLogin" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500">Log in</button>
+            <button id="accBtnLogin" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500" data-i18n="acc.loginBtn">Log in</button>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-            <p class="text-xs font-sem text-violet-300">Register</p>
-            <label class="mt-2 block text-[11px] text-slate-500">Username (letters, numbers, _ · 2–24)</label>
+            <p class="text-xs font-sem text-violet-300" data-i18n="acc.register">Register</p>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.usernameRules">Username (letters, numbers, _ · 2–24)</label>
             <input id="accRegUser" type="text" autocomplete="off" maxlength="24" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
-            <label class="mt-2 block text-[11px] text-slate-500">Password (min 6)</label>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.passwordRules">Password (min 6)</label>
             <input id="accRegPass" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
-            <button id="accBtnRegister" type="button" class="mt-3 w-full rounded-xl border border-violet-500/50 bg-violet-950/40 px-4 py-2.5 text-sm font-semibold text-violet-100 hover:bg-violet-900/50">Create account</button>
+            <button id="accBtnRegister" type="button" class="mt-3 w-full rounded-xl border border-violet-500/50 bg-violet-950/40 px-4 py-2.5 text-sm font-semibold text-violet-100 hover:bg-violet-900/50" data-i18n="acc.create">Create account</button>
           </div>
         </div>
 
         <div id="accLoggedBlock" class="mt-4 hidden space-y-4">
-          <p class="text-sm text-slate-300">Signed in as <span id="accUserLabel" class="font-semibold text-violet-200">—</span> <span id="accGraphicBadge" class="hidden font-semibold text-fuchsia-300">Graphic Designer</span></p>
+          <p class="text-sm text-slate-300"><span data-i18n="acc.signedIn">Signed in as</span> <span id="accUserLabel" class="font-semibold text-violet-200">—</span> <span id="accGraphicBadge" class="hidden font-semibold text-fuchsia-300">Graphic Designer</span></p>
           <div id="staffRoster" class="hidden rounded-xl border border-white/10 bg-slate-950/50 p-3 text-left">
             <p class="text-[11px] font-semibold text-slate-200">People you can see</p>
             <div id="staffRosterBody" class="mt-2 space-y-2 text-[11px] text-slate-300"></div>
           </div>
-          <button id="accBtnLogout" type="button" class="w-full rounded-xl border border-white/20 py-2 text-sm font-sem text-slate-300 hover:bg-white/5">Log out</button>
+          <button id="accBtnLogout" type="button" class="w-full rounded-xl border border-white/20 py-2 text-sm font-sem text-slate-300 hover:bg-white/5" data-i18n="acc.logout">Log out</button>
           <div class="rounded-2xl border border-violet-500/30 bg-slate-950/60 p-4 text-left">
-            <p class="text-xs font-sem text-violet-300">Custom profile</p>
+            <p class="text-xs font-sem text-violet-300" data-i18n="acc.profile">Custom profile</p>
             <p class="mt-1 text-[11px] text-slate-500">Avatar uploads go to your own folder in Supabase Storage (<span class="font-mono text-slate-400">skyhop-profiles/{your user id}/</span>). Max 512 KB · PNG, JPEG, WebP, or GIF.</p>
             <div class="mt-3 flex flex-wrap items-center gap-3">
               <img id="accProfileAvatar" alt="" class="hidden h-16 w-16 rounded-2xl border border-white/15 bg-slate-900 object-cover" />
               <div class="min-w-0 flex-1">
-                <label class="block text-[11px] text-slate-500">Bio (max 500 characters)</label>
-                <textarea id="accProfileBio" rows="3" maxlength="500" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="A short line about you…"></textarea>
+                <label class="block text-[11px] text-slate-500" data-i18n="acc.bioLabel">Bio (max 500 characters)</label>
+                <textarea id="accProfileBio" rows="3" maxlength="500" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" data-i18n-placeholder="acc.bioPlaceholder" placeholder="A short line about you…"></textarea>
                 <p id="accProfileBioCount" class="mt-0.5 text-right text-[11px] tabular-nums text-slate-500"><span id="accProfileBioCountNum">0</span> / 500</p>
                 <div class="mt-2 flex flex-wrap gap-2">
-                  <button id="accBtnSaveProfileBio" type="button" class="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500">Save bio</button>
+                  <button id="accBtnSaveProfileBio" type="button" class="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-500" data-i18n="acc.saveBio">Save bio</button>
                   <label class="cursor-pointer rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/5">
-                    Upload avatar
+                    <span data-i18n="acc.uploadAvatar">Upload avatar</span>
                     <input id="accProfileAvatarFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden" />
                   </label>
                 </div>
@@ -591,47 +599,67 @@
             <p id="accProfileMsg" class="mt-2 hidden text-xs text-slate-400"></p>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
-            <p class="text-xs font-sem text-cyan-300">Custom skin</p>
+            <p class="text-xs font-sem text-cyan-300" data-i18n="acc.skin">Custom skin</p>
             <p class="mt-1 text-[11px] text-slate-500">Only skins you <strong class="text-slate-400">unlocked in the coin shop</strong> or <strong class="text-slate-400">received as a gift</strong> appear here. Upload PNG/WebP/GIF/JPG files under <span class="font-mono text-slate-400">textures/</span> on the server first. (Owners see the full server list.)</p>
             <div class="mt-2 flex flex-wrap items-center gap-2">
               <select id="accSkinSelect" class="min-w-[10rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white">
-                <option value="">Default look</option>
+                <option value="" data-i18n="acc.defaultLook">Default look</option>
               </select>
-              <button id="accSkinSave" type="button" class="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500">Apply</button>
+              <button id="accSkinSave" type="button" class="rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500" data-i18n="acc.apply">Apply</button>
             </div>
             <p id="accSkinMsg" class="mt-2 hidden text-xs text-slate-400"></p>
           </div>
           <p class="rounded-2xl border border-amber-500/25 bg-slate-950/60 px-4 py-3 text-center text-[11px] text-slate-500">Use the <strong class="text-amber-200">🛒</strong> button on the <strong class="text-slate-400">left</strong> (above the mail icon if you’re a moderator) to open the coin shop. <strong class="text-teal-200/90">👥</strong> Friends is on the <strong class="text-slate-400">bottom right</strong>.</p>
           <div class="rounded-2xl border border-amber-500/25 bg-slate-950/60 p-4 text-left">
-            <p class="text-xs font-sem text-amber-200/90">Report a player</p>
+            <p class="text-xs font-sem text-amber-200/90" data-i18n="acc.report">Report a player</p>
             <p class="mt-1 text-[11px] text-slate-500">Players can report cheating, harassment, or other issues. Reports go to Report Advisors, moderators, and the Admin first; serious cases can be escalated to the site owner.</p>
-            <label class="mt-2 block text-[11px] text-slate-500">Their username</label>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.theirUser">Their username</label>
             <input id="accReportUser" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
-            <label class="mt-2 block text-[11px] text-slate-500">What happened?</label>
-            <textarea id="accReportReason" rows="4" maxlength="4000" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Describe what happened — spaces and full sentences are OK (min 3 characters)"></textarea>
-            <button id="accBtnSubmitReport" type="button" class="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/50 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40">Submit report</button>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.whatHappened">What happened?</label>
+            <textarea id="accReportReason" rows="4" maxlength="4000" class="mt-0.5 w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" data-i18n-placeholder="acc.reportPlaceholder" placeholder="Describe what happened — spaces and full sentences are OK (min 3 characters)"></textarea>
+            <button id="accBtnSubmitReport" type="button" class="mt-2 rounded-xl border border-amber-500/40 bg-amber-950/50 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-900/40" data-i18n="acc.submitReport">Submit report</button>
             <p id="accReportMsg" class="mt-2 hidden text-xs text-slate-400"></p>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
-            <p class="text-xs font-sem text-violet-300">Statistics (all submitted full runs)</p>
+            <p class="text-xs font-sem text-violet-300" data-i18n="acc.stats">Statistics (all submitted full runs)</p>
+            <label class="mt-2 block text-[11px] text-slate-500" data-i18n="lang.label">Language</label>
+            <select id="accLangSelectStats" class="js-lang-select mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white"></select>
             <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-3">
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Sky Hop score</dt><dd id="accStatCredit" class="font-mono text-lg text-sky-200">Unscored</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Runs</dt><dd id="accStatRuns" class="font-mono text-lg text-white">0</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Coins</dt><dd id="accStatCoins" class="font-mono text-lg text-amber-200">0</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Deaths (total)</dt><dd id="accStatDeathTotal" class="font-mono text-lg text-white">0</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Lowest deaths / run</dt><dd id="accStatDeathMin" class="font-mono text-lg text-emerald-200">—</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Highest deaths / run</dt><dd id="accStatDeathMax" class="font-mono text-lg text-rose-200">—</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Fastest run</dt><dd id="accStatTimeBest" class="font-mono text-lg text-amber-200">—</dd></div>
-              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Avg time / run</dt><dd id="accStatTimeAvg" class="font-mono text-lg text-amber-100/90">—</dd></div>
-              <div class="sm:col-span-2"><dt class="text-[10px] uppercase tracking-wide text-slate-500">Avg deaths / run</dt><dd id="accStatDeathAvg" class="font-mono text-lg text-slate-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.score">Sky Hop score</dt><dd id="accStatCredit" class="font-mono text-lg text-sky-200">Unscored</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.runs">Runs</dt><dd id="accStatRuns" class="font-mono text-lg text-white">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.coins">Coins</dt><dd id="accStatCoins" class="font-mono text-lg text-amber-200">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.deathsTotal">Deaths (total)</dt><dd id="accStatDeathTotal" class="font-mono text-lg text-white">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.deathsMin">Lowest deaths / run</dt><dd id="accStatDeathMin" class="font-mono text-lg text-emerald-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.deathsMax">Highest deaths / run</dt><dd id="accStatDeathMax" class="font-mono text-lg text-rose-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.fastest">Fastest run</dt><dd id="accStatTimeBest" class="font-mono text-lg text-amber-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.avgTime">Avg time / run</dt><dd id="accStatTimeAvg" class="font-mono text-lg text-amber-100/90">—</dd></div>
+              <div class="sm:col-span-2"><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.avgDeaths">Avg deaths / run</dt><dd id="accStatDeathAvg" class="font-mono text-lg text-slate-200">—</dd></div>
             </dl>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
-            <p class="text-xs font-sem text-violet-300">Achievements</p>
+            <p class="text-xs font-sem text-violet-300" data-i18n="acc.achievements">Achievements</p>
             <ul id="accAchList" class="mt-2 grid max-h-52 list-none gap-2 overflow-y-auto p-0 sm:max-h-64"></ul>
           </div>
-          <p id="accFinishStagesHint" class="text-[11px] text-slate-500">Finishing all 50 stages (campaign or race) while logged in uploads that run. Progress mid-run is not saved until you win.</p>
+          <p id="accFinishStagesHint" class="text-[11px] text-slate-500" data-i18n="acc.finishHint">Finishing all 50 stages (campaign or race) while logged in uploads that run. Progress mid-run is not saved until you win.</p>
         </div>
+      </div>
+    </div>
+
+    <div id="screenSuggestions" class="absolute inset-0 z-[27] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
+      <div class="my-auto w-full max-w-lg rounded-3xl border border-sky-500/35 bg-gradient-to-br from-slate-900 to-sky-950/40 p-6 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 class="text-2xl font-bold text-white" data-i18n="suggest.title">Suggestions</h2>
+            <p class="mt-1 text-[11px] text-slate-500" data-i18n="suggest.hint">Tell the moderators an idea for Sky Hop. A moderator can dismiss it or send it to the owner.</p>
+          </div>
+          <button id="btnSuggestionsClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700" data-i18n="acc.close">Close</button>
+        </div>
+        <p id="suggestNeedLogin" class="mt-4 text-sm text-slate-300" data-i18n="suggest.needLogin">Sign in from Account to send a suggestion.</p>
+        <div id="suggestForm" class="mt-4 hidden">
+          <textarea id="suggestText" rows="5" maxlength="2000" class="w-full resize-y rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" data-i18n-placeholder="suggest.placeholder" placeholder="Your suggestion"></textarea>
+          <button id="btnSuggestSend" type="button" class="mt-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500" data-i18n="suggest.send">Send suggestion</button>
+        </div>
+        <p id="suggestMsg" class="mt-2 hidden text-xs"></p>
       </div>
     </div>
 
@@ -796,6 +824,8 @@
             <li>Friend chat (profanity censored; report serious abuse)</li>
             <li>Gift coins to friends (peer transfer limits)</li>
             <li>Player reports → Report Advisor / mod / Admin inbox; escalate to owner</li>
+            <li>Suggestions are written in the Suggestions panel. Moderators can dismiss one or send it to the owner, who sees the suggestion, who wrote it, and which moderator sent it</li>
+            <li>Account and cloud stats can switch language. English is the default</li>
             <li>Account disable / permanent delete (owner, email confirm for delete)</li>
             <li>Bans (owner): temp or permanent</li>
             <li>Permanent strikes (owner add/remove): player 3 → 1-week ban; mod / Report Advisor 2 → demote; Admin 1 → demote to mod</li>
@@ -806,7 +836,7 @@
             <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
             <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
             <li>Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers set a premium, a deductible, the share of a loss they pay, a weekly cap, and whether they cover stocks or bank deposits. Search either list by name or ticker</li>
-            <li>A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
+            <li>A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
             <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
@@ -910,7 +940,12 @@
             <h3 class="mt-1 text-xl font-bold text-white">Inbox</h3>
             <p id="modInboxHint" class="mt-1 text-[11px] text-slate-500"></p>
           </div>
-          <button id="btnModInboxClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+          <div class="flex shrink-0 flex-wrap justify-end gap-2">
+            <button id="btnModSuggestions" type="button" class="hidden rounded-xl border border-sky-500/40 bg-sky-950/50 px-3 py-1.5 text-sm text-sky-100 hover:bg-sky-900/40">
+              Suggestions <span id="modSuggestionBadge" class="ml-1 hidden rounded-full bg-sky-500 px-1.5 text-[10px] font-bold text-white">0</span>
+            </button>
+            <button id="btnModInboxClose" type="button" class="rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+          </div>
         </div>
         <div id="ownerTools" class="mt-4 hidden rounded-xl border border-white/10 bg-slate-950/50 p-3 text-left">
           <p class="text-xs font-sem text-emerald-200">Owner: moderators</p>
@@ -966,6 +1001,21 @@
       </div>
     </div>
 
+    <div id="screenModSuggestions" class="pointer-events-auto fixed inset-0 z-[37] hidden items-center justify-center overflow-y-auto bg-slate-950/95 p-4 backdrop-blur-sm md:p-6">
+      <div class="my-auto w-full max-w-2xl rounded-3xl border border-sky-500/35 bg-gradient-to-br from-slate-900 to-sky-950/50 p-6 shadow-2xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs font-sem uppercase tracking-widest text-sky-300">Moderators</p>
+            <h3 class="mt-1 text-xl font-bold text-white">Suggestions</h3>
+            <p class="mt-1 text-[11px] text-slate-500">Dismiss a suggestion, or send it to the owner. The owner sees who wrote it and which moderator sent it.</p>
+          </div>
+          <button id="btnModSuggestionsClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <p id="modSuggestionErr" class="mt-3 hidden rounded-lg border border-rose-500/40 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"></p>
+        <ul id="modSuggestionList" class="mt-4 max-h-[55vh] list-none space-y-3 overflow-y-auto p-0"></ul>
+      </div>
+    </div>
+
     <div id="screenOwnerAdmin" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4 backdrop-blur-md md:p-8">
       <div class="my-auto w-full max-w-2xl rounded-3xl border border-rose-500/40 bg-gradient-to-br from-slate-900 to-rose-950/40 p-6 shadow-2xl max-h-[min(96vh,56rem)] overflow-y-auto">
         <div class="flex items-start justify-between gap-3">
@@ -975,6 +1025,12 @@
             <p class="mt-1 text-[11px] text-slate-500">Disable limits levels and racing. Delete is permanent (email confirmation required). A transfer copies data onto another account and leaves the original in place.</p>
           </div>
           <button id="btnOwnerAdminClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <div class="mt-4 rounded-2xl border border-sky-500/30 bg-slate-950/50 p-4 text-left">
+          <p class="text-[11px] font-sem text-sky-200">Suggestions sent to you</p>
+          <p class="mt-1 text-[11px] text-slate-500">Moderators dismiss the rest. These are the ones a moderator chose to send. Each line shows who suggested it and which moderator sent it.</p>
+          <p id="ownerSuggestionErr" class="mt-2 hidden text-xs text-rose-300"></p>
+          <ul id="ownerSuggestionList" class="mt-2 max-h-64 list-none space-y-2 overflow-y-auto p-0"></ul>
         </div>
         <label class="mt-4 block text-[11px] text-slate-500">Target username</label>
         <input id="ownerAdminUsername" type="text" maxlength="24" autocomplete="off" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="exact username" />
@@ -2372,7 +2428,9 @@ end;</pre>
   <script src="js/skyhop-race.js"></script>
   <script src="js/skyhop-tos.js"></script>
   <script type="module" src="js/skyhop-profanity.js"></script>
+  <script src="js/skyhop-i18n.js"></script>
   <script src="js/skyhop-account.js"></script>
+  <script src="js/skyhop-suggestions.js"></script>
   <script src="js/skyhop-custom-worlds.js"></script>
   <script src="js/skyhop-staff-feature-list.js"></script>
   <script src="js/skyhop-leaderboard.js"></script>

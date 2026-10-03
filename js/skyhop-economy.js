@@ -191,23 +191,39 @@
             (mine.ticker ? ' · ' + mine.ticker : '')
         )
       );
-      var price = field('Share price in dollars', mine.shareExact);
+      var quoteLocked = mine.quoteLocked !== false;
+      var price = field(quoteLocked ? 'Share price in dollars' : 'Opening price in dollars', mine.shareExact);
       var listed = field('Shares listed for sale', mine.listed);
       var ticker = field('Ticker', mine.ticker || '', 'text');
       ticker.input.maxLength = 5;
       ticker.input.placeholder = '1–5 letters or numbers';
+      if (quoteLocked) {
+        price.input.disabled = true;
+        ticker.input.disabled = true;
+        price.input.className += ' cursor-not-allowed opacity-50';
+        ticker.input.className += ' cursor-not-allowed opacity-50';
+      }
       card.appendChild(price.wrap);
       card.appendChild(listed.wrap);
       card.appendChild(ticker.wrap);
+      card.appendChild(
+        el(
+          'p',
+          'mt-1 text-[11px] text-slate-500',
+          quoteLocked
+            ? 'The price and ticker are set. Only the market moves the price from here. You can still change how many shares are listed.'
+            : 'You can set the opening price and ticker once. After you save them, only the market moves the price. Listed shares stay editable.'
+        )
+      );
       var row = el('div', 'mt-2 flex flex-wrap gap-2');
       row.appendChild(
         button('Save shares', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-          post('/api/economy/company', {
-            companyId: mine.id,
-            sharePrice: Number(price.input.value),
-            listed: Number(listed.input.value),
-            ticker: ticker.input.value,
-          });
+          var payload = { companyId: mine.id, listed: Number(listed.input.value) };
+          if (!quoteLocked) {
+            payload.sharePrice = Number(price.input.value);
+            payload.ticker = ticker.input.value;
+          }
+          post('/api/economy/company', payload);
         })
       );
       row.appendChild(
