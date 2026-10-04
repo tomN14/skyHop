@@ -13,7 +13,6 @@ const NATIONAL_LOAN = 0.1432;
 const NATIONAL_SAVE = 0.012;
 const NATIONAL_ACCOUNT_CAP = 10_000_000;
 const NATIONAL_ACCOUNT_LIMIT = 5;
-const BANKRUPT_AT = -500;
 const SHARE_COUNT = 1000;
 const HEIST_PRIVATE = 0.0004;
 const HEIST_NATIONAL = 0.00016;
@@ -355,6 +354,21 @@ function controlsCompany(state, company, userId) {
 
 function myCompanies(state, userId) {
   return state.companies.filter((c) => controlsCompany(state, c, userId));
+}
+
+export async function describeSiteHost(store, user, hostType, hostId) {
+  const state = await loadState(store);
+  if (hostType === 'company') {
+    const company = companyById(state, hostId);
+    if (!company || !controlsCompany(state, company, user.id)) throw new Error('You do not run that company.');
+    return { hostType: 'company', hostId: company.id, hostName: company.name };
+  }
+  if (hostType === 'organization') {
+    const org = orgById(state, hostId);
+    if (!isOrgMember(org, user.id)) throw new Error('You are not in that organization.');
+    return { hostType: 'organization', hostId: org.id, hostName: org.name };
+  }
+  throw new Error('Pick a company or an organization.');
 }
 
 function ownedCompany(state, userId, companyId) {
@@ -702,7 +716,9 @@ async function applyWeek(store, state) {
 
   for (const c of state.companies) {
     if (!c.alive || c.sovereign) continue;
-    if (c.weekProfit < BANKRUPT_AT) {
+    const opened = c.openedWeek == null ? null : Number(c.openedWeek);
+    const firstWeek = opened != null && opened >= Number(state.weekId);
+    if (Math.floor(Number(c.cash) || 0) <= 0 && !firstWeek) {
       addTax(state, Math.max(0, Math.floor(Number(c.cash) || 0)));
       c.cash = 0;
       c.shares = {};
@@ -759,7 +775,6 @@ function present(state, user, people) {
       taxRate: TAX_RATE,
       nationalLoan: nationalLoan(state),
       nationalSave: nationalSave(state),
-      bankruptAt: BANKRUPT_AT,
       shares: SHARE_COUNT,
       heistPrivate: HEIST_PRIVATE,
       heistNational: HEIST_NATIONAL,
@@ -927,6 +942,7 @@ export async function registerCompany(store, user, { name, kind, organizationId 
       organizationId: organizationId ? String(organizationId) : '',
       organizationName,
       cash: 0,
+      openedWeek: state.weekId,
       isPublic: false,
       sharePrice: Math.round(opened),
       shareExact: opened,
@@ -1189,6 +1205,7 @@ export async function seedRandomCompanies(store, user) {
         ownerId: uid(user.id),
         ownerName: user.username,
         cash: 0,
+        openedWeek: state.weekId,
         isPublic: true,
         sharePrice: Math.round(opened),
         shareExact: opened,

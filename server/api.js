@@ -19,6 +19,7 @@ import * as ShopItems from './shop-items.js';
 import * as CustomWorlds from './custom-worlds.js';
 import { store } from './store.js';
 import * as Economy from './economy.js';
+import * as Sites from './sites.js';
 import * as Suggestions from './suggestions.js';
 import * as UserLevels from './user-levels.js';
 import * as Recordings from './recordings.js';
@@ -5064,6 +5065,53 @@ export async function handleApi(req, res) {
     try {
       const name = censorProfanity(String(body.name || '')).text;
       json(res, 200, await Economy.registerCompany(store, sess.user, { name, kind: body.kind, organizationId: body.organizationId || '' }));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/sites' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    const hostType = String(u.searchParams.get('hostType') || '');
+    const hostId = String(u.searchParams.get('hostId') || '');
+    try {
+      json(res, 200, await Sites.listSites(store, sess.user, hostType, hostId));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/sites' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const name = censorProfanity(String(body.name || '')).text;
+      if (body.action === 'delete') {
+        json(res, 200, await Sites.deleteSite(store, sess.user, { name, hostType: body.hostType, hostId: body.hostId }));
+      } else {
+        json(res, 200, await Sites.deploySite(store, sess.user, {
+          name,
+          hostType: body.hostType,
+          hostId: body.hostId,
+          files: body.files,
+        }));
+      }
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

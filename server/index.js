@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import './env.js';
 import { warnIfPasswordPepperMissing } from './password.js';
 import { handleApi } from './api.js';
+import { servePublishedSite } from './sites.js';
 import { store } from './store.js';
 import { effectiveRole, hasAdminPowers, isAccountDisabled, isStaffRole } from './moderation.js';
 import { recordVisit } from './visit-stats.js';
@@ -166,6 +167,7 @@ const server = http.createServer((req, res) => {
         return;
       }
     }
+    if (await servePublishedSite(req, res, reqPath)) return;
     if (await serveStatic(req, res, reqPath)) {
       if (req.method === 'GET' && (reqPath === '/' || reqPath === '/index.html')) {
         void recordVisit().catch(() => {});

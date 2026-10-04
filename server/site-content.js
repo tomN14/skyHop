@@ -91,7 +91,8 @@ const FEATURE_LIST_FINANCIAL = `
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
             <li>You can start up to 10 organizations from the button above SHNB, invite players, and co-found a company with one. You can still start a company on your own</li>
             <li>A company can be bought when both sides agree on a price. Offers go back and forth until someone accepts or exits, and the coins go to the founders</li>
-            <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
+            <li>A company or an organization can publish 3 sites. Each site is up to 300 KB of HTML, CSS, and JavaScript, and pictures are links</li>
+            <li>A company that finishes a week with 0 cash is closed, after its first week. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
           </ul>`;
 
 const OLD_FINANCIAL_LI = [
@@ -145,6 +146,18 @@ function withFinancialSection(html) {
       htmlNext = htmlNext.slice(0, liAt) + '<li>' + orgLine + '</li>\n            <li>' + saleLine + '</li>\n            ' + htmlNext.slice(liAt);
     }
   }
+  const siteLine = 'A company or an organization can publish 3 sites. Each site is up to 300 KB of HTML, CSS, and JavaScript, and pictures are links';
+  if (htmlNext.includes('Financial systems') && !htmlNext.includes('can publish 3 sites')) {
+    const closeAt = htmlNext.indexOf('A company that finishes a week with 0 cash');
+    const oldAt = closeAt === -1 ? htmlNext.indexOf('A company under −500 coins of weekly profit is closed.') : closeAt;
+    if (oldAt !== -1) {
+      const liAt = htmlNext.lastIndexOf('<li>', oldAt);
+      htmlNext = htmlNext.slice(0, liAt) + '<li>' + siteLine + '</li>\n            ' + htmlNext.slice(liAt);
+    }
+  }
+  const oldClose = 'A company under −500 coins of weekly profit is closed.';
+  const nextClose = 'A company that finishes a week with 0 cash is closed, after its first week.';
+  if (htmlNext.includes(oldClose)) htmlNext = htmlNext.split(oldClose).join(nextClose);
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';

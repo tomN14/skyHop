@@ -518,6 +518,7 @@
           post('/api/economy/company/delete', { companyId: mine.id });
         })
       );
+      mountSiteEditor(card, 'company', mine.id);
       ownedHost.appendChild(card);
     }
     if (yours.length === 1) paintMine(yours[0]);
@@ -1243,6 +1244,115 @@
     screen.classList.remove('flex');
   }
 
+  function mountSiteEditor(parent, hostType, hostId) {
+    var box = el('section', 'mt-4 rounded-xl border border-sky-500/25 p-3');
+    box.appendChild(el('h3', 'text-sm font-semibold text-white', 'Website'));
+    box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Up to 3 sites. 300 KB of HTML, CSS, and JavaScript. Pictures stay as links.'));
+    var msg = el('p', 'mt-2 text-xs text-slate-400', '');
+    box.appendChild(msg);
+    var list = el('div', '');
+    box.appendChild(list);
+    var name = field('Website name', '', 'text');
+    name.input.maxLength = 64;
+    name.input.placeholder = 'newcompany.com';
+    var filesHost = el('div', '');
+    var fileRows = [];
+    function addFile(pathValue, content) {
+      var row = el('div', 'mt-2 rounded-lg border border-white/10 p-2');
+      var pathField = field('File path', pathValue || '', 'text');
+      pathField.input.placeholder = 'index.html';
+      pathField.input.maxLength = 120;
+      var body = document.createElement('textarea');
+      body.rows = 8;
+      body.className = 'mt-2 w-full rounded-lg border border-white/15 bg-slate-950 px-2 py-1.5 font-mono text-xs text-white';
+      body.value = content || '';
+      var remove = button('Remove file', 'mt-2 rounded-lg border border-white/15 px-2 py-1 text-[11px] text-slate-300', function () {
+        if (fileRows.length < 2) return;
+        row.remove();
+        fileRows = fileRows.filter(function (item) { return item.row !== row; });
+      });
+      row.appendChild(pathField.wrap);
+      row.appendChild(body);
+      row.appendChild(remove);
+      filesHost.appendChild(row);
+      fileRows.push({ row: row, path: pathField.input, body: body });
+    }
+    function resetFiles(files) {
+      filesHost.textContent = '';
+      fileRows = [];
+      var source = files && files.length ? files : [{ path: 'index.html', content: '<!DOCTYPE html>\n<html>\n<head><meta charset="utf-8"><title>Site</title></head>\n<body>\n  <h1>Hello</h1>\n</body>\n</html>\n' }];
+      source.forEach(function (file) { addFile(file.path, file.content); });
+    }
+    box.appendChild(name.wrap);
+    box.appendChild(filesHost);
+    var actions = el('div', 'mt-2 flex flex-wrap gap-2');
+    actions.appendChild(button('Add file', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+      addFile('style.css', '');
+    }));
+    actions.appendChild(button('Deploy', 'rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+      msg.textContent = '';
+      msg.className = 'mt-2 text-xs text-slate-400';
+      var files = fileRows.map(function (item) { return { path: item.path.value, content: item.body.value }; });
+      api('/api/sites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.input.value, hostType: hostType, hostId: hostId, files: files }),
+      }).then(function () {
+        msg.textContent = 'Deployed.';
+        msg.className = 'mt-2 text-xs text-emerald-200';
+        load();
+      }).catch(function (e) {
+        msg.textContent = String(e.message || e);
+        msg.className = 'mt-2 text-xs text-rose-300';
+      });
+    }));
+    box.appendChild(actions);
+    function paint(data) {
+      list.textContent = '';
+      (data.sites || []).forEach(function (site) {
+        var row = el('div', 'mt-2 rounded-lg border border-white/10 p-2');
+        var link = document.createElement('a');
+        link.href = '/' + site.name + '/';
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.className = 'text-sm text-sky-300';
+        link.textContent = '/' + site.name + '/';
+        row.appendChild(link);
+        var buttons = el('div', 'mt-2 flex gap-2');
+        buttons.appendChild(button('Edit', 'rounded-lg border border-white/15 px-2 py-1 text-[11px] text-slate-200', function () {
+          name.input.value = site.name;
+          resetFiles(site.files);
+        }));
+        buttons.appendChild(button('Delete site', 'rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] text-rose-200', function () {
+          api('/api/sites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', name: site.name, hostType: hostType, hostId: hostId }),
+          }).then(function () {
+            if (name.input.value.trim().toLowerCase() === site.name) resetFiles(null);
+            load();
+          }).catch(function (e) {
+            msg.textContent = String(e.message || e);
+            msg.className = 'mt-2 text-xs text-rose-300';
+          });
+        }));
+        row.appendChild(buttons);
+        list.appendChild(row);
+      });
+    }
+    function load() {
+      api('/api/sites?hostType=' + encodeURIComponent(hostType) + '&hostId=' + encodeURIComponent(hostId), { method: 'GET' })
+        .then(paint)
+        .catch(function (e) {
+          msg.textContent = String(e.message || e);
+          msg.className = 'mt-2 text-xs text-rose-300';
+        });
+    }
+    resetFiles(null);
+    parent.appendChild(box);
+    load();
+  }
+
   function paintOrgBadge(data) {
     var badge = document.getElementById('orgInviteBadge');
     if (!badge) return;
@@ -1316,6 +1426,7 @@
           })
         );
       }
+      mountSiteEditor(card, 'organization', org.id);
       return card;
     }
     function paintOrgList(query) {
