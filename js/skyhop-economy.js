@@ -177,16 +177,27 @@
       orgCard.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Co-founders can run this company together. You still pay the 1,000 coin registration.'));
       var orgName = field('Name', '', 'text');
       orgName.input.maxLength = 24;
-      var orgPick = el('label', 'mt-2 block text-[11px] text-slate-500', 'Organization');
-      var orgSelect = document.createElement('select');
-      orgSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-      orgs.forEach(function (org) {
-        var opt = document.createElement('option');
-        opt.value = org.id;
-        opt.textContent = org.name;
-        orgSelect.appendChild(opt);
-      });
-      orgPick.appendChild(orgSelect);
+      var pickedOrgId = orgs.length === 1 ? orgs[0].id : '';
+      var orgPick = null;
+      var orgSelect = null;
+      var orgSearch = null;
+      if (orgs.length >= 2) {
+        orgSearch = field('Find an organization', '', 'text');
+        orgSearch.input.maxLength = 24;
+        orgSearch.input.autocomplete = 'off';
+        orgSearch.input.placeholder = 'Type a name';
+      } else {
+        orgPick = el('label', 'mt-2 block text-[11px] text-slate-500', 'Organization');
+        orgSelect = document.createElement('select');
+        orgSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+        orgs.forEach(function (org) {
+          var opt = document.createElement('option');
+          opt.value = org.id;
+          opt.textContent = org.name;
+          orgSelect.appendChild(opt);
+        });
+        orgPick.appendChild(orgSelect);
+      }
       var orgKind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
       var orgKindSelect = document.createElement('select');
       orgKindSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
@@ -198,11 +209,55 @@
       });
       orgKind.appendChild(orgKindSelect);
       orgCard.appendChild(orgName.wrap);
-      orgCard.appendChild(orgPick);
+      if (orgSearch) {
+        var orgHits = el('div', 'mt-1 max-h-40 overflow-y-auto rounded-lg border border-white/10');
+        function paintOrgHits() {
+          orgHits.textContent = '';
+          var q = orgSearch.input.value.trim().toLowerCase();
+          if (!q) {
+            pickedOrgId = '';
+            orgHits.appendChild(el('p', 'px-2 py-1.5 text-[11px] text-slate-500', 'Type an organization name.'));
+            return;
+          }
+          var hits = orgs.filter(function (org) {
+            return String(org.name || '').toLowerCase().indexOf(q) !== -1;
+          });
+          if (!hits.length) {
+            pickedOrgId = '';
+            orgHits.appendChild(el('p', 'px-2 py-1.5 text-[11px] text-slate-500', 'No organization matches.'));
+            return;
+          }
+          if (hits.length === 1 && String(hits[0].name || '').toLowerCase() === q) pickedOrgId = hits[0].id;
+          hits.forEach(function (org) {
+            var chosen = org.id === pickedOrgId;
+            orgHits.appendChild(
+              button(org.name, 'block w-full px-2 py-1.5 text-left text-sm ' + (chosen ? 'bg-sky-900 text-white' : 'text-slate-200 hover:bg-slate-800'), function () {
+                pickedOrgId = org.id;
+                orgSearch.input.value = org.name;
+                paintOrgHits();
+              })
+            );
+          });
+        }
+        orgSearch.input.addEventListener('input', function () {
+          pickedOrgId = '';
+          paintOrgHits();
+        });
+        orgCard.appendChild(orgSearch.wrap);
+        orgCard.appendChild(orgHits);
+        paintOrgHits();
+      } else {
+        orgCard.appendChild(orgPick);
+      }
       orgCard.appendChild(orgKind);
       orgCard.appendChild(
         button('Register for the organization', 'mt-3 rounded-xl bg-sky-700 px-3 py-2 text-sm font-semibold text-white', function () {
-          post('/api/economy/register', { name: orgName.input.value, kind: orgKindSelect.value, organizationId: orgSelect.value });
+          var organizationId = orgSelect ? orgSelect.value : pickedOrgId;
+          if (!organizationId) {
+            setMsg('Type an organization name.', true);
+            return;
+          }
+          post('/api/economy/register', { name: orgName.input.value, kind: orgKindSelect.value, organizationId: organizationId });
         })
       );
       body.appendChild(orgCard);
@@ -1233,7 +1288,9 @@
       card.appendChild(row);
       body.appendChild(card);
     });
-    (data.organizations || []).forEach(function (org) {
+    var orgs = data.organizations || [];
+    var orgList = el('div', '');
+    function orgCard(org) {
       var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
       card.appendChild(el('h3', 'text-sm font-semibold text-white', org.name));
       card.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', (org.youFounded ? 'You founded it. ' : '') + 'Members: ' + (org.members || []).join(', ')));
@@ -1259,8 +1316,40 @@
           })
         );
       }
-      body.appendChild(card);
-    });
+      return card;
+    }
+    function paintOrgList(query) {
+      orgList.textContent = '';
+      var q = String(query || '').trim().toLowerCase();
+      var shown = orgs.filter(function (org) {
+        if (orgs.length < 2) return true;
+        return q && String(org.name || '').toLowerCase().indexOf(q) !== -1;
+      });
+      if (orgs.length >= 2 && !q) {
+        orgList.appendChild(el('p', 'mt-3 text-[11px] text-slate-500', 'Type an organization name.'));
+        return;
+      }
+      if (!shown.length) {
+        orgList.appendChild(el('p', 'mt-3 text-[11px] text-slate-500', 'No organization matches.'));
+        return;
+      }
+      shown.forEach(function (org) {
+        orgList.appendChild(orgCard(org));
+      });
+    }
+    if (orgs.length >= 2) {
+      var orgFind = field('Find an organization', '', 'text');
+      orgFind.input.maxLength = 24;
+      orgFind.input.autocomplete = 'off';
+      orgFind.input.placeholder = 'Type a name';
+      orgFind.wrap.className += ' mt-4';
+      orgFind.input.addEventListener('input', function () {
+        paintOrgList(orgFind.input.value);
+      });
+      body.appendChild(orgFind.wrap);
+    }
+    body.appendChild(orgList);
+    paintOrgList('');
   }
 
   function refreshOrgBadge() {
