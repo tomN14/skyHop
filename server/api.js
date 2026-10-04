@@ -14,6 +14,7 @@ import {
 } from './owner-delete.js';
 import { copyAccountData, consumeTransferToken, createTransferToken, peekTransferToken } from './account-transfer.js';
 import { sendOwnerMail } from './mail.js';
+import * as OwnerGate from './owner-login-gate.js';
 import * as ShopItems from './shop-items.js';
 import * as CustomWorlds from './custom-worlds.js';
 import { store } from './store.js';
@@ -436,8 +437,89 @@ export async function handleApi(req, res) {
       json(res, 403, payload);
       return true;
     }
+    if (effectiveRole(fresh) === 'owner') {
+      try {
+        const gate = await OwnerGate.beginOwnerGate(store, fresh);
+        json(res, 200, {
+          ownerGate: true,
+          step: 'second',
+          challenge: gate.challenge,
+          needsSetup: gate.needsSetup,
+          username: fresh.username,
+        });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return true;
+    }
     const { token } = await store.createSession(user.id);
     json(res, 200, { token, username: user.username });
+    return true;
+  }
+
+  if (pathname === '/api/login/owner-second' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      await OwnerGate.submitSecondPassword(store, body.challenge, body.secondPassword, body.confirm);
+      json(res, 200, { ownerGate: true, step: 'otp' });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/login/owner-otp' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const passed = await OwnerGate.submitOwnerOtp(store, body.challenge, body.code);
+      const user = await store.findUserById(passed.userId);
+      if (!user || effectiveRole(user) !== 'owner') {
+        json(res, 401, { error: 'Sign in again. This step expired.' });
+        return true;
+      }
+      const { token } = await store.createSession(user.id);
+      json(res, 200, { token, username: user.username });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/second-password' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    if (effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Not allowed' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      await OwnerGate.changeSecondPassword(store, body.current, body.next);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
     return true;
   }
 

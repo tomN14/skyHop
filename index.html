@@ -560,6 +560,23 @@
             <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.password">Password</label>
             <input id="accLoginPass" type="password" autocomplete="current-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
             <button id="accBtnLogin" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500" data-i18n="acc.loginBtn">Log in</button>
+            <div id="accOwnerGate" class="hidden mt-4 space-y-2 border-t border-white/10 pt-3">
+              <p id="accOwnerGateHint" class="text-xs text-slate-400" data-i18n="acc.ownerSecondHint">Enter the second password for this owner account.</p>
+              <div id="accOwnerSecondWrap">
+                <label class="block text-[11px] text-slate-500" data-i18n="acc.ownerSecond">Second password</label>
+                <input id="accOwnerSecond" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+                <div id="accOwnerSecondConfirmWrap" class="hidden">
+                  <label class="mt-2 block text-[11px] text-slate-500" data-i18n="acc.ownerSecondConfirm">Confirm second password</label>
+                  <input id="accOwnerSecond2" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+                </div>
+                <button id="accOwnerSecondBtn" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500" data-i18n="acc.ownerContinue">Continue</button>
+              </div>
+              <div id="accOwnerOtpWrap" class="hidden">
+                <label class="block text-[11px] text-slate-500" data-i18n="acc.ownerCode">Email code</label>
+                <input id="accOwnerOtp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+                <button id="accOwnerOtpBtn" type="button" class="mt-3 w-full rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500" data-i18n="acc.ownerConfirmCode">Confirm code</button>
+              </div>
+            </div>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
             <p class="text-xs font-sem text-violet-300" data-i18n="acc.register">Register</p>
@@ -1025,6 +1042,16 @@
             <p class="mt-1 text-[11px] text-slate-500">Disable limits levels and racing. Delete is permanent (email confirmation required). A transfer copies data onto another account and leaves the original in place.</p>
           </div>
           <button id="btnOwnerAdminClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+        </div>
+        <div class="mt-4 rounded-2xl border border-violet-500/30 bg-slate-950/50 p-4 text-left">
+          <p class="text-[11px] font-sem text-violet-200">Owner second password</p>
+          <p class="mt-1 text-[11px] text-slate-500">Used after your normal password, before the email code. At least 8 characters. Leave the current field blank only if you have not set one yet.</p>
+          <label class="mt-3 block text-[11px] text-slate-500">Current second password</label>
+          <input id="ownerSecondCurrent" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+          <label class="mt-3 block text-[11px] text-slate-500">New second password</label>
+          <input id="ownerSecondNext" type="password" autocomplete="new-password" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" />
+          <button id="ownerBtnSecondPassword" type="button" class="mt-3 w-full rounded-xl border border-violet-500/50 bg-violet-950/50 px-4 py-2.5 text-sm font-semibold text-violet-100 hover:bg-violet-900/40">Save second password</button>
+          <p id="ownerSecondMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <div class="mt-4 rounded-2xl border border-sky-500/30 bg-slate-950/50 p-4 text-left">
           <p class="text-[11px] font-sem text-sky-200">Suggestions sent to you</p>

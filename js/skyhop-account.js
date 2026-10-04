@@ -1527,6 +1527,63 @@
       await refreshPanel();
     };
 
+    var ownerChallenge = '';
+    function trAcc(key, fallback) {
+      if (window.SkyHopI18n && typeof window.SkyHopI18n.t === 'function') return window.SkyHopI18n.t(key, fallback);
+      return fallback;
+    }
+    function hideOwnerGate() {
+      ownerChallenge = '';
+      var gate = document.getElementById('accOwnerGate');
+      if (gate) gate.classList.add('hidden');
+      var second = document.getElementById('accOwnerSecond');
+      var second2 = document.getElementById('accOwnerSecond2');
+      var otp = document.getElementById('accOwnerOtp');
+      if (second) second.value = '';
+      if (second2) second2.value = '';
+      if (otp) otp.value = '';
+    }
+    async function finishLogin(data) {
+      bumpAuthRefresh();
+      setAuth(data.token, data.username);
+      if (inpLoginPass) inpLoginPass.value = '';
+      hideOwnerGate();
+      if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
+        window.SkyHopTosClearSessionAcceptance();
+      }
+      await refreshPanel();
+    }
+    function showOwnerSecond(data) {
+      ownerChallenge = data.challenge || '';
+      var gate = document.getElementById('accOwnerGate');
+      var hint = document.getElementById('accOwnerGateHint');
+      var secondWrap = document.getElementById('accOwnerSecondWrap');
+      var confirmWrap = document.getElementById('accOwnerSecondConfirmWrap');
+      var otpWrap = document.getElementById('accOwnerOtpWrap');
+      if (gate) gate.classList.remove('hidden');
+      if (secondWrap) secondWrap.classList.remove('hidden');
+      if (otpWrap) otpWrap.classList.add('hidden');
+      if (confirmWrap) confirmWrap.classList.toggle('hidden', !data.needsSetup);
+      var key = data.needsSetup ? 'acc.ownerSecondSetup' : 'acc.ownerSecondHint';
+      if (hint) {
+        hint.setAttribute('data-i18n', key);
+        hint.textContent = trAcc(key, hint.textContent);
+      }
+    }
+    function showOwnerOtp() {
+      var hint = document.getElementById('accOwnerGateHint');
+      var secondWrap = document.getElementById('accOwnerSecondWrap');
+      var otpWrap = document.getElementById('accOwnerOtpWrap');
+      if (secondWrap) secondWrap.classList.add('hidden');
+      if (otpWrap) otpWrap.classList.remove('hidden');
+      if (hint) {
+        hint.setAttribute('data-i18n', 'acc.ownerOtpHint');
+        hint.textContent = trAcc('acc.ownerOtpHint', hint.textContent);
+      }
+      var otp = document.getElementById('accOwnerOtp');
+      if (otp) otp.focus();
+    }
+
     if (btnLogin) {
       btnLogin.addEventListener('click', async function () {
         setErr('');
@@ -1544,18 +1601,69 @@
               password: loginPass,
             }),
           });
-          bumpAuthRefresh();
-          setAuth(data.token, data.username);
-          if (inpLoginPass) inpLoginPass.value = '';
-          if (typeof window.SkyHopTosClearSessionAcceptance === 'function') {
-            window.SkyHopTosClearSessionAcceptance();
+          if (data && data.ownerGate) {
+            if (inpLoginPass) inpLoginPass.value = '';
+            showOwnerSecond(data);
+            return;
           }
-          await refreshPanel();
+          await finishLogin(data);
         } catch (e) {
           if (e.skyhop && e.skyhop.banned) {
             showBanScreen(e.skyhop, { username: loginUser, password: loginPass });
             return;
           }
+          setErr(String(e.message || e));
+        }
+      });
+    }
+
+    var ownerSecondBtn = document.getElementById('accOwnerSecondBtn');
+    if (ownerSecondBtn) {
+      ownerSecondBtn.addEventListener('click', async function () {
+        setErr('');
+        var pass = document.getElementById('accOwnerSecond');
+        var pass2 = document.getElementById('accOwnerSecond2');
+        if (!ownerChallenge) {
+          setErr('Sign in with your username and password first.');
+          return;
+        }
+        try {
+          await api('/api/login/owner-second', {
+            method: 'POST',
+            body: JSON.stringify({
+              challenge: ownerChallenge,
+              secondPassword: pass ? pass.value : '',
+              confirm: pass2 ? pass2.value : '',
+            }),
+          });
+          if (pass) pass.value = '';
+          if (pass2) pass2.value = '';
+          showOwnerOtp();
+        } catch (e) {
+          setErr(String(e.message || e));
+        }
+      });
+    }
+
+    var ownerOtpBtn = document.getElementById('accOwnerOtpBtn');
+    if (ownerOtpBtn) {
+      ownerOtpBtn.addEventListener('click', async function () {
+        setErr('');
+        var otp = document.getElementById('accOwnerOtp');
+        if (!ownerChallenge) {
+          setErr('Sign in with your username and password first.');
+          return;
+        }
+        try {
+          const data = await api('/api/login/owner-otp', {
+            method: 'POST',
+            body: JSON.stringify({
+              challenge: ownerChallenge,
+              code: otp ? otp.value : '',
+            }),
+          });
+          await finishLogin(data);
+        } catch (e) {
           setErr(String(e.message || e));
         }
       });
@@ -2966,6 +3074,38 @@
           setOwnerAdminMsg('Server campaign override cleared. Play uses the bundled files again.', false);
         } catch (e) {
           setOwnerAdminMsg(String(e.message || e), true);
+        }
+      });
+    }
+    var ownerBtnSecondPassword = document.getElementById('ownerBtnSecondPassword');
+    if (ownerBtnSecondPassword) {
+      ownerBtnSecondPassword.addEventListener('click', async function () {
+        var tok = getToken();
+        var me = window.__skyhopLastMe;
+        var msg = document.getElementById('ownerSecondMsg');
+        function say(text, bad) {
+          if (!msg) return;
+          msg.textContent = text;
+          msg.classList.remove('hidden', 'text-rose-300', 'text-emerald-200');
+          msg.classList.add(bad ? 'text-rose-300' : 'text-emerald-200');
+        }
+        if (!tok || !me || me.role !== 'owner') return;
+        var current = document.getElementById('ownerSecondCurrent');
+        var next = document.getElementById('ownerSecondNext');
+        try {
+          await api('/api/owner/second-password', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + tok },
+            body: JSON.stringify({
+              current: current ? current.value : '',
+              next: next ? next.value : '',
+            }),
+          });
+          if (current) current.value = '';
+          if (next) next.value = '';
+          say('Second password saved.', false);
+        } catch (e) {
+          say(String(e.message || e), true);
         }
       });
     }

@@ -2,7 +2,7 @@
  * Owner notification email (account deletion confirm). Uses Resend HTTP API if configured.
  */
 
-export async function sendOwnerMail({ to, subject, html, text }) {
+export async function sendOwnerMail({ to, subject, html, text, allowLog = true }) {
   const apiKey = process.env.SKYHOP_RESEND_API_KEY || process.env.RESEND_API_KEY;
   const from = process.env.SKYHOP_MAIL_FROM || 'Sky Hop <onboarding@resend.dev>';
   if (!to) throw new Error('No owner email configured (SKYHOP_OWNER_EMAIL).');
@@ -30,6 +30,7 @@ export async function sendOwnerMail({ to, subject, html, text }) {
     return { ok: true, via: 'resend' };
   }
 
+  if (!allowLog) throw new Error('Email is not configured (SKYHOP_RESEND_API_KEY).');
   console.warn('[Sky Hop mail] No SKYHOP_RESEND_API_KEY — deletion link logged below.');
   console.warn('[Sky Hop mail]', subject);
   console.warn(text);
