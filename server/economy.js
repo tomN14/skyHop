@@ -1111,8 +1111,16 @@ export async function respondCompanySale(store, user, saleId, action, price) {
       const buyerUser = buyer ? user : await store.findUserById(sale.buyerId);
       if (!buyerUser) throw new Error('That buyer is gone.');
       await chargeWallet(store, buyerUser, sale.price);
-      if (!isOwnerUser(buyerUser)) await paySale(store, state, company, sale.price);
-      company.ownerId = uid(buyerUser.id);
+      await paySale(store, state, company, sale.price);
+      if (!company.shares || typeof company.shares !== 'object') company.shares = {};
+      const fromId = uid(company.ownerId);
+      const toId = uid(buyerUser.id);
+      const held = sharesOf(company, fromId);
+      if (fromId !== toId && held > 0) {
+        company.shares[toId] = sharesOf(company, toId) + held;
+        delete company.shares[fromId];
+      }
+      company.ownerId = toId;
       company.ownerName = buyerUser.username;
       company.organizationId = '';
       company.organizationName = '';
