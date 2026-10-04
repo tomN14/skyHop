@@ -169,6 +169,105 @@
       })
     );
     body.appendChild(card);
+    paintOrgBadge(data);
+    var orgs = data.organizations || [];
+    if (orgs.length) {
+      var orgCard = el('section', 'mt-4 rounded-2xl border border-sky-500/30 bg-slate-900/60 p-4');
+      orgCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Start a company with an organization'));
+      orgCard.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Co-founders can run this company together. You still pay the 1,000 coin registration.'));
+      var orgName = field('Name', '', 'text');
+      orgName.input.maxLength = 24;
+      var orgPick = el('label', 'mt-2 block text-[11px] text-slate-500', 'Organization');
+      var orgSelect = document.createElement('select');
+      orgSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+      orgs.forEach(function (org) {
+        var opt = document.createElement('option');
+        opt.value = org.id;
+        opt.textContent = org.name;
+        orgSelect.appendChild(opt);
+      });
+      orgPick.appendChild(orgSelect);
+      var orgKind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
+      var orgKindSelect = document.createElement('select');
+      orgKindSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
+      ['racing', 'bank', 'insurance'].forEach(function (k) {
+        var opt = document.createElement('option');
+        opt.value = k;
+        opt.textContent = k === 'racing' ? 'Racing company' : k === 'bank' ? 'Bank' : 'Insurance company';
+        orgKindSelect.appendChild(opt);
+      });
+      orgKind.appendChild(orgKindSelect);
+      orgCard.appendChild(orgName.wrap);
+      orgCard.appendChild(orgPick);
+      orgCard.appendChild(orgKind);
+      orgCard.appendChild(
+        button('Register for the organization', 'mt-3 rounded-xl bg-sky-700 px-3 py-2 text-sm font-semibold text-white', function () {
+          post('/api/economy/register', { name: orgName.input.value, kind: orgKindSelect.value, organizationId: orgSelect.value });
+        })
+      );
+      body.appendChild(orgCard);
+    }
+    var buyCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    buyCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Buy a company'));
+    buyCard.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Offer a price. The founders can accept, exit, or name the price they would take. You can do the same with their price. It ends when someone accepts or exits. Accepted coins go to the founders.'));
+    var buyChoices = (data.companies || []).filter(function (c) {
+      return !c.sovereign && !(data.yourCompanies || []).some(function (mine) { return mine.id === c.id; });
+    });
+    var buyName = field('Company name or ticker', '', 'text');
+    buyName.input.maxLength = 24;
+    buyName.input.placeholder = 'Name or ticker';
+    var buyPrice = field('Your price in coins', 1000);
+    buyCard.appendChild(buyName.wrap);
+    buyCard.appendChild(buyPrice.wrap);
+    buyCard.appendChild(
+      button('Offer to buy', 'mt-3 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white', function () {
+        var q = buyName.input.value.trim().toLowerCase();
+        var match = buyChoices.filter(function (c) {
+          return c.name.toLowerCase() === q || String(c.ticker || '').toLowerCase() === q;
+        })[0];
+        if (!match) {
+          setMsg('No company matches that name or ticker.', true);
+          return;
+        }
+        post('/api/economy/company/sale', { action: 'offer', companyId: match.id, price: Number(buyPrice.input.value) });
+      })
+    );
+    (data.sales || []).forEach(function (sale) {
+      var row = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
+      var who = sale.offeredBy === 'buyer' ? sale.buyerName : 'the founders';
+      row.appendChild(el('p', 'text-xs text-slate-200', sale.companyName + ' · ' + commas(sale.price) + ' coins from ' + who));
+      row.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', sale.youAreBuyer ? 'You are buying.' : 'Someone wants to buy your company.'));
+      if (sale.yourTurn) {
+        var counter = field('Counter price', sale.price);
+        row.appendChild(counter.wrap);
+        var actions = el('div', 'mt-2 flex flex-wrap gap-2');
+        actions.appendChild(
+          button('Accept', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            post('/api/economy/company/sale', { action: 'accept', saleId: sale.id });
+          })
+        );
+        actions.appendChild(
+          button('Counter', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+            post('/api/economy/company/sale', { action: 'counter', saleId: sale.id, price: Number(counter.input.value) });
+          })
+        );
+        actions.appendChild(
+          button('Exit', 'rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
+            post('/api/economy/company/sale', { action: 'exit', saleId: sale.id });
+          })
+        );
+        row.appendChild(actions);
+      } else {
+        row.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Waiting on the other side. You can still exit.'));
+        row.appendChild(
+          button('Exit', 'mt-2 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
+            post('/api/economy/company/sale', { action: 'exit', saleId: sale.id });
+          })
+        );
+      }
+      buyCard.appendChild(row);
+    });
+    body.appendChild(buyCard);
     var ownedHost = el('div', '');
     body.appendChild(ownedHost);
     function paintMine(mine) {
@@ -193,7 +292,8 @@
             (mine.isPublic ? 'public' : 'private') +
             ' · ' +
             money(mine.shareExact) +
-            (mine.ticker ? ' · ' + mine.ticker : '')
+            (mine.ticker ? ' · ' + mine.ticker : '') +
+            (mine.organizationName ? ' · ' + mine.organizationName : '')
         )
       );
       var quoteLocked = mine.quoteLocked !== false;
@@ -1088,6 +1188,88 @@
     screen.classList.remove('flex');
   }
 
+  function paintOrgBadge(data) {
+    var badge = document.getElementById('orgInviteBadge');
+    if (!badge) return;
+    var n = data && data.invites ? data.invites.length : 0;
+    badge.textContent = n > 9 ? '9+' : String(n);
+    badge.classList.toggle('hidden', n < 1);
+  }
+
+  function renderOrganizations(data) {
+    var body = document.getElementById('orgBody');
+    if (!body) return;
+    body.textContent = '';
+    paintOrgBadge(data);
+    var msg = el('p', 'text-sm text-slate-400', '');
+    msg.id = 'orgMsg';
+    body.appendChild(msg);
+    var start = el('section', 'rounded-2xl border border-sky-500/30 bg-slate-900/60 p-4');
+    start.appendChild(el('h3', 'text-sm font-semibold text-white', 'Start an organization'));
+    start.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'You start with none. You can found up to 10. Invited members do not use one of your 10.'));
+    var name = field('Name', '', 'text');
+    name.input.maxLength = 24;
+    start.appendChild(name.wrap);
+    start.appendChild(
+      button('Start organization', 'mt-3 rounded-xl bg-sky-700 px-3 py-2 text-sm font-semibold text-white', function () {
+        post('/api/economy/organization', { action: 'create', name: name.input.value }, renderOrganizations, 'orgMsg');
+      })
+    );
+    body.appendChild(start);
+    (data.invites || []).forEach(function (invite) {
+      var card = el('section', 'mt-4 rounded-2xl border border-amber-400/40 bg-slate-900/70 p-4');
+      card.appendChild(el('p', 'text-sm text-amber-100', invite.fromName + ' invited you to ' + invite.organizationName));
+      var row = el('div', 'mt-2 flex gap-2');
+      row.appendChild(
+        button('Accept', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/organization', { action: 'accept', inviteId: invite.id }, renderOrganizations, 'orgMsg');
+        })
+      );
+      row.appendChild(
+        button('Refuse', 'rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200', function () {
+          post('/api/economy/organization', { action: 'refuse', inviteId: invite.id }, renderOrganizations, 'orgMsg');
+        })
+      );
+      card.appendChild(row);
+      body.appendChild(card);
+    });
+    (data.organizations || []).forEach(function (org) {
+      var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+      card.appendChild(el('h3', 'text-sm font-semibold text-white', org.name));
+      card.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', (org.youFounded ? 'You founded it. ' : '') + 'Members: ' + (org.members || []).join(', ')));
+      var invite = field('Invite a player', '', 'text');
+      invite.input.maxLength = 24;
+      invite.input.placeholder = 'Username';
+      card.appendChild(invite.wrap);
+      card.appendChild(
+        button('Invite', 'mt-2 rounded-lg bg-sky-800 px-3 py-1.5 text-xs font-semibold text-white', function () {
+          post('/api/economy/organization', { action: 'invite', organizationId: org.id, username: invite.input.value }, renderOrganizations, 'orgMsg');
+        })
+      );
+      if (!org.youFounded) {
+        card.appendChild(
+          button('Leave', 'mt-2 ml-2 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+            post('/api/economy/organization', { action: 'leave', organizationId: org.id }, renderOrganizations, 'orgMsg');
+          })
+        );
+      } else {
+        card.appendChild(
+          button('Close organization', 'mt-2 ml-2 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
+            post('/api/economy/organization', { action: 'disband', organizationId: org.id }, renderOrganizations, 'orgMsg');
+          })
+        );
+      }
+      body.appendChild(card);
+    });
+  }
+
+  function refreshOrgBadge() {
+    if (!getToken()) return;
+    api('/api/economy', { method: 'GET' })
+      .then(paintOrgBadge)
+      .catch(function () {});
+  }
+
   function bind() {
     var fab = document.getElementById('btnEconomyFab');
     var close = document.getElementById('btnEconomyClose');
@@ -1113,6 +1295,12 @@
     if (insurersClose) insurersClose.addEventListener('click', function () { closePanel('screenInsurers'); });
     if (national) national.addEventListener('click', function () { openPanel('screenNational', 'nationalBody', renderNational); });
     if (nationalClose) nationalClose.addEventListener('click', function () { closePanel('screenNational'); });
+    var org = document.getElementById('btnOrgFab');
+    var orgClose = document.getElementById('btnOrgClose');
+    if (org) org.addEventListener('click', function () { openPanel('screenOrganizations', 'orgBody', renderOrganizations); });
+    if (orgClose) orgClose.addEventListener('click', function () { closePanel('screenOrganizations'); });
+    refreshOrgBadge();
+    setInterval(refreshOrgBadge, 20000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);

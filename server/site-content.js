@@ -89,6 +89,8 @@ const FEATURE_LIST_FINANCIAL = `
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
             <li>An 8% weekly tax funds the Sky Hop National Bank. The owner sets its deposit and loan rates from Account administration. They start at 1.2% on savings and 14.32% on loans. SHNB is the button above the level script guide. It has 7 billion shares, 2 billion listed, and opened at $135.52</li>
             <li>Sky Hop scores go from 300 to 850 and follow payments, debt, history, recent loans, and saving. The score is on the bank screen, on SHNB, in Account, and on the mod dashboard</li>
+            <li>You can start up to 10 organizations from the button above SHNB, invite players, and co-found a company with one. You can still start a company on your own</li>
+            <li>A company can be bought when both sides agree on a price. Offers go back and forth until someone accepts or exits, and the coins go to the founders</li>
             <li>A company under −500 coins of weekly profit is closed. Deleting a company makes its shares worthless. Bank heists are rare, and a failure is a 1-day ban</li>
           </ul>`;
 
@@ -133,6 +135,16 @@ function withFinancialSection(html) {
   const oldQuote = 'A public company has 1,000 shares and a ticker. You can buy, sell, short, and cover.';
   const nextQuote = 'A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover.';
   if (htmlNext.includes(oldQuote)) htmlNext = htmlNext.split(oldQuote).join(nextQuote);
+  const orgLine = 'You can start up to 10 organizations from the button above SHNB, invite players, and co-found a company with one. You can still start a company on your own';
+  const saleLine = 'A company can be bought when both sides agree on a price. Offers go back and forth until someone accepts or exits, and the coins go to the founders';
+  if (htmlNext.includes('Financial systems') && !htmlNext.includes(orgLine)) {
+    const anchor = 'A company under −500 coins of weekly profit is closed.';
+    const at = htmlNext.indexOf(anchor);
+    if (at !== -1) {
+      const liAt = htmlNext.lastIndexOf('<li>', at);
+      htmlNext = htmlNext.slice(0, liAt) + '<li>' + orgLine + '</li>\n            <li>' + saleLine + '</li>\n            ' + htmlNext.slice(liAt);
+    }
+  }
   if (htmlNext.includes('Financial systems')) return htmlNext;
   const out = stripOldFinancialBullets(htmlNext);
   const heading = 'Economy &amp; cosmetics</p>';

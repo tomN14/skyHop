@@ -99,9 +99,13 @@
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(24.25rem + env(safe-area-inset-bottom, 0px));
     }
-    #btnAdminBanFab {
+    #btnOrgFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
       bottom: calc(27.5rem + env(safe-area-inset-bottom, 0px));
+    }
+    #btnAdminBanFab {
+      left: max(0.75rem, env(safe-area-inset-left, 0px));
+      bottom: calc(30.75rem + env(safe-area-inset-bottom, 0px));
     }
     #btnCoinShopFab {
       left: max(0.75rem, env(safe-area-inset-left, 0px));
@@ -135,7 +139,8 @@
       #btnKeybindsFab { left: 3rem; bottom: calc(19.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnSplGuideFab { left: 3rem; bottom: calc(22.75rem + env(safe-area-inset-bottom, 0px)); }
       #btnNationalFab { left: 3rem; bottom: calc(26rem + env(safe-area-inset-bottom, 0px)); }
-      #btnAdminBanFab { left: 3rem; bottom: calc(29.25rem + env(safe-area-inset-bottom, 0px)); }
+      #btnOrgFab { left: 3rem; bottom: calc(29.25rem + env(safe-area-inset-bottom, 0px)); }
+      #btnAdminBanFab { left: 3rem; bottom: calc(32.5rem + env(safe-area-inset-bottom, 0px)); }
       #btnCoinShopFab { left: 3rem; bottom: calc(13rem + env(safe-area-inset-bottom, 0px)); }
       #btnPublicSessionsFab { left: 3rem; bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
       #btnRolePowersFab { left: calc(3rem + 3.5rem); bottom: calc(16.25rem + env(safe-area-inset-bottom, 0px)); }
@@ -2323,6 +2328,17 @@ end;</pre>
     <div id="insurersBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
   </div>
 
+  <div id="screenOrganizations" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-sky-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-sky-300">Organizations</p>
+        <h2 class="text-lg font-bold text-white">Co-found a company</h2>
+      </div>
+      <button id="btnOrgClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="orgBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
   <div id="screenNational" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
     <div class="flex shrink-0 items-center justify-between gap-3 border-b border-emerald-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
       <div>
@@ -2370,6 +2386,10 @@ end;</pre>
   <!-- Edge FABs live on body so position:fixed is always viewport-relative (avoid relative+fixed Tailwind clash). -->
   <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🚫</span>
+  </button>
+  <button id="btnOrgFab" type="button" title="Organizations" class="skyhop-edge-fab border border-sky-400/55 bg-slate-900/95 hover:bg-sky-950/80">
+    <span aria-hidden="true">🤝</span>
+    <span id="orgInviteBadge" class="absolute -right-1 -top-1 hidden min-w-4 rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white"></span>
   </button>
   <button id="btnNationalFab" type="button" title="Sky Hop National Bank" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🏛️</span>

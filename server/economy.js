@@ -43,6 +43,8 @@ function emptyState() {
     marks: {},
     bankMarks: {},
     credit: {},
+    organizations: [],
+    companySales: [],
   };
 }
 
@@ -96,6 +98,8 @@ async function loadState(store) {
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
   state.bankMarks = row.bankMarks && typeof row.bankMarks === 'object' ? row.bankMarks : {};
   state.credit = row.credit && typeof row.credit === 'object' ? row.credit : {};
+  state.organizations = Array.isArray(row.organizations) ? row.organizations : [];
+  state.companySales = Array.isArray(row.companySales) ? row.companySales : [];
   return state;
 }
 
@@ -334,8 +338,23 @@ function companyById(state, id) {
   return state.companies.find((c) => c.id === id && c.alive) || null;
 }
 
+function orgById(state, id) {
+  return (state.organizations || []).find((org) => org && org.id === id) || null;
+}
+
+function isOrgMember(org, userId) {
+  return !!(org && (org.members || []).some((member) => uid(member.id) === uid(userId)));
+}
+
+function controlsCompany(state, company, userId) {
+  if (!company || !company.alive || company.sovereign) return false;
+  if (uid(company.ownerId) === uid(userId)) return true;
+  if (!company.organizationId) return false;
+  return isOrgMember(orgById(state, company.organizationId), userId);
+}
+
 function myCompanies(state, userId) {
-  return state.companies.filter((c) => c.alive && uid(c.ownerId) === uid(userId));
+  return state.companies.filter((c) => controlsCompany(state, c, userId));
 }
 
 function ownedCompany(state, userId, companyId) {
@@ -765,7 +784,45 @@ function present(state, user, people) {
       },
     },
     yourCompanies: mine.map((c) => detailCompany(c, user, people, true)),
-    companies: state.companies.filter((c) => c.alive).map((c) => detailCompany(c, user, people, uid(c.ownerId) === me)),
+    companies: state.companies.filter((c) => c.alive).map((c) => detailCompany(c, user, people, controlsCompany(state, c, user.id))),
+    organizations: (state.organizations || [])
+      .filter((org) => isOrgMember(org, user.id))
+      .map((org) => ({
+        id: org.id,
+        name: org.name,
+        founderName: (org.members || []).find((member) => uid(member.id) === uid(org.founderId))?.username || 'player',
+        youFounded: uid(org.founderId) === me,
+        members: (org.members || []).map((member) => member.username),
+      })),
+    invites: (state.organizations || []).flatMap((org) =>
+      (org.invites || [])
+        .filter((invite) => uid(invite.userId) === me)
+        .map((invite) => ({
+          id: invite.id,
+          organizationId: org.id,
+          organizationName: org.name,
+          fromName: invite.fromName,
+        }))
+    ),
+    sales: (state.companySales || [])
+      .filter((sale) => {
+        const company = companyById(state, sale.companyId);
+        return company && (uid(sale.buyerId) === me || controlsCompany(state, company, user.id));
+      })
+      .map((sale) => {
+        const buyer = uid(sale.buyerId) === me;
+        const company = companyById(state, sale.companyId);
+        return {
+          id: sale.id,
+          companyId: sale.companyId,
+          companyName: company.name,
+          buyerName: sale.buyerName,
+          price: sale.price,
+          offeredBy: sale.offeredBy,
+          youAreBuyer: buyer,
+          yourTurn: buyer ? sale.turn === 'buyer' : sale.turn === 'seller',
+        };
+      }),
     loans: state.loans
       .filter((loan) => uid(loan.borrowerId) === me || (loan.borrowerType === 'company' && ownedIds.has(loan.borrowerId)))
       .map((loan) => ({
@@ -786,6 +843,7 @@ function detailCompany(c, user, people, ownerView) {
     ticker: c.ticker || '',
     kind: c.kind,
     ownerName: c.ownerName,
+    organizationName: c.organizationName || '',
     isPublic: !!c.isPublic,
     sharePrice: c.sharePrice,
     shareExact: Math.round((Number.isFinite(Number(c.shareExact)) ? Number(c.shareExact) : Math.max(0, Number(c.sharePrice) || 0)) * 100) / 100,
@@ -843,13 +901,19 @@ export async function receiveBankCoins(store, amount) {
   });
 }
 
-export async function registerCompany(store, user, { name, kind }) {
+export async function registerCompany(store, user, { name, kind, organizationId }) {
   const clean = String(name || '').trim().slice(0, 24);
   if (clean.length < 2) throw new Error('Company name must be 2–24 characters.');
   if (!['racing', 'bank', 'insurance'].includes(kind)) throw new Error('Pick a racing, bank, or insurance company.');
   return withState(store, async (state) => {
     if (state.companies.some((c) => c.alive && c.name.toLowerCase() === clean.toLowerCase())) {
       throw new Error('That company name is taken.');
+    }
+    let organizationName = '';
+    if (organizationId) {
+      const org = orgById(state, organizationId);
+      if (!isOrgMember(org, user.id)) throw new Error('You are not in that organization.');
+      organizationName = org.name;
     }
     await chargeWallet(store, user, REGISTER_COST);
     if (!isOwnerUser(user)) addTax(state, REGISTER_COST);
@@ -860,6 +924,8 @@ export async function registerCompany(store, user, { name, kind }) {
       kind,
       ownerId: uid(user.id),
       ownerName: user.username,
+      organizationId: organizationId ? String(organizationId) : '',
+      organizationName,
       cash: 0,
       isPublic: false,
       sharePrice: Math.round(opened),
@@ -889,6 +955,177 @@ export async function registerCompany(store, user, { name, kind }) {
     pushHistory(company, Date.now(), company.shareExact);
     state.companies.push(company);
     return present(state, user, await holders(store));
+  });
+}
+
+const ORG_CAP = 10;
+const SALE_MAX = 1_000_000_000_000;
+
+function offerPrice(amount) {
+  const n = Math.floor(Number(amount));
+  if (!Number.isFinite(n) || n < 1 || n > SALE_MAX) throw new Error('Enter a price from 1 to 1,000,000,000,000 coins.');
+  return n;
+}
+
+async function paySale(store, state, company, price) {
+  const org = company.organizationId ? orgById(state, company.organizationId) : null;
+  const members = org && org.members && org.members.length ? org.members : [{ id: company.ownerId }];
+  const share = Math.floor(price / members.length);
+  let leftover = price - share * members.length;
+  const founderId = org ? org.founderId : company.ownerId;
+  for (const member of members) {
+    let n = share;
+    if (leftover && uid(member.id) === uid(founderId)) {
+      n += leftover;
+      leftover = 0;
+    }
+    await payWallet(store, member.id, n);
+  }
+  if (leftover > 0) await payWallet(store, members[0].id, leftover);
+}
+
+export async function createOrganization(store, user, name) {
+  const clean = String(name || '').trim().slice(0, 24);
+  if (clean.length < 2) throw new Error('Organization name must be 2–24 characters.');
+  return withState(store, async (state) => {
+    const founded = (state.organizations || []).filter((org) => uid(org.founderId) === uid(user.id));
+    if (founded.length >= ORG_CAP) throw new Error('You can start at most 10 organizations.');
+    if ((state.organizations || []).some((org) => String(org.name || '').toLowerCase() === clean.toLowerCase())) {
+      throw new Error('That organization name is taken.');
+    }
+    state.organizations.push({
+      id: crypto.randomUUID(),
+      name: clean,
+      founderId: uid(user.id),
+      members: [{ id: uid(user.id), username: user.username }],
+      invites: [],
+    });
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function inviteToOrganization(store, user, organizationId, username) {
+  const targetName = String(username || '').trim();
+  if (!targetName) throw new Error('Enter a username.');
+  const target = await store.findUserByUsername(targetName);
+  if (!target) throw new Error('No player with that username.');
+  return withState(store, async (state) => {
+    const org = orgById(state, organizationId);
+    if (!isOrgMember(org, user.id)) throw new Error('You are not in that organization.');
+    if (isOrgMember(org, target.id)) throw new Error('That player is already in the organization.');
+    if ((org.invites || []).some((invite) => uid(invite.userId) === uid(target.id))) {
+      throw new Error('That player already has an invite.');
+    }
+    if ((org.members || []).length >= 20) throw new Error('That organization is full.');
+    org.invites.push({
+      id: crypto.randomUUID(),
+      userId: uid(target.id),
+      fromName: user.username,
+    });
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function respondToInvite(store, user, inviteId, accept) {
+  return withState(store, async (state) => {
+    let found = null;
+    let org = null;
+    for (const row of state.organizations || []) {
+      const invite = (row.invites || []).find((item) => item.id === inviteId && uid(item.userId) === uid(user.id));
+      if (invite) {
+        found = invite;
+        org = row;
+        break;
+      }
+    }
+    if (!found || !org) throw new Error('That invite is gone.');
+    org.invites = org.invites.filter((item) => item.id !== found.id);
+    if (accept) {
+      if ((org.members || []).length >= 20) throw new Error('That organization is full.');
+      if (!isOrgMember(org, user.id)) org.members.push({ id: uid(user.id), username: user.username });
+    }
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function leaveOrganization(store, user, organizationId) {
+  return withState(store, async (state) => {
+    const org = orgById(state, organizationId);
+    if (!isOrgMember(org, user.id)) throw new Error('You are not in that organization.');
+    if (uid(org.founderId) === uid(user.id)) throw new Error('The founder stays in the organization.');
+    org.members = org.members.filter((member) => uid(member.id) !== uid(user.id));
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function disbandOrganization(store, user, organizationId) {
+  return withState(store, async (state) => {
+    const org = orgById(state, organizationId);
+    if (!org || uid(org.founderId) !== uid(user.id)) throw new Error('Only the founder can close that organization.');
+    if (state.companies.some((c) => c.alive && c.organizationId === org.id)) {
+      throw new Error('Close or sell the organization company first.');
+    }
+    state.organizations = state.organizations.filter((row) => row.id !== org.id);
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function startCompanySale(store, user, companyId, price) {
+  const n = offerPrice(price);
+  return withState(store, async (state) => {
+    const company = companyById(state, companyId);
+    if (!company || company.sovereign) throw new Error('That company is not for sale.');
+    if (controlsCompany(state, company, user.id)) throw new Error('You already help run that company.');
+    if ((state.companySales || []).some((sale) => sale.companyId === company.id && uid(sale.buyerId) === uid(user.id))) {
+      throw new Error('You already have an offer on that company.');
+    }
+    state.companySales.push({
+      id: crypto.randomUUID(),
+      companyId: company.id,
+      buyerId: uid(user.id),
+      buyerName: user.username,
+      price: n,
+      offeredBy: 'buyer',
+      turn: 'seller',
+    });
+    return present(state, user, await holders(store));
+  });
+}
+
+export async function respondCompanySale(store, user, saleId, action, price) {
+  return withState(store, async (state) => {
+    const sale = (state.companySales || []).find((row) => row.id === saleId);
+    const company = sale ? companyById(state, sale.companyId) : null;
+    if (!sale || !company) throw new Error('That offer is gone.');
+    const buyer = uid(sale.buyerId) === uid(user.id);
+    const seller = controlsCompany(state, company, user.id);
+    if (!buyer && !seller) throw new Error('That offer is not yours.');
+    const turnOk = buyer ? sale.turn === 'buyer' : sale.turn === 'seller';
+    if (action === 'exit') {
+      if (!buyer && !seller) throw new Error('That offer is not yours.');
+      state.companySales = state.companySales.filter((row) => row.id !== sale.id);
+      return present(state, user, await holders(store));
+    }
+    if (!turnOk) throw new Error('Wait for the other side.');
+    if (action === 'accept') {
+      const buyerUser = buyer ? user : await store.findUserById(sale.buyerId);
+      if (!buyerUser) throw new Error('That buyer is gone.');
+      await chargeWallet(store, buyerUser, sale.price);
+      if (!isOwnerUser(buyerUser)) await paySale(store, state, company, sale.price);
+      company.ownerId = uid(buyerUser.id);
+      company.ownerName = buyerUser.username;
+      company.organizationId = '';
+      company.organizationName = '';
+      state.companySales = state.companySales.filter((row) => row.companyId !== company.id);
+      return present(state, user, await holders(store));
+    }
+    if (action === 'counter') {
+      sale.price = offerPrice(price);
+      sale.offeredBy = buyer ? 'buyer' : 'seller';
+      sale.turn = buyer ? 'seller' : 'buyer';
+      return present(state, user, await holders(store));
+    }
+    throw new Error('Choose accept, a counter price, or exit.');
   });
 }
 
@@ -1209,7 +1446,7 @@ async function executeTrade(store, state, user, c, side, qty) {
   const me = uid(user.id);
   const cost = tradeCost(n, unit);
   if (side === 'buy') {
-    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('You already own those shares.');
+    if (!c.sovereign && controlsCompany(state, c, user.id)) throw new Error('You already own those shares.');
     if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are listed.');
     await chargeWallet(store, user, cost);
     giveCash(state, c, cost);
@@ -1220,11 +1457,13 @@ async function executeTrade(store, state, user, c, side, qty) {
     if (!c.sovereign && sharesOf(c, user.id) > total / 2 && sharesOf(c, c.ownerId) <= total / 2) {
       c.ownerId = me;
       c.ownerName = user.username;
+      c.organizationId = '';
+      c.organizationName = '';
     }
     return 'Bought ' + n + ' shares.';
   }
   if (side === 'sell') {
-    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('List shares for sale from your company instead.');
+    if (!c.sovereign && controlsCompany(state, c, user.id)) throw new Error('List shares for sale from your company instead.');
     if (n > sharesOf(c, user.id)) throw new Error('You do not own that many shares.');
     if (buybackCash(state, c) < cost) throw new Error('The company cannot pay for those shares yet.');
     pullBuyback(state, c, cost);
@@ -1236,7 +1475,7 @@ async function executeTrade(store, state, user, c, side, qty) {
     return 'Sold ' + n + ' shares.';
   }
   if (side === 'short') {
-    if (!c.sovereign && uid(c.ownerId) === me) throw new Error('You cannot short your own company.');
+    if (!c.sovereign && controlsCompany(state, c, user.id)) throw new Error('You cannot short your own company.');
     if (n > c.listed || n > sharesOf(c, c.ownerId)) throw new Error('Not that many shares are available to borrow.');
     const maxShort = c.sovereign ? 5000 : 200;
     if (shortOf(c, user.id) + n > maxShort) throw new Error('You can be short at most ' + maxShort + ' shares.');

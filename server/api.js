@@ -5063,7 +5063,69 @@ export async function handleApi(req, res) {
     }
     try {
       const name = censorProfanity(String(body.name || '')).text;
-      json(res, 200, await Economy.registerCompany(store, sess.user, { name, kind: body.kind }));
+      json(res, 200, await Economy.registerCompany(store, sess.user, { name, kind: body.kind, organizationId: body.organizationId || '' }));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/organization' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const action = String(body.action || '');
+      let view;
+      if (action === 'create') {
+        view = await Economy.createOrganization(store, sess.user, censorProfanity(String(body.name || '')).text);
+      } else if (action === 'invite') {
+        view = await Economy.inviteToOrganization(store, sess.user, body.organizationId, body.username);
+      } else if (action === 'accept' || action === 'refuse') {
+        view = await Economy.respondToInvite(store, sess.user, body.inviteId, action === 'accept');
+      } else if (action === 'leave') {
+        view = await Economy.leaveOrganization(store, sess.user, body.organizationId);
+      } else if (action === 'disband') {
+        view = await Economy.disbandOrganization(store, sess.user, body.organizationId);
+      } else {
+        json(res, 400, { error: 'Unknown organization action.' });
+        return true;
+      }
+      json(res, 200, view);
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/company/sale' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const action = String(body.action || 'offer');
+      const view = action === 'offer'
+        ? await Economy.startCompanySale(store, sess.user, body.companyId, body.price)
+        : await Economy.respondCompanySale(store, sess.user, body.saleId, action, body.price);
+      json(res, 200, view);
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
