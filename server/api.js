@@ -5071,6 +5071,15 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/sites/public' && req.method === 'GET') {
+    try {
+      json(res, 200, await Sites.publicSiteIndex(store));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/sites' && req.method === 'GET') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {

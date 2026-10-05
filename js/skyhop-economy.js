@@ -740,12 +740,55 @@
   }
   var bankPick = '';
   var insurerPick = '';
+  var siteIndex = null;
+  var siteIndexAt = 0;
+
+  function sitesFor(company) {
+    var names = [];
+    if (!siteIndex || !company) return names;
+    (siteIndex.sites || []).forEach(function (site) {
+      var own = site.hostType === 'company' && site.hostId === company.id;
+      var org = company.organizationId && site.hostType === 'organization' && site.hostId === company.organizationId;
+      if ((own || org) && names.indexOf(site.name) === -1) names.push(site.name);
+    });
+    return names;
+  }
+
+  function paintSiteLinks(box, company) {
+    var names = sitesFor(company);
+    if (!names.length) return;
+    var row = el('div', 'mt-2 flex flex-wrap gap-x-3 gap-y-1');
+    names.forEach(function (name) {
+      var link = document.createElement('a');
+      link.href = '/' + name + '/';
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.className = 'text-xs text-sky-300';
+      link.textContent = '/' + name + '/';
+      row.appendChild(link);
+    });
+    box.appendChild(row);
+  }
+
+  function ensureSiteIndex(repaint) {
+    if (siteIndex && Date.now() - siteIndexAt < 15000) return;
+    api('/api/sites/public', { method: 'GET' })
+      .then(function (idx) {
+        siteIndex = idx || { sites: [] };
+        siteIndexAt = Date.now();
+        if (repaint) repaint();
+      })
+      .catch(function () {
+        if (repaint) repaint();
+      });
+  }
 
   function paintBank(c, host) {
     host.textContent = '';
     var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name + (c.ticker ? ' · ' + c.ticker : '')));
     box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', c.ownerName));
+    paintSiteLinks(box, c);
     box.appendChild(
       el(
         'p',
@@ -794,6 +837,10 @@
       return c.id === bankPick;
     })[0];
     if (chosen) paintBank(chosen, host);
+    ensureSiteIndex(function () {
+      var current = banks.filter(function (c) { return c.id === bankPick; })[0];
+      if (current) paintBank(current, host);
+    });
     var loans = loansBlock(data, renderBanks, 'banksMsg');
     if (loans) body.appendChild(loans);
   }
@@ -803,6 +850,7 @@
     var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name + (c.ticker ? ' · ' + c.ticker : '')));
     box.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', c.ownerName));
+    paintSiteLinks(box, c);
     box.appendChild(
       el(
         'p',
@@ -860,6 +908,10 @@
       return c.id === insurerPick;
     })[0];
     if (chosen) paintInsurer(chosen, host);
+    ensureSiteIndex(function () {
+      var current = firms.filter(function (c) { return c.id === insurerPick; })[0];
+      if (current) paintInsurer(current, host);
+    });
   }
 
   function renderNational(data) {
@@ -962,12 +1014,15 @@
     body.appendChild(msg);
     var any = false;
     (data.companies || []).forEach(function (c) {
-      if (c.kind !== 'racing' || !c.tournaments || !c.tournaments.length) return;
+      if (c.kind !== 'racing') return;
+      var hasRaces = c.tournaments && c.tournaments.length;
+      if (!hasRaces && !sitesFor(c).length) return;
       any = true;
       var box = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
       box.appendChild(el('h3', 'text-sm font-semibold text-white', c.name));
       box.appendChild(el('p', 'text-[11px] text-slate-500', c.ownerName));
-      c.tournaments.forEach(function (t) {
+      paintSiteLinks(box, c);
+      (c.tournaments || []).forEach(function (t) {
         var race = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
         race.appendChild(el('p', 'text-sm text-white', t.description || 'No description'));
         race.appendChild(el('p', 'mt-1 text-xs text-slate-300', tournamentLine(t)));
@@ -987,6 +1042,7 @@
       body.appendChild(box);
     });
     if (!any) body.appendChild(el('p', 'mt-4 text-sm text-slate-400', 'No tournaments are open.'));
+    ensureSiteIndex(function () { renderRaces(data); });
   }
 
   function openRaces() {
@@ -1300,6 +1356,7 @@
       }).then(function () {
         msg.textContent = 'Deployed.';
         msg.className = 'mt-2 text-xs text-emerald-200';
+        siteIndexAt = 0;
         load();
       }).catch(function (e) {
         msg.textContent = String(e.message || e);
@@ -1330,6 +1387,7 @@
             body: JSON.stringify({ action: 'delete', name: site.name, hostType: hostType, hostId: hostId }),
           }).then(function () {
             if (name.input.value.trim().toLowerCase() === site.name) resetFiles(null);
+            siteIndexAt = 0;
             load();
           }).catch(function (e) {
             msg.textContent = String(e.message || e);

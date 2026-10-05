@@ -244,6 +244,17 @@ function publicSite(site, withFiles) {
   return row;
 }
 
+export async function publicSiteIndex(store) {
+  const bag = await readBag(store);
+  return {
+    sites: (bag.sites || []).map((site) => ({
+      name: site.name,
+      hostType: site.hostType,
+      hostId: site.hostId,
+    })),
+  };
+}
+
 export async function listSites(store, user, hostType, hostId) {
   const host = await Economy.describeSiteHost(store, user, hostType, hostId);
   const bag = await readBag(store);

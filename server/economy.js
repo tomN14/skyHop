@@ -858,6 +858,7 @@ function detailCompany(c, user, people, ownerView) {
     ticker: c.ticker || '',
     kind: c.kind,
     ownerName: c.ownerName,
+    organizationId: c.organizationId || '',
     organizationName: c.organizationName || '',
     isPublic: !!c.isPublic,
     sharePrice: c.sharePrice,
