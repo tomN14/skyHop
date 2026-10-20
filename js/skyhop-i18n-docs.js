@@ -292,6 +292,8 @@
   add('Collections', 'Colecciones', 'Collections', 'Sammlungen', 'Coleções', '关卡集', 'コレクション', '컬렉션');
   add('Strikes', 'Faltas', 'Avertissements', 'Verwarnungen', 'Faltas', '违规', 'ストライク', '경고 횟수');
   add('Play time', 'Tiempo de juego', 'Temps de jeu', 'Spielzeit', 'Tempo de jogo', '游玩时间', 'プレイ時間', '플레이 시간');
+  add('Time in SkyHop', 'Tiempo en SkyHop', 'Temps dans SkyHop', 'Zeit in SkyHop', 'Tempo no SkyHop', '在 SkyHop 中的时间', 'SkyHopでの時間', 'SkyHop에 있던 시간');
+  add('All the time this account has had SkyHop open, including menus.', 'Todo el tiempo que esta cuenta ha tenido SkyHop abierto, incluidos los menús.', 'Tout le temps que ce compte a passé avec SkyHop ouvert, menus compris.', 'Die ganze Zeit, die dieses Konto SkyHop offen hatte, einschließlich der Menüs.', 'Todo o tempo que esta conta teve o SkyHop aberto, incluindo os menus.', '这个账户打开 SkyHop 的全部时间，包括菜单。', 'このアカウントがSkyHopを開いていた時間の合計。メニューも含みます。', '이 계정이 SkyHop을 열어 둔 전체 시간. 메뉴도 포함합니다.');
   add('Announcement', 'Anuncio', 'Annonce', 'Ankündigung', 'Anúncio', '公告', 'お知らせ', '공지');
   add('Warning', 'Aviso', 'Avertissement', 'Warnung', 'Aviso', '警告', '警告', '경고');
   add('Next', 'Siguiente', 'Suivant', 'Weiter', 'Seguinte', '下一个', '次へ', '다음');

@@ -833,7 +833,7 @@
       if (method === 'get') {
         const key = String(args[0]);
         if (key === 'is_affect_by_toggle' || key === 'default_toggle_state') return { splAttr: key };
-        if (key === 'jump_limit') {
+        if (key === 'jump_limit' || key === 'boss_attack_laser' || key === 'boss_laser_attack' || key === 'boss_attack_projectile' || key === 'boss_projectile_attack' || key === 'boss_laser_attack_dmg' || key === 'boss_projectile_attack_dmg' || key === 'boss_touch_dmg' || key === 'boss_laser_warning_time' || key === 'boss_laser_cooldown' || key === 'boss_projectile_attack_cooldown') {
           const value = api.get ? api.get(key) : 0;
           return {
             splAttr: key,

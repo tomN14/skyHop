@@ -553,10 +553,8 @@
       const playEl = document.getElementById('accStatPlayTime');
       if (strikesEl) strikesEl.textContent = String(me && me.strikes != null ? me.strikes : 0);
       if (playEl) {
-        const sec = Math.floor((me && me.playTimeMs ? me.playTimeMs : 0) / 1000);
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        playEl.textContent = h + ':' + String(m).padStart(2, '0');
+        if (window.SkyHopNotePlayTime) window.SkyHopNotePlayTime(me && me.playTimeMs ? me.playTimeMs : 0);
+        else playEl.textContent = '0:00:00';
       }
     }
 

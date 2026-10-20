@@ -220,22 +220,52 @@
   let playAcc = 0;
   let playStamp = Date.now();
 
+  function formatPlayTime(ms) {
+    const sec = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function playTimeNow() {
+    const pending = Math.max(0, Date.now() - playStamp);
+    return (Number(window.__skyhopPlayBase) || 0) + playAcc + (token() ? pending : 0);
+  }
+
+  function paintPlayTime() {
+    const el = document.getElementById('accStatPlayTime');
+    if (!el) return;
+    el.textContent = formatPlayTime(playTimeNow());
+  }
+
+  window.SkyHopNotePlayTime = function (ms) {
+    const n = Math.max(0, Math.floor(Number(ms) || 0));
+    if (!window.__skyhopPlayBase || n > window.__skyhopPlayBase) window.__skyhopPlayBase = n;
+    paintPlayTime();
+  };
+
   function flushPlayTime() {
+    paintPlayTime();
     if (!token()) {
       playStamp = Date.now();
       return;
     }
     const now = Date.now();
-    const dt = Math.min(60000, Math.max(0, now - playStamp));
+    const dt = Math.min(300000, Math.max(0, now - playStamp));
     playStamp = now;
-    if (document.hidden) return;
     playAcc += dt;
     if (playAcc < 15000) return;
     const send = playAcc;
     playAcc = 0;
-    api('/api/me/play-time', { method: 'POST', body: JSON.stringify({ ms: send }) }).catch(function () {
-      playAcc += send;
-    });
+    api('/api/me/play-time', { method: 'POST', body: JSON.stringify({ ms: send }) })
+      .then(function (data) {
+        if (data && data.playTimeMs != null) window.__skyhopPlayBase = Math.max(0, Math.floor(Number(data.playTimeMs) || 0));
+        paintPlayTime();
+      })
+      .catch(function () {
+        playAcc += send;
+      });
   }
 
   let joinedRaces = {};
@@ -549,6 +579,7 @@
       loadOwnerLists();
     });
     setInterval(flushPlayTime, 5000);
+    setInterval(paintPlayTime, 1000);
     setInterval(maybeJoinRaces, 20000);
     pullNotices();
     bindMusic();

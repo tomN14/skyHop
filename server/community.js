@@ -281,7 +281,7 @@ export async function getCollection(store, userId, id) {
 }
 
 export async function addPlayTime(store, userId, ms) {
-  const add = Math.max(0, Math.min(120000, Math.floor(Number(ms) || 0)));
+  const add = Math.max(0, Math.min(300000, Math.floor(Number(ms) || 0)));
   if (!add) return { playTimeMs: 0 };
   const bag = await load(store);
   const key = uid(userId);

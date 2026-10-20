@@ -35,8 +35,25 @@
               <li><span class="font-mono">skyhop.get("total_stage_time")</span> — seconds on the run clock. Dying does not reset it.</li>
               <li><span class="font-mono">skyhop.get("player_death_count")</span> — deaths on this run.</li>
               <li><span class="font-mono">skyhop.get("player_pos_x")</span> and <span class="font-mono">skyhop.get("player_pos_y")</span> — the center of this player.</li>
-              <li>In a race or collab, each computer runs the script for its own player. If A is jumping and B is not, <span class="font-mono">is_player_jumping</span> is <span class="font-mono">1</span> for A and <span class="font-mono">0</span> for B. Position, deaths, and the timers work the same way.</li>
-              <li>Any other name returns <span class="font-mono">0</span>.</li>
+              <li><span class="font-mono">skyhop.get("boss_size")</span> — the larger of the boss width and height. <span class="font-mono">0</span> if this stage has no boss.</li>
+              <li><span class="font-mono">skyhop.get("boss_spawned")</span> — <span class="font-mono">1</span> after the boss has appeared, otherwise <span class="font-mono">0</span>.</li>
+              <li><span class="font-mono">skyhop.get("boss_health")</span> — hit points the boss has left.</li>
+              <li><span class="font-mono">skyhop.get("player_health")</span> — hit points this player has left during a boss fight.</li>
+              <li><span class="font-mono">skyhop.get("boss_touch_dmg")</span>, <span class="font-mono">skyhop.get("boss_laser_attack_dmg")</span>, and <span class="font-mono">skyhop.get("boss_projectile_attack_dmg")</span> — damage for that attack. Assigning a number to the variable that holds it changes the damage.</li>
+              <li><span class="font-mono">skyhop.get("boss_laser_attack")</span> and <span class="font-mono">skyhop.get("boss_projectile_attack")</span> — <span class="font-mono">1</span> when that attack is enabled on the boss. Assign <span class="font-mono">1</span> or <span class="font-mono">0</span> to turn it on or off.</li>
+              <li><span class="font-mono">skyhop.get("boss_attack_laser")</span> and <span class="font-mono">skyhop.get("boss_attack_projectile")</span> — fire that attack even when its standing toggle is off. Assign <span class="font-mono">1</span> to fire. The laser aims at the player.</li>
+              <li><span class="font-mono">skyhop.get("boss_laser_cooldown")</span> and <span class="font-mono">skyhop.get("boss_projectile_attack_cooldown")</span> — seconds between those attacks. Assign a number to change the wait.</li>
+              <li><span class="font-mono">skyhop.get("boss_projectile_attack_frequency")</span> — attacks per second. <span class="font-mono">0</span> when the cooldown is unset.</li>
+              <li><span class="font-mono">skyhop.get("boss_laser_warning_time")</span> — seconds the laser warns before it hits. Assign a number to change it.</li>
+              <li><span class="font-mono">skyhop.get("boss_environmental_interaction")</span> — <span class="font-mono">0</span> if the boss can pass through walls, otherwise <span class="font-mono">1</span>.</li>
+              <li><span class="font-mono">skyhop.get("monster_spawned")</span> — <span class="font-mono">1</span> if any monster has appeared.</li>
+              <li><span class="font-mono">skyhop.get("monster_health")</span> — stomps left across living monsters.</li>
+              <li><span class="font-mono">skyhop.get("monster_environmental_interaction")</span> — <span class="font-mono">0</span> if a monster can pass through walls, otherwise <span class="font-mono">1</span>.</li>
+              <li><span class="font-mono">skyhop.get("is_collection")</span> — <span class="font-mono">1</span> while this play is a collection.</li>
+              <li><span class="font-mono">skyhop.get("collection_length")</span> — how many stages that collection has. <span class="font-mono">0</span> otherwise.</li>
+              <li><span class="font-mono">skyhop.get("music_name")</span> — the track chosen on Account. Empty when music is off.</li>
+              <li>In a race or collab, each computer runs the script for its own player. If A is jumping and B is not, <span class="font-mono">is_player_jumping</span> is <span class="font-mono">1</span> for A and <span class="font-mono">0</span> for B. Position, deaths, and the timers work the same way. Boss health is shared in collab.</li>
+              <li>A name that is not listed returns <span class="font-mono">0</span>.</li>
             </ul>
           </div>
           <div>
@@ -65,6 +82,11 @@ affect_by_toggle &lt;- skyhop.get("is_affect_by_toggle");
 affect_by_toggle &lt;- 1;
 default &lt;- skyhop.get("default_toggle_state");
 default &lt;- 0;</pre>
+            <p class="mt-2">Boss attacks use the same pattern. This turns the laser on and sets its damage:</p>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">laser &lt;- skyhop.get("boss_attack_laser");
+laser &lt;- 1;
+dmg &lt;- skyhop.get("boss_laser_attack_dmg");
+dmg &lt;- 2;</pre>
           </div>
           <div>
             <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Counters</p>

@@ -220,6 +220,29 @@ const SCRIPT_GUIDE_SUPPLEMENT = `
             </ul>
           </div>`;
 
+const SCRIPT_GUIDE_ACTORS = `
+          <div>
+            <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Bosses, monsters, collections, and music</p>
+            <ul class="mt-1 list-disc space-y-0.5 pl-4">
+              <li><span class="font-mono">skyhop.get("boss_size")</span> is the larger of the boss width and height. <span class="font-mono">0</span> if this stage has no boss.</li>
+              <li><span class="font-mono">skyhop.get("boss_spawned")</span> is <span class="font-mono">1</span> after the boss has appeared.</li>
+              <li><span class="font-mono">skyhop.get("boss_health")</span> is the hit points the boss has left. <span class="font-mono">skyhop.get("player_health")</span> is this player's hit points during a boss fight.</li>
+              <li><span class="font-mono">skyhop.get("boss_touch_dmg")</span>, <span class="font-mono">skyhop.get("boss_laser_attack_dmg")</span>, and <span class="font-mono">skyhop.get("boss_projectile_attack_dmg")</span> are that attack's damage. Assign a number to the variable that holds the read to change it.</li>
+              <li><span class="font-mono">skyhop.get("boss_laser_attack")</span> and <span class="font-mono">skyhop.get("boss_projectile_attack")</span> are <span class="font-mono">1</span> when that attack is enabled. Assign <span class="font-mono">1</span> or <span class="font-mono">0</span> to turn it on or off.</li>
+              <li><span class="font-mono">skyhop.get("boss_attack_laser")</span> and <span class="font-mono">skyhop.get("boss_attack_projectile")</span> fire that attack even when its standing toggle is off. Assign <span class="font-mono">1</span> to fire. The laser aims at the player.</li>
+              <li><span class="font-mono">skyhop.get("boss_laser_cooldown")</span> and <span class="font-mono">skyhop.get("boss_projectile_attack_cooldown")</span> are seconds between those attacks. <span class="font-mono">skyhop.get("boss_laser_warning_time")</span> is how long the laser warns before it hits. Assign a number to change them.</li>
+              <li><span class="font-mono">skyhop.get("boss_projectile_attack_frequency")</span> is attacks per second.</li>
+              <li><span class="font-mono">skyhop.get("boss_environmental_interaction")</span> is <span class="font-mono">0</span> if the boss can pass through walls, otherwise <span class="font-mono">1</span>. <span class="font-mono">skyhop.get("monster_environmental_interaction")</span> is the same for monsters.</li>
+              <li><span class="font-mono">skyhop.get("monster_spawned")</span> is <span class="font-mono">1</span> if any monster has appeared. <span class="font-mono">skyhop.get("monster_health")</span> is the stomps left across living monsters.</li>
+              <li><span class="font-mono">skyhop.get("is_collection")</span> is <span class="font-mono">1</span> while this play is a collection. <span class="font-mono">skyhop.get("collection_length")</span> is how many stages it has.</li>
+              <li><span class="font-mono">skyhop.get("music_name")</span> is the track chosen on Account. It is empty when music is off.</li>
+            </ul>
+            <pre class="mt-2 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-fuchsia-100">laser &lt;- skyhop.get("boss_attack_laser");
+laser &lt;- 1;
+dmg &lt;- skyhop.get("boss_laser_attack_dmg");
+dmg &lt;- 2;</pre>
+          </div>`;
+
 const COUNTER_DISPLAY_NOTE = `
           <div>
             <p class="text-[10px] font-sem uppercase tracking-wider text-fuchsia-300/90">Counter numbers</p>
@@ -235,6 +258,7 @@ export async function resolveScriptGuideHtml(store) {
       let html = row.html;
       if (!html.includes('skyhop.hazard')) html += SCRIPT_GUIDE_SUPPLEMENT;
       if (!html.includes('simple fraction')) html += COUNTER_DISPLAY_NOTE;
+      if (!html.includes('boss_health')) html += SCRIPT_GUIDE_ACTORS;
       return html;
     }
   }
