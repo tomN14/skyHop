@@ -97,6 +97,8 @@
 
   let raceHostWorld = 0;
   let racePublic = false;
+  let tournamentLive = false;
+  let pendingRaceGo = null;
   let pendingLevel = null;
   let raceMenuBlurbHtml = '';
 
@@ -143,35 +145,49 @@
     if (hostBtn) hostBtn.textContent = racePublic ? 'Make private' : 'Make public';
   }
 
+  function worldLabel(id) {
+    var n = Number(id);
+    var cat = window.__skyhopCustomWorldCatalog || [];
+    for (var i = 0; i < cat.length; i += 1) {
+      if (Number(cat[i].id) === n && cat[i].name) return cat[i].name;
+    }
+    return n >= 1 ? 'World ' + n : '';
+  }
+
   function raceWorldStageCount(world) {
     if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
-      return window.SkyHopWorlds.stageCount(world === 2 ? 2 : 1);
+      return window.SkyHopWorlds.stageCount(world);
     }
     return 50;
   }
 
+  function fillRaceWorldSelect(worlds) {
+    var sel = document.getElementById('raceWorldSelect');
+    if (!sel) return;
+    var prev = sel.value;
+    sel.textContent = '';
+    (worlds || []).forEach(function (w) {
+      var opt = document.createElement('option');
+      opt.value = String(w.id);
+      opt.textContent = w.name || 'World ' + w.id;
+      sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    raceHostWorld = Number(sel.value) || 0;
+    syncRaceWorldPick();
+  }
+
   function syncRaceWorldPick() {
-    var b1 = document.getElementById('btnRaceWorld1');
-    var b2 = document.getElementById('btnRaceWorld2');
-    function paint(btn, on) {
-      if (!btn) return;
-      btn.classList.toggle('border-amber-400', on);
-      btn.classList.toggle('bg-amber-600/50', on);
-      btn.classList.toggle('text-white', on);
-      btn.classList.toggle('border-white/15', !on);
-      btn.classList.toggle('bg-slate-950/80', !on);
-      btn.classList.toggle('text-slate-200', !on);
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    }
-    paint(b1, raceHostWorld === 1);
-    paint(b2, raceHostWorld === 2);
+    var sel = document.getElementById('raceWorldSelect');
+    if (sel && sel.value) raceHostWorld = Number(sel.value) || 0;
     var countEl = document.getElementById('raceMenuStageCount');
     if (countEl) {
-      countEl.textContent =
-        raceHostWorld === 1 || raceHostWorld === 2 ? String(raceWorldStageCount(raceHostWorld)) : '—';
+      var n = raceHostWorld >= 1 ? raceWorldStageCount(raceHostWorld) : 0;
+      countEl.textContent = n > 0 ? String(n) : '—';
     }
     if (el.btnCreate) {
-      var ready = raceHostWorld === 1 || raceHostWorld === 2;
+      var ready = raceHostWorld >= 1;
       el.btnCreate.disabled = !ready;
       el.btnCreate.classList.toggle('opacity-40', !ready);
     }
@@ -551,6 +567,72 @@
     return new WebSocket(url);
   }
 
+  function startMpPinger() {
+    if (mpPinger) {
+      clearInterval(mpPinger);
+      mpPinger = 0;
+    }
+    mpPinger = setInterval(function () {
+      if (!window.SKYHOP || !window.SKYHOP.isRacing || !window.SKYHOP.isRacing()) {
+        if (mpPinger) {
+          clearInterval(mpPinger);
+          mpPinger = 0;
+        }
+        return;
+      }
+      if (window.SKYHOP.controlsLocked && window.SKYHOP.controlsLocked()) return;
+      const st = getSnapshot();
+      if (ws && ws.readyState === 1) {
+        try {
+          const payload = {
+            type: 'progress',
+            stage0: st.stage0,
+            timeMs: performance.now() - raceT0,
+            deaths: st.deaths || 0,
+            warps: st.warps || 0,
+          };
+          if (st.x != null && st.y != null) {
+            payload.x = st.x;
+            payload.y = st.y;
+          }
+          if (st.g != null) payload.g = st.g;
+          if (st.vx != null) payload.vx = st.vx;
+          if (st.vy != null) payload.vy = st.vy;
+          if (st.og != null) payload.og = st.og;
+          Object.assign(payload, probeFields());
+          ws.send(JSON.stringify(payload));
+        } catch {
+          /* */
+        }
+      }
+    }, 100);
+  }
+
+  function applyRaceWorld(msg) {
+    const world = Number(msg.world);
+    if (Array.isArray(msg.stages) && msg.stages.length && world >= 3) {
+      window.__skyhopCustomWorldStages = msg.stages;
+      window.__skyhopCustomWorldId = world;
+      window.SKYHOP_ACTIVE_STAGES = msg.stages.slice();
+      if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(window.SKYHOP_ACTIVE_STAGES);
+      if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
+        window.SkyHopWorlds.setActiveWorld(world);
+      }
+      return;
+    }
+    window.SKYHOP_ACTIVE_STAGES = null;
+    if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
+      window.SkyHopWorlds.setActiveWorld(world === 2 ? 2 : 1);
+    }
+  }
+
+  function applyRaceGo() {
+    pendingRaceGo = null;
+    if (window.SKYHOP && typeof window.SKYHOP.unlockRaceControls === 'function') window.SKYHOP.unlockRaceControls();
+    if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
+    startMpPinger();
+  }
+
   function onWsMessage(e) {
     let msg;
     try {
@@ -589,13 +671,7 @@
       if (el.hostPanel) el.hostPanel.classList.remove('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
       if (el.mpStatus) {
-        var createdWorld = msg.levelTitle
-          ? msg.levelTitle
-          : msg.world === 2
-            ? 'World 2'
-            : msg.world === 1
-              ? 'World 1'
-              : '';
+        var createdWorld = msg.levelTitle ? msg.levelTitle : worldLabel(msg.world);
         el.mpStatus.textContent = createdWorld
           ? 'Hosting ' + createdWorld + '. Share the session ID, then start when everyone has joined.'
           : 'Share the session ID with friends. When they join, press Start race.';
@@ -621,7 +697,7 @@
         if (el.joinPanel) el.joinPanel.classList.add('hidden');
         if (el.btnStartRace) el.btnStartRace.classList.remove('hidden');
         if (el.mpStatus) {
-          var hostWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+          var hostWorld = worldLabel(msg.world);
           el.mpStatus.textContent = hostWorld
             ? "You're the host. " + hostWorld + '. Share the session ID, then start when ready.'
             : "You're the host. Share the session ID, then start when ready.";
@@ -630,7 +706,7 @@
       } else {
         if (el.hostPanel) el.hostPanel.classList.add('hidden');
         if (el.mpStatus) {
-          var joinWorld = msg.world === 2 ? 'World 2' : msg.world === 1 ? 'World 1' : '';
+          var joinWorld = worldLabel(msg.world);
           el.mpStatus.textContent = joinWorld
             ? 'In lobby for ' + joinWorld + '. Wait for the host to start the race.'
             : 'In lobby. Wait for the host to start the race.';
@@ -726,6 +802,96 @@
       }, 100);
       return;
     }
+    if (msg.type === 'lobbyReady') {
+      tournamentLive = true;
+      pendingRaceGo = null;
+      raceType = 'mp';
+      myPlayerId = msg.playerId;
+      try {
+        window.__skyhopMyPlayerId = msg.playerId;
+        window.__skyhopRaceOnline = true;
+      } catch {
+        /* */
+      }
+      if (el.menu) {
+        el.menu.classList.add('hidden');
+        el.menu.classList.remove('flex');
+      }
+      if (el.mpStatus) {
+        el.mpStatus.textContent = 'Loading the race…';
+        el.mpStatus.classList.remove('hidden');
+      }
+      var companyId = msg.companyId;
+      var tournamentId = msg.tournamentId;
+      var freezeUntil = msg.freezeUntil;
+      var worlds = msg.worlds || [1];
+      void (async function () {
+        var custom = {};
+        try {
+          if (window.SkyHopApiRequest) {
+            var pack = await window.SkyHopApiRequest(
+              '/api/economy/tournament/stages?companyId=' + encodeURIComponent(companyId) + '&tournamentId=' + encodeURIComponent(tournamentId),
+              { headers: { Authorization: 'Bearer ' + (localStorage.getItem('SKYHOP_AUTH_TOKEN') || '') } }
+            );
+            custom = (pack && pack.custom) || {};
+            if (pack && pack.worlds) worlds = pack.worlds;
+          }
+        } catch (err) {
+          if (el.mpStatus) el.mpStatus.textContent = String(err && err.message ? err.message : err);
+          return;
+        }
+        var stages = window.SkyHopWorlds && window.SkyHopWorlds.stagesForWorldIds
+          ? window.SkyHopWorlds.stagesForWorldIds(worlds, custom)
+          : [];
+        if (!stages.length || !window.SKYHOP || !window.SKYHOP.beginRacing) {
+          if (el.mpStatus) el.mpStatus.textContent = 'This race has no stages.';
+          return;
+        }
+        if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(stages);
+        window.SKYHOP_ACTIVE_STAGES = stages;
+        if (ws && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({ type: 'tournamentArmed', stageCount: stages.length }));
+          } catch {
+            /* */
+          }
+        }
+        if (el.hud) el.hud.classList.remove('hidden');
+        if (el.mpStatus) el.mpStatus.classList.add('hidden');
+        window.SKYHOP.beginRacing({
+          type: 'mp',
+          controlsLockedUntil: freezeUntil,
+          anticheatEnabled: msg.anticheatEnabled !== false,
+        });
+        if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
+        if (pendingRaceGo || (freezeUntil && Date.now() >= Number(freezeUntil))) applyRaceGo();
+      })();
+      return;
+    }
+    if (msg.type === 'raceGo') {
+      if (!window.SKYHOP || !window.SKYHOP.isRacing || !window.SKYHOP.isRacing()) {
+        pendingRaceGo = msg;
+        return;
+      }
+      applyRaceGo();
+      return;
+    }
+    if (msg.type === 'tournamentPaid') {
+      tournamentLive = false;
+      var prizeLine = msg.paid
+        ? (msg.username || msg.name || 'The winner') + ' won ' + (msg.prize || 0) + ' coins.'
+        : (msg.reason || 'The prize was not paid.');
+      showRaceOver(msg.paid ? 'Winner paid' : 'Race finished', prizeLine, msg.timeMs);
+      if (window.SKYHOP && typeof window.SKYHOP.goToMenu === 'function') {
+        try {
+          window.SKYHOP.goToMenu();
+        } catch {
+          /* */
+        }
+      }
+      disconnectWs();
+      return;
+    }
     if (msg.type === 'raceStart') {
       if (!window.SKYHOP || !window.SKYHOP.beginRacing) return;
       if (el.menu) {
@@ -752,9 +918,7 @@
       if (el.mpStatus) el.mpStatus.classList.add('hidden');
       if (el.hostPanel) el.hostPanel.classList.add('hidden');
       if (el.joinPanel) el.joinPanel.classList.add('hidden');
-      if (window.SkyHopWorlds && typeof window.SkyHopWorlds.setActiveWorld === 'function') {
-        window.SkyHopWorlds.setActiveWorld(msg.world === 2 ? 2 : 1);
-      }
+      applyRaceWorld(msg);
       window.SKYHOP.beginRacing({
         type: 'mp',
         difficulty: msg.difficulty,
@@ -764,39 +928,7 @@
       if (window.SkyHopSetRaceT0 && window.SKYHOP.getRaceT0) {
         window.SkyHopSetRaceT0(window.SKYHOP.getRaceT0());
       }
-      mpPinger = setInterval(function () {
-        if (!window.SKYHOP || !window.SKYHOP.isRacing || !window.SKYHOP.isRacing()) {
-          if (mpPinger) {
-            clearInterval(mpPinger);
-            mpPinger = 0;
-          }
-          return;
-        }
-        const st = getSnapshot();
-        if (ws && ws.readyState === 1) {
-          try {
-            const payload = {
-              type: 'progress',
-              stage0: st.stage0,
-              timeMs: performance.now() - raceT0,
-              deaths: st.deaths || 0,
-              warps: st.warps || 0,
-            };
-            if (st.x != null && st.y != null) {
-              payload.x = st.x;
-              payload.y = st.y;
-            }
-            if (st.g != null) payload.g = st.g;
-            if (st.vx != null) payload.vx = st.vx;
-            if (st.vy != null) payload.vy = st.vy;
-            if (st.og != null) payload.og = st.og;
-            Object.assign(payload, probeFields());
-            ws.send(JSON.stringify(payload));
-          } catch {
-            /* */
-          }
-        }
-      }, 100);
+      startMpPinger();
       return;
     }
     if (msg.type === 'visibility') {
@@ -898,6 +1030,31 @@
     }
   }
 
+  window.SkyHopJoinTournament = function (info) {
+    if (!info || !info.companyId || !info.tournamentId) return;
+    tournamentLive = true;
+    pendingRaceGo = null;
+    disconnectWs();
+    var url = getWsUrl();
+    ws = new WebSocket(url);
+    ws.onmessage = onWsMessage;
+    bindWsUntilOpen(ws, function () {
+      var token = '';
+      try {
+        token = localStorage.getItem('SKYHOP_AUTH_TOKEN') || '';
+      } catch {
+        token = '';
+      }
+      ws.send(JSON.stringify({
+        type: 'joinTournament',
+        companyId: info.companyId,
+        tournamentId: info.tournamentId,
+        name: (el.name && el.name.value) || info.name || 'Racer',
+        authToken: token || undefined,
+      }));
+    });
+  };
+
   window.SkyHopSetRaceT0 = function (t) {
     raceT0 = t;
   };
@@ -931,6 +1088,15 @@
   };
 
   window.SkyHopOnRaceOver = function (d) {
+    if (tournamentLive && d && d.success) {
+      showRaceOver('Race complete', 'Waiting for the prize…', d.timeMs);
+      raceType = 'none';
+      if (mpPinger) {
+        clearInterval(mpPinger);
+        mpPinger = 0;
+      }
+      return;
+    }
     if (d && d.success) {
       const sm = document.getElementById('screenMenu');
       if (sm) {
@@ -983,19 +1149,25 @@
     el.name = document.getElementById('raceName');
     el.btnVsBots = document.getElementById('btnRaceVsBots');
     el.btnCreate = document.getElementById('btnRaceCreate');
-    var world1Btn = document.getElementById('btnRaceWorld1');
-    var world2Btn = document.getElementById('btnRaceWorld2');
-    if (world1Btn) {
-      world1Btn.addEventListener('click', function () {
-        raceHostWorld = 1;
+    var worldSel = document.getElementById('raceWorldSelect');
+    if (worldSel) {
+      worldSel.addEventListener('change', function () {
+        raceHostWorld = Number(worldSel.value) || 0;
         syncRaceWorldPick();
       });
     }
-    if (world2Btn) {
-      world2Btn.addEventListener('click', function () {
-        raceHostWorld = 2;
-        syncRaceWorldPick();
+    if (window.SkyHopApiRequest) {
+      void window.SkyHopApiRequest('/api/worlds', { method: 'GET' }).then(function (data) {
+        var worlds = (data && data.worlds) || [];
+        window.__skyhopCustomWorldCatalog = worlds;
+        fillRaceWorldSelect(worlds);
+        var collabSel = document.getElementById('collabWorldScope');
+        if (collabSel && window.SkyHopFillCollabWorlds) window.SkyHopFillCollabWorlds(worlds);
+      }).catch(function () {
+        fillRaceWorldSelect([{ id: 1, name: 'World 1' }, { id: 2, name: 'World 2' }]);
       });
+    } else {
+      fillRaceWorldSelect([{ id: 1, name: 'World 1' }, { id: 2, name: 'World 2' }]);
     }
     syncRaceWorldPick();
     syncRaceVisibility();
@@ -1098,9 +1270,9 @@
     }
     if (el.btnCreate) {
       el.btnCreate.addEventListener('click', () => {
-        if (raceHostWorld !== 1 && raceHostWorld !== 2) {
+        if (!(raceHostWorld >= 1)) {
           if (el.mpStatus) {
-            el.mpStatus.textContent = 'Pick World 1 or World 2 before hosting.';
+            el.mpStatus.textContent = 'Pick a world before hosting.';
             el.mpStatus.classList.remove('hidden');
           }
           return;
@@ -1213,8 +1385,8 @@
                 }
               : {
                   type: 'start',
-                  world: raceHostWorld === 2 ? 2 : 1,
-                  stageCount: raceWorldStageCount(raceHostWorld === 2 ? 2 : 1),
+                  world: raceHostWorld,
+                  stageCount: raceWorldStageCount(raceHostWorld),
                   anticheatEnabled: !window.SkyHopRunAnticheat || window.SkyHopRunAnticheat.hostOn !== false,
                 };
             try {

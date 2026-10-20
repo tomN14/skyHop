@@ -767,7 +767,7 @@
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>World 1 built-in campaign (50 stages); a valid owner upload is used by Play</li>
             <li>World 2 harder campaign; unlock after clearing all World 1 (account flag + achievement)</li>
-            <li>World nav on menu; collab can scope World 1, World 2, or both</li>
+            <li>World nav on menu; racing and collab pick any main world</li>
             <li>Easy / Normal / Hard presets; Custom physics &amp; rules panel</li>
             <li>Resume progress per world (local); pause → “Do not save my progress”</li>
             <li>Play / Continue; skip stage when custom rules allow</li>
@@ -825,7 +825,7 @@
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Racing</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Race vs bots (offline)</li>
-            <li>Online race: host session ID, join, WebSocket sync. The host picks World 1 or World 2, or a user level</li>
+            <li>Online race: host session ID, join, WebSocket sync. The host picks any main world, or a user level</li>
             <li>In-session chat (lobby + during the run); profanity censored</li>
             <li>Server anti-cheat on online races (movement, timing, input); offline bot races stay local</li>
             <li>Live in-race top-5 leaderboard HUD; race over screen</li>
@@ -856,7 +856,7 @@
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Financial systems</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
-            <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
+            <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, start time, and worlds. Entrants can join the lobby up to 10 minutes early and cannot move until the start. The first to finish every selected world is paid automatically</li>
             <li>Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers set a premium, a deductible, the share of a loss they pay, a weekly cap, and whether they cover stocks or bank deposits. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
@@ -2182,11 +2182,10 @@ end;</pre>
         <h2 class="mt-1 text-center text-2xl font-bold text-white">Collab</h2>
         <p id="collabMenuBlurb" class="mt-2 text-center text-sm text-slate-400">No race — shared boss HP, no stage catch-up. When anyone finishes, everyone wins.</p>
         <div id="collabWorldBlock">
-          <label class="mt-4 block text-left text-xs text-slate-500">World scope</label>
+          <label class="mt-4 block text-left text-xs text-slate-500" for="collabWorldScope">World</label>
           <select id="collabWorldScope" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-white">
-            <option value="w1">World 1</option>
-            <option value="w2">World 2</option>
-            <option value="both" selected>Both worlds</option>
+            <option value="1">World 1</option>
+            <option value="2">World 2</option>
           </select>
         </div>
         <input id="collabWsUrl" type="hidden" />
@@ -2224,13 +2223,13 @@ end;</pre>
       <div class="my-auto w-full max-w-md rounded-3xl border border-amber-500/30 bg-gradient-to-br from-slate-900 to-amber-950/40 p-6 shadow-2xl md:p-8">
         <p class="text-center text-sm font-sem uppercase tracking-widest text-amber-400">Parallel run</p>
         <h2 class="mt-1 text-center text-2xl font-bold text-white">Racing</h2>
-        <p id="raceMenuBlurb" class="mt-2 text-center text-sm text-slate-400">Pick a world, then host. Everyone races that world’s stages. Bots stay offline. Online: host creates a session, shares the 6-character ID, then starts when everyone has joined. If you use a <strong class="text-amber-100">hosted link</strong> to this game, leave the server box empty—everyone uses the same website automatically. For custom hosts, type a domain only (e.g. <code class="font-mono text-amber-200/80">myapp.fly.dev</code>) or a full <code class="font-mono text-amber-200/80">wss://</code> URL.</p>
+        <p id="raceMenuBlurb" class="mt-2 text-center text-sm text-slate-400">Pick a main world, then host. Everyone races that world’s stages. Bots stay offline. Online: host creates a session, shares the 6-character ID, then starts when everyone has joined. If you use a <strong class="text-amber-100">hosted link</strong> to this game, leave the server box empty—everyone uses the same website automatically. For custom hosts, type a domain only (e.g. <code class="font-mono text-amber-200/80">myapp.fly.dev</code>) or a full <code class="font-mono text-amber-200/80">wss://</code> URL.</p>
         <div id="raceWorldBlock">
-          <p class="mt-4 text-left text-xs text-slate-500">World <span class="text-amber-200/90">(required before hosting)</span></p>
-          <div class="mt-1 grid grid-cols-2 gap-2">
-            <button id="btnRaceWorld1" type="button" class="rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:border-amber-400/60">World 1</button>
-            <button id="btnRaceWorld2" type="button" class="rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2.5 text-sm font-semibold text-slate-200 hover:border-amber-400/60">World 2</button>
-          </div>
+          <label class="mt-4 block text-left text-xs text-slate-500" for="raceWorldSelect">World <span class="text-amber-200/90">(required before hosting)</span></label>
+          <select id="raceWorldSelect" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-950/80 px-3 py-2 text-sm text-white">
+            <option value="1">World 1</option>
+            <option value="2">World 2</option>
+          </select>
           <p class="mt-1 text-left text-[11px] text-slate-500">Race all <span id="raceMenuStageCount">—</span> stages.</p>
         </div>
         <label class="mt-4 block text-left text-xs text-slate-500">Online server (blank = this website for all players)</label>

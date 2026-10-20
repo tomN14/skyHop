@@ -4,8 +4,10 @@
  */
 import crypto from 'crypto';
 import { durationKeyToBanUntil, effectiveRole } from './moderation.js';
+import * as CustomWorlds from './custom-worlds.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+export const TOURNAMENT_LOBBY_MS = 10 * 60 * 1000;
 const REGISTER_COST = 1000;
 const OVERHEAD = 100;
 const TAX_RATE = 0.08;
@@ -290,6 +292,24 @@ async function settlePrices(store, state) {
   }
 }
 
+function normalizeTournamentWorlds(t) {
+  if (!t || typeof t !== 'object') return [1];
+  if (!Array.isArray(t.worlds) || !t.worlds.length) {
+    t.worlds = [1];
+    return t.worlds;
+  }
+  const seen = new Set();
+  const out = [];
+  for (const raw of t.worlds) {
+    const id = Math.floor(Number(raw));
+    if (!Number.isFinite(id) || id < 1 || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  t.worlds = out.length ? out : [1];
+  return t.worlds;
+}
+
 function tournamentsOf(c) {
   if (!Array.isArray(c.tournaments)) c.tournaments = [];
   if (c.tournament && typeof c.tournament === 'object') {
@@ -299,24 +319,36 @@ function tournamentsOf(c) {
       prize: c.tournament.prize,
       description: String(c.tournament.description || ''),
       entrants: Array.isArray(c.tournament.entrants) ? c.tournament.entrants : [],
+      startsAt: c.tournament.startsAt || null,
+      worlds: Array.isArray(c.tournament.worlds) && c.tournament.worlds.length ? c.tournament.worlds : [1],
     });
     c.tournament = null;
   }
+  for (const t of c.tournaments) normalizeTournamentWorlds(t);
   return c.tournaments;
 }
 
 function publicTournament(t, me, ownerView) {
   const entrants = Array.isArray(t.entrants) ? t.entrants : [];
+  const now = Date.now();
+  const startsAt = t.startsAt != null ? Number(t.startsAt) : null;
+  const hasStart = startsAt != null && Number.isFinite(startsAt);
+  const started = !!(hasStart && now >= startsAt);
+  const youEntered = entrants.some((e) => uid(e.userId) === me);
   return {
     id: t.id,
     fee: Math.max(0, Math.floor(Number(t.fee) || 0)),
     prize: Math.max(0, Math.floor(Number(t.prize) || 0)),
     description: String(t.description || ''),
     entrants: entrants.length,
-    youEntered: entrants.some((e) => uid(e.userId) === me),
+    youEntered,
     names: ownerView ? entrants.map((e) => e.username) : undefined,
-    startsAt: t.startsAt || null,
-    started: !!(t.startsAt && Date.now() >= Number(t.startsAt)),
+    startsAt: hasStart ? startsAt : null,
+    started,
+    worlds: normalizeTournamentWorlds(t).slice(),
+    lobbyOpen: !!(hasStart && now >= startsAt - TOURNAMENT_LOBBY_MS && now < startsAt),
+    canJoinLobby: !!(youEntered && hasStart && now >= startsAt - TOURNAMENT_LOBBY_MS && !started && !t.settled),
+    autoRace: hasStart,
   };
 }
 
@@ -1340,13 +1372,12 @@ export async function updateCompany(store, user, body) {
       const fee = clampMoney(body.fee, 0, 1_000_000);
       const prize = clampMoney(body.prize, 0, 1_000_000);
       const description = String(body.description || '').trim().replace(/\s+/g, ' ').slice(0, 200);
-      let startsAt = null;
-      if (body.startsAt) {
-        const ms = Date.parse(body.startsAt);
-        if (!Number.isFinite(ms)) throw new Error('Start date is invalid.');
-        startsAt = ms;
-      }
-      list.push({ id: crypto.randomUUID(), fee, prize, description, startsAt, entrants: [] });
+      if (!body.startsAt) throw new Error('Pick a start time.');
+      const ms = Date.parse(body.startsAt);
+      if (!Number.isFinite(ms)) throw new Error('Start date is invalid.');
+      if (ms <= Date.now()) throw new Error('Start time must be in the future.');
+      const worlds = await CustomWorlds.normalizeWorldIds(body.worlds);
+      list.push({ id: crypto.randomUUID(), fee, prize, description, startsAt: ms, worlds, entrants: [] });
     }
     if (c.kind === 'racing' && body.closeTournament) {
       const id = String(body.tournamentId || '');
@@ -1925,6 +1956,7 @@ export async function payTournament(store, user, companyId, tournamentId, userna
     if (!c || c.kind !== 'racing') throw new Error('No tournament to pay.');
     const t = findTournament(c, tournamentId);
     if (!t) throw new Error('That tournament is not open.');
+    if (t.startsAt) throw new Error('The winner is paid when someone finishes the race.');
     const winner = (t.entrants || []).find((e) => String(e.username || '').toLowerCase() === want);
     if (!winner) throw new Error('That player did not enter.');
     const prize = Math.max(0, Math.floor(Number(t.prize) || 0));
@@ -1934,6 +1966,76 @@ export async function payTournament(store, user, companyId, tournamentId, userna
     await payWallet(store, winner.userId, prize);
     c.tournaments = tournamentsOf(c).filter((row) => row.id !== t.id);
     return present(state, user, await holders(store));
+  });
+}
+
+function liveTournament(state, companyId, tournamentId) {
+  const c = companyById(state, companyId);
+  if (!c || c.kind !== 'racing') throw new Error('No tournament is open.');
+  const t = findTournament(c, tournamentId);
+  if (!t) throw new Error('That tournament is not open.');
+  return { c, t };
+}
+
+export async function tournamentJoinInfo(store, user, companyId, tournamentId) {
+  return withState(store, async (state) => {
+    const { t } = liveTournament(state, companyId, tournamentId);
+    if (!t.startsAt) throw new Error('This tournament has no start time.');
+    if (t.settled) throw new Error('This tournament is already finished.');
+    const startsAt = Number(t.startsAt);
+    const now = Date.now();
+    if (now < startsAt - TOURNAMENT_LOBBY_MS) throw new Error('The lobby opens 10 minutes before the start.');
+    if (now >= startsAt) throw new Error('This tournament has already started.');
+    if (!(t.entrants || []).some((e) => uid(e.userId) === uid(user.id))) throw new Error('Enter the tournament before the lobby.');
+    const worlds = normalizeTournamentWorlds(t);
+    const stageCount = await CustomWorlds.totalStagesForWorlds(store, worlds);
+    return {
+      companyId: String(companyId),
+      tournamentId: t.id,
+      worlds,
+      startsAt,
+      prize: Math.max(0, Math.floor(Number(t.prize) || 0)),
+      stageCount,
+      description: String(t.description || ''),
+    };
+  });
+}
+
+export async function tournamentStagePack(store, user, companyId, tournamentId) {
+  return withState(store, async (state) => {
+    const { t } = liveTournament(state, companyId, tournamentId);
+    if (!(t.entrants || []).some((e) => uid(e.userId) === uid(user.id))) throw new Error('Enter the tournament first.');
+    const worlds = normalizeTournamentWorlds(t);
+    const custom = {};
+    for (const id of worlds) {
+      if (id < 3) continue;
+      const hit = await CustomWorlds.getCustomWorldStages(id);
+      custom[String(id)] = hit && Array.isArray(hit.stages) ? hit.stages : [];
+    }
+    return { worlds, custom };
+  });
+}
+
+export async function settleTournamentWin(store, companyId, tournamentId, winnerUserId) {
+  return withState(store, async (state) => {
+    const c = companyById(state, companyId);
+    if (!c || c.kind !== 'racing') return { paid: false, reason: 'That tournament is not open.' };
+    const t = findTournament(c, tournamentId);
+    if (!t || t.settled) return { paid: false, reason: 'This tournament is already finished.' };
+    const winner = (t.entrants || []).find((e) => uid(e.userId) === uid(winnerUserId));
+    if (!winner) return { paid: false, reason: 'That player did not enter.' };
+    const prize = Math.max(0, Math.floor(Number(t.prize) || 0));
+    if (c.cash < prize) {
+      t.settled = true;
+      c.tournaments = tournamentsOf(c).filter((row) => row.id !== t.id);
+      return { paid: false, reason: 'The company cannot cover the prize.', prize: 0, username: winner.username };
+    }
+    c.cash -= prize;
+    c.weekProfit -= prize;
+    await payWallet(store, winner.userId, prize);
+    t.settled = true;
+    c.tournaments = tournamentsOf(c).filter((row) => row.id !== t.id);
+    return { paid: true, prize, username: winner.username, userId: winner.userId };
   });
 }
 

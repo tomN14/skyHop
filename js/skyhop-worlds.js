@@ -93,7 +93,36 @@
   }
 
   function stageCount(worldId) {
+    const w = Number(worldId);
+    if (w >= 3) {
+      if (window.__skyhopCustomWorldId === w && Array.isArray(window.__skyhopCustomWorldStages)) {
+        return window.__skyhopCustomWorldStages.length;
+      }
+      const cat = window.__skyhopCustomWorldCatalog || [];
+      const hit = cat.find(function (row) {
+        return Number(row.id) === w;
+      });
+      if (hit && hit.stageCount) return hit.stageCount;
+      return 0;
+    }
     return stagesForWorld(worldId).length;
+  }
+
+  function stagesForWorldIds(ids, customMap) {
+    const out = [];
+    const custom = customMap || {};
+    (ids || []).forEach(function (raw) {
+      const id = Number(raw);
+      let part = [];
+      if (id === 1) part = world1Stages().slice();
+      else if (id === 2) part = world2Stages().slice();
+      else if (Array.isArray(custom[String(id)])) part = custom[String(id)].slice();
+      else if (window.__skyhopCustomWorldId === id && Array.isArray(window.__skyhopCustomWorldStages)) {
+        part = window.__skyhopCustomWorldStages.slice();
+      }
+      for (let i = 0; i < part.length; i += 1) out.push(part[i]);
+    });
+    return out;
   }
 
   let activeWorldId = 1;
@@ -110,7 +139,23 @@
   }
 
   function setCollabScope(scope) {
-    collabScope = scope === 'w2' ? 'w2' : scope === 'both' ? 'both' : 'w1';
+    if (scope === 'both' || scope === 'w2' || scope === 'w1') {
+      collabScope = scope === 'w2' ? 'w2' : scope === 'both' ? 'both' : 'w1';
+      activeWorldId = 1;
+      return;
+    }
+    const n = Number(scope);
+    if (n === 2) {
+      collabScope = 'w2';
+      activeWorldId = 1;
+      return;
+    }
+    if (n >= 3) {
+      collabScope = null;
+      activeWorldId = n;
+      return;
+    }
+    collabScope = 'w1';
     activeWorldId = 1;
   }
 
@@ -138,6 +183,7 @@
     if (collabScope === 'both') return 'Collab — Both worlds';
     if (collabScope === 'w2') return 'Collab — World 2';
     if (collabScope === 'w1') return 'Collab — World 1';
+    if (typeof activeWorldId === 'number' && activeWorldId >= 3) return 'World ' + activeWorldId;
     if (activeWorldId === 2) return 'World 2';
     return 'World 1';
   }
@@ -202,6 +248,7 @@
     bothStages: bothStages,
     stagesForWorld: stagesForWorld,
     stageCount: stageCount,
+    stagesForWorldIds: stagesForWorldIds,
     isWorld2Unlocked: isWorld2Unlocked,
     markWorld1Complete: markWorld1Complete,
     progressKeyForWorld: progressKeyForWorld,

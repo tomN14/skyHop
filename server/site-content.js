@@ -83,7 +83,7 @@ const FEATURE_LIST_FINANCIAL = `
           <p class="mt-3 text-[10px] font-sem uppercase tracking-wider text-violet-300/90">Financial systems</p>
           <ul class="mt-1 list-disc space-y-0.5 pl-4">
             <li>Registering a company costs 1,000 coins, and you can own more than one. A new company opens at a random price from $0.00 to $1.00. The briefcase registers a company, edits the ones you already own, and can move coins from your balance into that company</li>
-            <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start</li>
+            <li>A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, start time, and worlds. Entrants can join the lobby up to 10 minutes early and cannot move until the start. The first to finish every selected world is paid automatically</li>
             <li>Banks hold deposits and loans. A National Bank account holds at most 10,000,000 coins, and one player can open 5. A private bank sets its own cap from 1,000,000 to 50,000,000 and how many accounts one player can open, from 1 to 15. Insurers set a premium, a deductible, the share of a loss they pay, a weekly cap, and whether they cover stocks or bank deposits. Search either list by name or ticker</li>
             <li>A public company has 1,000 shares and a ticker. You set the opening price and ticker once, then only the market moves the price, and you can still change how many shares are listed. You can buy, sell, short, and cover. A limit price waits until the market reaches it. Prices move every 6 hours</li>
             <li>A profitable week pays 2% of company cash, split by the shares you own, and always leaves at least 1 coin of that profit in the company. A short owes the same amount per share</li>
@@ -155,6 +155,15 @@ function withFinancialSection(html) {
       htmlNext = htmlNext.slice(0, liAt) + '<li>' + siteLine + '</li>\n            ' + htmlNext.slice(liAt);
     }
   }
+  const oldTournament = 'A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, and start time. Entry closes after the start';
+  const nextTournament = 'A racing company can host multiple tournaments at once. Each has its own entry fee, prize, description, start time, and worlds. Entrants can join the lobby up to 10 minutes early and cannot move until the start. The first to finish every selected world is paid automatically';
+  if (htmlNext.includes(oldTournament)) htmlNext = htmlNext.split(oldTournament).join(nextTournament);
+  const oldWorldNav = 'World nav on menu; collab can scope World 1, World 2, or both';
+  const nextWorldNav = 'World nav on menu; racing and collab pick any main world';
+  if (htmlNext.includes(oldWorldNav)) htmlNext = htmlNext.split(oldWorldNav).join(nextWorldNav);
+  const oldRacePick = 'Online race: host session ID, join, WebSocket sync. The host picks World 1 or World 2, or a user level';
+  const nextRacePick = 'Online race: host session ID, join, WebSocket sync. The host picks any main world, or a user level';
+  if (htmlNext.includes(oldRacePick)) htmlNext = htmlNext.split(oldRacePick).join(nextRacePick);
   const oldClose = 'A company under −500 coins of weekly profit is closed.';
   const nextClose = 'A company that finishes a week with 0 cash is closed, after its first week.';
   if (htmlNext.includes(oldClose)) htmlNext = htmlNext.split(oldClose).join(nextClose);

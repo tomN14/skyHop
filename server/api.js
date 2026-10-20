@@ -5460,6 +5460,24 @@ export async function handleApi(req, res) {
     return true;
   }
 
+  if (pathname === '/api/economy/tournament/stages' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      json(
+        res,
+        200,
+        await Economy.tournamentStagePack(store, sess.user, u.searchParams.get('companyId'), u.searchParams.get('tournamentId'))
+      );
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   if (pathname === '/api/economy/tournament/enter' && req.method === 'POST') {
     const sess = await getActiveSessionUser(req);
     if (!sess) {

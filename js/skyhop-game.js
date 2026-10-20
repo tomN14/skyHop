@@ -765,6 +765,34 @@
   let runStartedAt = 0;
   let runFrozenMs = 0;
   let runSegmentStart = 0;
+  let controlsLockedUntil = 0;
+  let freezeBanner = null;
+  function controlsAreLocked() {
+    return controlsLockedUntil > 0 && Date.now() < controlsLockedUntil;
+  }
+  function ensureFreezeBanner() {
+    if (freezeBanner) return freezeBanner;
+    freezeBanner = document.createElement('div');
+    freezeBanner.id = 'raceFreezeBanner';
+    freezeBanner.className = 'pointer-events-none fixed left-1/2 top-24 z-[40] hidden -translate-x-1/2 rounded-2xl border border-amber-400/50 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-amber-100';
+    document.body.appendChild(freezeBanner);
+    return freezeBanner;
+  }
+  function syncFreezeBanner() {
+    const banner = ensureFreezeBanner();
+    if (!controlsAreLocked()) {
+      banner.classList.add('hidden');
+      return;
+    }
+    const sec = Math.max(0, Math.ceil((controlsLockedUntil - Date.now()) / 1000));
+    banner.textContent = 'Race starts in ' + sec + 's. You cannot move yet.';
+    banner.classList.remove('hidden');
+  }
+  function unlockRaceControls() {
+    controlsLockedUntil = 0;
+    resetRunClock();
+    if (freezeBanner) freezeBanner.classList.add('hidden');
+  }
   function resetRunClock() {
     runFrozenMs = 0;
     runSegmentStart = performance.now();
@@ -2809,6 +2837,7 @@
       refreshRuntimeOptsFromMenu();
     }
     inRace = true;
+    controlsLockedUntil = opts && opts.controlsLockedUntil ? Number(opts.controlsLockedUntil) : 0;
     if (window.SkyHopRunAnticheat) {
       var acOn = !opts || opts.anticheatEnabled !== false;
       window.SkyHopRunAnticheat.beginSession(acOn);
@@ -3459,6 +3488,7 @@
 
   function update(dt) {
     if (gameState !== 'playing') return;
+    syncFreezeBanner();
     const stage = stagesNow()[stageIndex];
     if (!stage) return;
     if (consumeStageTime(dt)) return;
@@ -3488,6 +3518,11 @@
     const worldMaxX = Math.max(0, stage.worldW - player.w);
     let left = kbDown('left') || keys['ArrowLeft'] || keys['a'] || keys['A'];
     let right = kbDown('right') || keys['ArrowRight'] || keys['d'] || keys['D'];
+    if (controlsAreLocked()) {
+      left = false;
+      right = false;
+      player.vx = 0;
+    }
     if (player.x <= worldMinX + 0.5 && left) left = false;
     if (player.x >= worldMaxX - 0.5 && right) right = false;
     if (right && !left) facing = 1;
@@ -3525,7 +3560,7 @@
     jumpHeldPrev = !!wantJump;
     const canJump = player.onGround || now < player.coyoteUntil;
     let usedGroundJump = false;
-    if (canJump && now - lastJumpPress < C.JUMP_BUFFER_MS) {
+    if (!controlsAreLocked() && canJump && now - lastJumpPress < C.JUMP_BUFFER_MS) {
       if (!spendJump()) {
         lastJumpPress = -9999;
       } else {
@@ -4984,6 +5019,8 @@
       }
     }
     gameState = 'menu';
+    controlsLockedUntil = 0;
+    if (freezeBanner) freezeBanner.classList.add('hidden');
     resetPauseDiscardProgress();
     closeWeaponScreen();
     window.SKYHOP_ACTIVE_STAGES = null;
@@ -5397,6 +5434,8 @@
     isRacing: function () {
       return inRace;
     },
+    controlsLocked: controlsAreLocked,
+    unlockRaceControls: unlockRaceControls,
     getRaceT0: function () {
       return runStartedAt;
     },

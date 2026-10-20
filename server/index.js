@@ -9,6 +9,8 @@ import { warnIfPasswordPepperMissing } from './password.js';
 import { handleApi } from './api.js';
 import { servePublishedSite } from './sites.js';
 import { store } from './store.js';
+import * as Economy from './economy.js';
+import * as CustomWorlds from './custom-worlds.js';
 import { effectiveRole, hasAdminPowers, isAccountDisabled, isStaffRole } from './moderation.js';
 import { recordVisit } from './visit-stats.js';
 import {
@@ -182,6 +184,26 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 
+function scheduleTournamentGo(room) {
+  if (!room || room.goTimer || room.started) return;
+  const delay = Math.max(0, Number(room.startsAt) - Date.now());
+  room.goTimer = setTimeout(() => {
+    room.goTimer = null;
+    if (!rooms.has(room.id) || room.started || room.tournamentPaid) return;
+    room.started = true;
+    room.startAt = Date.now();
+    broadcastAll(room, {
+      type: 'raceGo',
+      startAt: room.startAt,
+      roomId: room.id,
+      worlds: room.raceWorlds || [1],
+      stageCount: (room.maxStage0 || 0) + 1,
+      anticheatEnabled: room.anticheatEnabled !== false,
+      tournament: true,
+    });
+  }, delay);
+}
+
 function stampSessionUser(meta, user) {
   if (!meta || !user || !user.username) return;
   meta.username = user.username;
@@ -304,9 +326,9 @@ wss.on('connection', (ws) => {
         );
         let raceWorld = 0;
         if (!isCollab && !levelSession) {
-          const w = Number(msg.world);
-          if (w !== 1 && w !== 2) {
-            send(ws, { type: 'error', message: 'Pick World 1 or World 2 before hosting.' });
+          const w = Math.floor(Number(msg.world));
+          if (!(await CustomWorlds.worldExists(w))) {
+            send(ws, { type: 'error', message: 'Pick a world before hosting.' });
             return;
           }
           raceWorld = w;
@@ -335,11 +357,102 @@ wss.on('connection', (ws) => {
           players: playerList(room),
           chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
-          world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          world: room.raceWorld >= 1 ? room.raceWorld : null,
           levelSession: !!room.levelSession,
           levelTitle: room.levelTitle || null,
           public: !!room.public,
         });
+      })();
+      return;
+    }
+
+    if (msg.type === 'joinTournament') {
+      void (async () => {
+        const user = await wsUserFromToken(msg.authToken);
+        if (!user || user.disabled) {
+          send(ws, { type: 'error', message: user && user.disabled ? 'Account disabled — cannot join races.' : 'Sign in before joining a tournament race.' });
+          return;
+        }
+        let info;
+        try {
+          info = await Economy.tournamentJoinInfo(store, { id: user.uid, username: user.username }, msg.companyId, msg.tournamentId);
+        } catch (e) {
+          send(ws, { type: 'error', message: String(e.message || e) });
+          return;
+        }
+        const key = info.companyId + ':' + info.tournamentId;
+        const name = (msg.name && String(msg.name).slice(0, 20)) || user.username || 'Racer';
+        const metaEarly = socketMeta.get(ws);
+        if (metaEarly && metaEarly.roomId) leaveRoom(ws, metaEarly.roomId);
+        let room = null;
+        for (const candidate of rooms.values()) {
+          if (candidate.tournamentKey === key && !candidate.tournamentPaid) {
+            room = candidate;
+            break;
+          }
+        }
+        if (!room) {
+          if (rooms.size > 500) {
+            send(ws, { type: 'error', message: 'Server busy' });
+            return;
+          }
+          let roomId = makeRoomId();
+          while (rooms.has(roomId)) roomId = makeRoomId();
+          room = createRoom(roomId, ws, playerId, name, false, true);
+          room.tournamentKey = key;
+          room.tournamentCompanyId = info.companyId;
+          room.tournamentId = info.tournamentId;
+          room.raceWorlds = info.worlds;
+          room.raceWorld = info.worlds[0] || 1;
+          room.startsAt = info.startsAt;
+          room.maxClients = 32;
+          room.maxStage0 = Math.max(0, info.stageCount - 1);
+          room.public = false;
+          scheduleTournamentGo(room);
+        } else {
+          if (room.started || Date.now() >= Number(room.startsAt)) {
+            send(ws, { type: 'error', message: 'This tournament has already started.' });
+            return;
+          }
+          const cap = room.maxClients || 32;
+          if (room.clients.size >= cap) {
+            send(ws, { type: 'error', message: 'Session full' });
+            return;
+          }
+          for (const client of room.clients) {
+            const who = socketMeta.get(client);
+            if (who && who.userId === user.uid) {
+              send(ws, { type: 'error', message: 'You are already in this lobby.' });
+              return;
+            }
+          }
+          room.clients.add(ws);
+          room.names[playerId] = name;
+          room.progress[playerId] = emptyProgress();
+        }
+        const meta = socketMeta.get(ws);
+        meta.roomId = room.id;
+        meta.displayName = name;
+        meta.spectator = false;
+        meta.watchKind = null;
+        stampSessionUser(meta, user);
+        if (user.username) room.usernames[playerId] = user.username;
+        send(ws, {
+          type: 'lobbyReady',
+          roomId: room.id,
+          youAreHost: false,
+          name,
+          playerId,
+          players: playerList(room),
+          chat: chatHistoryFor(room, revealModsFor(user)),
+          worlds: room.raceWorlds || [1],
+          freezeUntil: room.startsAt,
+          stageCount: (room.maxStage0 || 0) + 1,
+          companyId: room.tournamentCompanyId,
+          tournamentId: room.tournamentId,
+          anticheatEnabled: room.anticheatEnabled !== false,
+        });
+        broadcastAll(room, { type: 'playerJoined', playerId, name, players: playerList(room) }, ws);
       })();
       return;
     }
@@ -391,7 +504,7 @@ wss.on('connection', (ws) => {
           players,
           chat: chatHistoryFor(room, revealModsFor(user)),
           anticheatEnabled: room.anticheatEnabled !== false,
-          world: room.raceWorld === 2 ? 2 : room.raceWorld === 1 ? 1 : null,
+          world: room.raceWorld >= 1 ? room.raceWorld : null,
           levelSession: !!room.levelSession,
           levelTitle: room.levelTitle || null,
           public: !!room.public,
@@ -555,39 +668,84 @@ wss.on('connection', (ws) => {
           customOpts = null;
         }
       }
-      if (room.collab) {
-        const scopeRaw = msg.worldScope != null ? String(msg.worldScope).toLowerCase() : 'w1';
-        const worldScope = scopeRaw === 'w2' || scopeRaw === 'both' ? scopeRaw : 'w1';
-        room.worldScope = worldScope;
-        const sc = Number(msg.stageCount);
-        const nStages = Number.isFinite(sc) && sc >= 1 ? Math.min(200, Math.floor(sc)) : 50;
-        room.maxStage0 = Math.max(0, nStages - 1);
+      void (async () => {
+        const clientCount = Number(msg.stageCount);
+        const fromClient = Number.isFinite(clientCount) && clientCount >= 1 ? Math.min(400, Math.floor(clientCount)) : 0;
+        if (room.collab) {
+          const scopeRaw = msg.worldScope != null ? String(msg.worldScope).toLowerCase() : '1';
+          let worldScope = 1;
+          let stages = null;
+          if (scopeRaw === 'both') worldScope = 'both';
+          else if (scopeRaw === 'w2') worldScope = 2;
+          else if (scopeRaw === 'w1') worldScope = 1;
+          else {
+            const n = Math.floor(Number(scopeRaw));
+            if (!(await CustomWorlds.worldExists(n))) {
+              send(ws, { type: 'error', message: 'Pick a world before starting.' });
+              room.started = false;
+              room.startAt = 0;
+              return;
+            }
+            worldScope = n;
+            if (n >= 3) {
+              const hit = await CustomWorlds.getCustomWorldStages(n);
+              stages = hit && Array.isArray(hit.stages) ? hit.stages : [];
+              if (!stages.length) {
+                send(ws, { type: 'error', message: 'That world has no stages.' });
+                room.started = false;
+                room.startAt = 0;
+                return;
+              }
+            }
+          }
+          room.worldScope = worldScope;
+          const nStages = stages ? stages.length : fromClient || (worldScope === 'both' ? 100 : await CustomWorlds.stageCountForWorld(store, worldScope === 'both' ? 1 : worldScope));
+          room.maxStage0 = Math.max(0, nStages - 1);
+          const pack = {
+            type: 'collabStart',
+            startAt,
+            roomId: room.id,
+            worldScope,
+            difficulty,
+            anticheatEnabled: room.anticheatEnabled !== false,
+          };
+          if (stages) pack.stages = stages;
+          if (customOpts) pack.customOpts = customOpts;
+          broadcastAll(room, pack);
+          return;
+        }
+        const raceWorld = Math.floor(Number(room.raceWorld));
+        if (!(await CustomWorlds.worldExists(raceWorld))) {
+          send(ws, { type: 'error', message: 'Pick a world before hosting.' });
+          room.started = false;
+          room.startAt = 0;
+          return;
+        }
+        let stages = null;
+        if (raceWorld >= 3) {
+          const hit = await CustomWorlds.getCustomWorldStages(raceWorld);
+          stages = hit && Array.isArray(hit.stages) ? hit.stages : [];
+          if (!stages.length) {
+            send(ws, { type: 'error', message: 'That world has no stages.' });
+            room.started = false;
+            room.startAt = 0;
+            return;
+          }
+        }
+        const nRaceStages = stages ? stages.length : fromClient || (await CustomWorlds.stageCountForWorld(store, raceWorld));
+        room.maxStage0 = Math.max(0, nRaceStages - 1);
         const pack = {
-          type: 'collabStart',
+          type: 'raceStart',
           startAt,
           roomId: room.id,
-          worldScope,
+          world: raceWorld,
           difficulty,
           anticheatEnabled: room.anticheatEnabled !== false,
         };
+        if (stages) pack.stages = stages;
         if (customOpts) pack.customOpts = customOpts;
         broadcastAll(room, pack);
-        return;
-      }
-      const raceWorld = room.raceWorld === 2 ? 2 : 1;
-      const sc = Number(msg.stageCount);
-      const nRaceStages = Number.isFinite(sc) && sc >= 1 ? Math.min(200, Math.floor(sc)) : 50;
-      room.maxStage0 = Math.max(0, nRaceStages - 1);
-      const pack = {
-        type: 'raceStart',
-        startAt,
-        roomId: room.id,
-        world: raceWorld,
-        difficulty,
-        anticheatEnabled: room.anticheatEnabled !== false,
-      };
-      if (customOpts) pack.customOpts = customOpts;
-      broadcastAll(room, pack);
+      })();
       return;
     }
 
@@ -631,6 +789,15 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'tournamentArmed') {
+      const meta = socketMeta.get(ws);
+      const room = meta && meta.roomId && rooms.get(meta.roomId);
+      if (!room || !room.tournamentKey || room.started || (meta && meta.spectator)) return;
+      const n = Math.floor(Number(msg.stageCount));
+      if (n >= 1 && n <= 400) room.maxStage0 = n - 1;
+      return;
+    }
+
     if (msg.type === 'progress') {
       const meta = socketMeta.get(ws);
       const room = meta && meta.roomId && rooms.get(meta.roomId);
@@ -663,6 +830,39 @@ wss.on('connection', (ws) => {
           timeMs: ev.timeMs,
           deaths: ev.deaths,
         });
+        return;
+      }
+      if (room.tournamentKey) {
+        if (room.tournamentPaid) return;
+        if (!meta.userId) {
+          send(ws, { type: 'error', message: 'Sign in before this finish can pay the prize.' });
+          return;
+        }
+        room.tournamentPaid = true;
+        const winnerId = meta.userId;
+        void (async () => {
+          try {
+            const result = await Economy.settleTournamentWin(store, room.tournamentCompanyId, room.tournamentId, winnerId);
+            broadcastAll(room, {
+              type: 'tournamentPaid',
+              paid: !!result.paid,
+              prize: result.prize || 0,
+              username: result.username || room.names[playerId] || '?',
+              name: room.names[playerId] || '?',
+              reason: result.reason || '',
+              timeMs: ev.timeMs,
+            });
+          } catch (e) {
+            broadcastAll(room, {
+              type: 'tournamentPaid',
+              paid: false,
+              prize: 0,
+              name: room.names[playerId] || '?',
+              reason: String(e.message || e),
+              timeMs: ev.timeMs,
+            });
+          }
+        })();
         return;
       }
       send(ws, { type: 'finishOk', token: ev.token, timeMs: ev.timeMs, deaths: ev.deaths });

@@ -207,8 +207,16 @@
       window.__skyhopMpPeers = mpProgress;
       window.__skyhopMyPlayerId = window.__skyhopCollabPlayerId;
       window.__skyhopCollabActive = true;
-      if (window.SkyHopWorlds) {
-        window.SkyHopWorlds.setCollabScope(msg.worldScope || 'w1');
+      var scopeNum = Number(msg.worldScope);
+      if (scopeNum >= 3 && Array.isArray(msg.stages)) {
+        window.__skyhopCustomWorldStages = msg.stages;
+        window.__skyhopCustomWorldId = scopeNum;
+        window.SKYHOP_ACTIVE_STAGES = msg.stages.slice();
+        if (window.SKYHOP_PREP_STAGE_LIST) window.SKYHOP_PREP_STAGE_LIST(window.SKYHOP_ACTIVE_STAGES);
+        if (window.SkyHopWorlds) window.SkyHopWorlds.setActiveWorld(scopeNum);
+      } else {
+        window.SKYHOP_ACTIVE_STAGES = null;
+        if (window.SkyHopWorlds) window.SkyHopWorlds.setCollabScope(msg.worldScope || 'w1');
       }
       hideScreen();
       var raceHud = el('raceLeaderboard');
@@ -452,12 +460,10 @@
     if (start) {
       start.addEventListener('click', function () {
         var scopeEl = el('collabWorldScope');
-        var scope = scopeEl ? scopeEl.value : 'w1';
+        var scope = scopeEl && scopeEl.value ? scopeEl.value : '1';
         var stageCount = 50;
-        if (window.SkyHopWorlds) {
-          if (scope === 'w2') stageCount = window.SkyHopWorlds.stageCount(2);
-          else if (scope === 'both') stageCount = window.SkyHopWorlds.bothStages().length;
-          else stageCount = window.SkyHopWorlds.stageCount(1);
+        if (window.SkyHopWorlds && typeof window.SkyHopWorlds.stageCount === 'function') {
+          stageCount = window.SkyHopWorlds.stageCount(Number(scope) || 1) || 50;
         }
         var startPayload = pendingLevel
           ? {
@@ -551,6 +557,21 @@
     if (typeof prevCollabKill === 'function') prevCollabKill(playerId);
   };
 
+  window.SkyHopFillCollabWorlds = function (worlds) {
+    var sel = el('collabWorldScope');
+    if (!sel) return;
+    var prev = sel.value;
+    sel.textContent = '';
+    (worlds || []).forEach(function (w) {
+      var opt = document.createElement('option');
+      opt.value = String(w.id);
+      opt.textContent = w.name || 'World ' + w.id;
+      sel.appendChild(opt);
+    });
+    if (prev) sel.value = prev;
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  };
+
   window.SkyHopCollabReset = function () {
     disconnect();
     window.__skyhopCollabActive = false;
@@ -558,6 +579,24 @@
     for (var k of Object.keys(mpProgress)) delete mpProgress[k];
   };
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-  else bind();
+  function loadCollabWorlds() {
+    if (!window.SkyHopApiRequest || !window.SkyHopFillCollabWorlds) return;
+    void window.SkyHopApiRequest('/api/worlds', { method: 'GET' }).then(function (data) {
+      var worlds = (data && data.worlds) || [];
+      window.__skyhopCustomWorldCatalog = worlds;
+      window.SkyHopFillCollabWorlds(worlds);
+    }).catch(function () {
+      window.SkyHopFillCollabWorlds([{ id: 1, name: 'World 1' }, { id: 2, name: 'World 2' }]);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      bind();
+      loadCollabWorlds();
+    });
+  } else {
+    bind();
+    loadCollabWorlds();
+  }
 })();

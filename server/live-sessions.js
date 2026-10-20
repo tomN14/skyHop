@@ -456,6 +456,10 @@ export function leaveRoom(s, roomId) {
   const players = playerList(room);
   broadcastAll(room, { type: 'playerLeft', playerId: pid, players }, s);
   if (!room.clients.size) {
+    if (room.goTimer) {
+      clearTimeout(room.goTimer);
+      room.goTimer = null;
+    }
     if (room.spectators) {
       for (const sp of room.spectators) {
         send(sp, { type: 'sessionEnded', message: 'Session ended.' });

@@ -110,13 +110,23 @@
     return (Number(n) * 100).toFixed(2) + '%';
   }
 
+  function worldName(id) {
+    var n = Number(id);
+    var cat = window.__skyhopCustomWorldCatalog || [];
+    for (var i = 0; i < cat.length; i += 1) {
+      if (Number(cat[i].id) === n && cat[i].name) return cat[i].name;
+    }
+    return 'World ' + n;
+  }
+
   function tournamentLine(t) {
     var when = 'No start date';
     if (t.startsAt) {
       var d = new Date(t.startsAt);
       when = Number.isNaN(d.getTime()) ? 'No start date' : (t.started ? 'Started ' : 'Starts ') + d.toLocaleString();
     }
-    return 'Entry ' + t.fee + ' · prize ' + t.prize + ' · ' + t.entrants + ' entered · ' + when;
+    var worlds = (t.worlds || [1]).map(worldName).join(' → ');
+    return 'Entry ' + t.fee + ' · prize ' + t.prize + ' · ' + t.entrants + ' entered · ' + when + ' · ' + worlds;
   }
 
   function render(data) {
@@ -464,15 +474,58 @@
         card.appendChild(prize.wrap);
         card.appendChild(desc.wrap);
         card.appendChild(start.wrap);
+        var worldsBox = el('div', 'mt-2 flex flex-wrap gap-2');
+        worldsBox.appendChild(el('p', 'w-full text-[11px] text-slate-500', 'Worlds, in order'));
+        card.appendChild(worldsBox);
+        function paintWorldPicks(worlds) {
+          worldsBox.textContent = '';
+          worldsBox.appendChild(el('p', 'w-full text-[11px] text-slate-500', 'Worlds, in order'));
+          (worlds || []).forEach(function (w) {
+            var label = el('label', 'inline-flex items-center gap-1 text-[11px] text-slate-200');
+            var box = document.createElement('input');
+            box.type = 'checkbox';
+            box.value = String(w.id);
+            box.className = 'race-world-pick';
+            if (Number(w.id) === 1) box.checked = true;
+            label.appendChild(box);
+            label.appendChild(document.createTextNode(w.name || 'World ' + w.id));
+            worldsBox.appendChild(label);
+          });
+        }
+        paintWorldPicks([{ id: 1, name: 'World 1' }, { id: 2, name: 'World 2' }]);
+        api('/api/worlds', { method: 'GET' })
+          .then(function (data) {
+            var worlds = (data && data.worlds) || [];
+            if (worlds.length) {
+              window.__skyhopCustomWorldCatalog = worlds;
+              paintWorldPicks(worlds);
+            }
+          })
+          .catch(function () {});
         card.appendChild(
           button('Open tournament', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            if (!start.input.value) {
+              var needStart = document.getElementById('economyMsg');
+              if (needStart) needStart.textContent = 'Pick a start time.';
+              return;
+            }
+            var worlds = [];
+            worldsBox.querySelectorAll('.race-world-pick:checked').forEach(function (box) {
+              worlds.push(Number(box.value));
+            });
+            if (!worlds.length) {
+              var needWorld = document.getElementById('economyMsg');
+              if (needWorld) needWorld.textContent = 'Pick at least one world.';
+              return;
+            }
             post('/api/economy/company', {
               companyId: mine.id,
               openTournament: true,
               fee: Number(fee.input.value),
               prize: Number(prize.input.value),
               description: desc.input.value,
-              startsAt: start.input.value ? new Date(start.input.value).toISOString() : null,
+              startsAt: new Date(start.input.value).toISOString(),
+              worlds: worlds,
             });
           })
         );
@@ -481,14 +534,18 @@
           race.appendChild(el('p', 'text-xs font-semibold text-white', t.description || 'Untitled tournament'));
           race.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', tournamentLine(t)));
           if (t.names && t.names.length) race.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Entered: ' + t.names.join(', ')));
-          var winner = field('Pay winner username', '', 'text');
-          race.appendChild(winner.wrap);
           var raceRow = el('div', 'mt-2 flex flex-wrap gap-2');
-          raceRow.appendChild(
-            button('Pay winner and close', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
-              post('/api/economy/tournament/pay', { companyId: mine.id, tournamentId: t.id, username: winner.input.value });
-            })
-          );
+          if (!t.autoRace) {
+            var winner = field('Pay winner username', '', 'text');
+            race.appendChild(winner.wrap);
+            raceRow.appendChild(
+              button('Pay winner and close', 'rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+                post('/api/economy/tournament/pay', { companyId: mine.id, tournamentId: t.id, username: winner.input.value });
+              })
+            );
+          } else {
+            race.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'The first finisher is paid automatically.'));
+          }
           raceRow.appendChild(
             button('Close without paying', 'rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {
               post('/api/economy/company', { companyId: mine.id, closeTournament: true, tournamentId: t.id });
@@ -1026,10 +1083,21 @@
         var race = el('div', 'mt-3 rounded-xl border border-white/10 p-3');
         race.appendChild(el('p', 'text-sm text-white', t.description || 'No description'));
         race.appendChild(el('p', 'mt-1 text-xs text-slate-300', tournamentLine(t)));
-        if (t.started) {
+        if (t.canJoinLobby) {
+          race.appendChild(el('p', 'mt-2 text-[11px] text-amber-200', 'Lobby is open. You cannot move until the start.'));
+          race.appendChild(
+            button('Join race', 'mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-slate-950', function () {
+              if (window.SkyHopJoinTournament) {
+                window.SkyHopJoinTournament({ companyId: c.id, tournamentId: t.id });
+              }
+              closeRaces();
+            })
+          );
+        } else if (t.started) {
           race.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Entry is closed.'));
         } else if (t.youEntered) {
           race.appendChild(el('p', 'mt-2 text-[11px] text-emerald-300', 'You entered.'));
+          if (t.autoRace) race.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', 'Lobby opens 10 minutes before the start.'));
         } else {
           race.appendChild(
             button('Enter', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {

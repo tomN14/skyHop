@@ -203,3 +203,52 @@ export async function markWorldCleared(userId, worldId) {
   db.clears[key] = [...cur];
   await saveDb(db);
 }
+
+export async function worldExists(id) {
+  const want = Number(id);
+  if (!Number.isFinite(want) || want < 1) return false;
+  if (want === 1 || want === 2) return true;
+  const db = await loadDb();
+  return db.worlds.some((w) => Number(w.id) === want);
+}
+
+/** Ordered unique catalog world ids. Throws if empty or unknown. */
+export async function normalizeWorldIds(raw) {
+  const ids = [];
+  const seen = new Set();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const id = Math.floor(Number(item));
+    if (!Number.isFinite(id) || id < 1 || seen.has(id)) continue;
+    if (!(await worldExists(id))) throw new Error('Unknown world.');
+    seen.add(id);
+    ids.push(id);
+  }
+  if (!ids.length) throw new Error('Pick at least one world.');
+  return ids;
+}
+
+export async function stageCountForWorld(store, id) {
+  const want = Math.floor(Number(id));
+  if (want === 1) {
+    if (store && typeof store.getBuiltinCampaignStages === 'function') {
+      const stages = await store.getBuiltinCampaignStages();
+      if (stages && stages.length) return stages.length;
+    }
+    return 50;
+  }
+  if (want === 2) {
+    if (store && typeof store.getBuiltinWorld2Stages === 'function') {
+      const stages = await store.getBuiltinWorld2Stages();
+      if (stages && stages.length) return stages.length;
+    }
+    return 50;
+  }
+  const pack = await getCustomWorldStages(want);
+  return pack && Array.isArray(pack.stages) ? pack.stages.length : 0;
+}
+
+export async function totalStagesForWorlds(store, worlds) {
+  let n = 0;
+  for (const id of worlds || []) n += await stageCountForWorld(store, id);
+  return Math.max(1, n);
+}
