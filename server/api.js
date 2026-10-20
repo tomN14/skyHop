@@ -56,7 +56,8 @@ import {
   enrichStaffRequests,
   validateStaffRequestInput,
 } from './staff-admin.js';
-import { applyOwnerStrikeDelta, lookupStrikes } from './strikes.js';
+import { applyOwnerStrikeDelta, lookupStrikes, strikeCountOf } from './strikes.js';
+import * as Community from './community.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -280,6 +281,15 @@ async function buildMePayload(userId, req = null) {
     }
   }
   const coinsInfinite = role === 'owner';
+  let playTimeMs = 0;
+  let statOverride = null;
+  try {
+    playTimeMs = await Community.playTimeOf(store, userId);
+    statOverride = await Community.statOverrideOf(store, userId);
+  } catch {
+    playTimeMs = 0;
+    statOverride = null;
+  }
   let unlockedTextures = [];
   if (typeof store.listTextureGrantsForUser === 'function') {
     try {
@@ -321,7 +331,10 @@ async function buildMePayload(userId, req = null) {
       bestTimeMs: agg.bestTimeMs,
       avgTimeMs: agg.avgTimeMs,
       avgDeaths: agg.avgDeaths,
+      ...(statOverride || {}),
     },
+    strikes: strikeCountOf(user),
+    playTimeMs,
     world2Unlocked,
     achievements,
     promotionNotice: promotionNoticePayload(user),
@@ -1926,7 +1939,8 @@ export async function handleApi(req, res) {
         return true;
       }
       const ok = await store.areFriends(sess.userId, friend.id);
-      if (!ok) {
+      const ownerChat = effectiveRole(sess.user) === 'owner';
+      if (!ok && !ownerChat) {
         json(res, 403, { error: 'Chat is only available with accepted friends.' });
         return true;
       }
@@ -1982,7 +1996,8 @@ export async function handleApi(req, res) {
         return true;
       }
       const ok = await store.areFriends(sess.userId, friend.id);
-      if (!ok) {
+      const ownerChat = effectiveRole(sess.user) === 'owner';
+      if (!ok && !ownerChat) {
         json(res, 403, { error: 'You can only chat with accepted friends.' });
         return true;
       }
@@ -5031,6 +5046,223 @@ export async function handleApi(req, res) {
       json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/notices' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      json(res, 200, await Community.pendingNotices(store, sess.user));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/notices/ack' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(res, 200, await Community.ackNotices(store, sess.user, body.ids));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/announcements' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    json(res, 200, await Community.listAnnouncements(store));
+    return true;
+  }
+
+  if (pathname === '/api/owner/announcements' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.deleteId) json(res, 200, await Community.deleteAnnouncement(store, String(body.deleteId)));
+      else json(res, 200, await Community.addAnnouncement(store, body.text));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/warnings' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    json(res, 200, await Community.listWarnings(store));
+    return true;
+  }
+
+  if (pathname === '/api/owner/warnings' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.deleteId) json(res, 200, await Community.deleteWarning(store, String(body.deleteId)));
+      else json(res, 200, await Community.addWarning(store, body.username, body.text, (name) => store.findUserByUsername(name)));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/stats' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const target = await store.findUserByUsername(String(body.username || ''));
+      if (!target) {
+        json(res, 400, { error: 'User not found.' });
+        return true;
+      }
+      const override = await Community.setStatOverride(store, target.id, body);
+      if (String(body.bestTimeMs ?? '').trim() !== '' && typeof store.addRun === 'function') {
+        await store.addRun(target.id, body.bestTimeMs, body.totalDeaths || 0, 'campaign', 'normal');
+      }
+      json(res, 200, { ok: true, stats: override });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/me/play-time' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      body = {};
+    }
+    try {
+      json(res, 200, await Community.addPlayTime(store, sess.userId, body.ms));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/polls' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    json(res, 200, await Community.listPolls(store, sess.userId));
+    return true;
+  }
+
+  if (pathname === '/api/polls' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.vote) json(res, 200, await Community.votePoll(store, sess.user, body.id, body.option));
+      else if (body.deleteId) json(res, 200, await Community.deletePoll(store, sess.user, body.deleteId, effectiveRole(sess.user) === 'owner'));
+      else json(res, 200, await Community.createPoll(store, sess.user, body.question, body.options));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/collections' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    const userId = sess ? sess.userId : '';
+    const id = u.searchParams.get('id');
+    try {
+      if (id) json(res, 200, await Community.getCollection(store, userId, id));
+      else json(res, 200, await Community.searchCollections(store, userId, u.searchParams.get('q') || ''));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/collections' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      if (body.clearStage != null) json(res, 200, await Community.markCollectionStage(store, sess.user, body.id, body.clearStage));
+      else json(res, 200, await Community.saveCollection(store, sess.user, body));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
     }
     return true;
   }

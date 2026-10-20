@@ -57,6 +57,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
   '.woff2': 'font/woff2',
+  '.mp3': 'audio/mpeg',
 };
 
 async function serveStatic(req, res, urlPath) {
@@ -122,9 +123,39 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
+async function listMusicTracks() {
+  try {
+    const names = await fs.readdir(path.join(STATIC_ROOT, 'music'));
+    return names
+      .filter((name) => name.toLowerCase().endsWith('.mp3') && !name.startsWith('.') && !name.includes('/') && !name.includes('\\') && name !== '..')
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
 const server = http.createServer((req, res) => {
   const run = async () => {
     try {
+      const earlyPath = (req.url && req.url.split('?')[0]) || '/';
+      if (earlyPath === '/api/music' && (req.method === 'GET' || req.method === 'OPTIONS')) {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          });
+          res.end();
+          return;
+        }
+        const tracks = await listMusicTracks();
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ tracks }));
+        return;
+      }
       if (await handleApi(req, res)) return;
     } catch (e) {
       console.error('[Sky Hop API]', e);
@@ -754,7 +785,7 @@ wss.on('connection', (ws) => {
       const room = meta && meta.roomId && rooms.get(meta.roomId);
       if (!room || !room.started || !room.collab || meta.spectator) return;
       const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
-      const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
+      const maxHp = Math.max(1, Math.min(100000, Math.floor(Number(msg.maxHp) || 5)));
       if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
       broadcastAll(room, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });
       return;
@@ -767,7 +798,7 @@ wss.on('connection', (ws) => {
       const key = String(msg.stage0 != null ? Math.floor(msg.stage0) : 0);
       const dmg = Math.max(0, Math.min(500, Math.floor(Number(msg.damage) || 0)));
       if (dmg < 1) return;
-      const maxHp = Math.max(1, Math.min(100, Math.floor(Number(msg.maxHp) || 5)));
+      const maxHp = Math.max(1, Math.min(100000, Math.floor(Number(msg.maxHp) || 5)));
       if (room.bossHpByStage[key] == null) room.bossHpByStage[key] = maxHp;
       room.bossHpByStage[key] = Math.max(0, room.bossHpByStage[key] - dmg);
       broadcastAll(room, { type: 'collabBossHp', stage0: Number(key), hp: room.bossHpByStage[key] });

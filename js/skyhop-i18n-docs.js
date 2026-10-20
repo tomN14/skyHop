@@ -288,6 +288,19 @@
   add('Pick a start time.', 'Elige una hora de inicio.', 'Choisissez une heure de début.', 'Wähle eine Startzeit.', 'Escolhe uma hora de início.', '选择开始时间。', '開始時刻を選んでください。', '시작 시각을 고르세요.');
   add('Worlds, in order', 'Mundos, en orden', 'Mondes, dans l’ordre', 'Welten, der Reihe nach', 'Mundos, por ordem', '世界，按顺序', 'ワールド、順番に', '월드, 순서대로');
   add('The first finisher is paid automatically.', 'El primero en terminar cobra automáticamente.', 'Le premier à finir est payé automatiquement.', 'Wer zuerst fertig ist, wird automatisch bezahlt.', 'O primeiro a acabar é pago automaticamente.', '最先完成的人自动获得奖金。', '最初に終えた人が自動で賞金を受け取ります。', '가장 먼저 끝낸 사람이 자동으로 상금을 받습니다.');
+  add('Polls', 'Encuestas', 'Sondages', 'Umfragen', 'Sondagens', '投票', '投票', '투표');
+  add('Collections', 'Colecciones', 'Collections', 'Sammlungen', 'Coleções', '关卡集', 'コレクション', '컬렉션');
+  add('Strikes', 'Faltas', 'Avertissements', 'Verwarnungen', 'Faltas', '违规', 'ストライク', '경고 횟수');
+  add('Play time', 'Tiempo de juego', 'Temps de jeu', 'Spielzeit', 'Tempo de jogo', '游玩时间', 'プレイ時間', '플레이 시간');
+  add('Announcement', 'Anuncio', 'Annonce', 'Ankündigung', 'Anúncio', '公告', 'お知らせ', '공지');
+  add('Warning', 'Aviso', 'Avertissement', 'Warnung', 'Aviso', '警告', '警告', '경고');
+  add('Next', 'Siguiente', 'Suivant', 'Weiter', 'Seguinte', '下一个', '次へ', '다음');
+  add('Close', 'Cerrar', 'Fermer', 'Schließen', 'Fechar', '关闭', '閉じる', '닫기');
+  add('Music', 'Música', 'Musique', 'Musik', 'Música', '音乐', '音楽', '음악');
+  add('Track', 'Pista', 'Piste', 'Titel', 'Faixa', '曲目', '曲', '곡');
+  add('None', 'Ninguna', 'Aucune', 'Keine', 'Nenhuma', '无', 'なし', '없음');
+  add('No music', 'Sin música', 'Pas de musique', 'Keine Musik', 'Sem música', '无音乐', '音楽なし', '음악 없음');
+  add('The track repeats until you pick another one. Volume 0 turns the music off.', 'La pista se repite hasta que eliges otra. Volumen 0 apaga la música.', 'La piste se répète jusqu’à ce que vous en choisissiez une autre. Le volume 0 coupe la musique.', 'Der Titel wiederholt sich, bis du einen anderen wählst. Lautstärke 0 schaltet die Musik aus.', 'A faixa repete-se até escolheres outra. Volume 0 desliga a música.', '曲目一直重复，直到你换一首。音量 0 会关掉音乐。', '別の曲を選ぶまで繰り返します。音量0で音楽が消えます。', '다른 곡을 고르기 전까지 반복됩니다. 볼륨 0은 음악을 끕니다.');
 
   rows.forEach(function (row) {
     for (var i = 0; i < codes.length; i += 1) {

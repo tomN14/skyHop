@@ -266,6 +266,8 @@
     if (sel.kind === 'number') return (d.numbers || [])[sel.index] || null;
     if (sel.kind === 'text') return (d.texts || [])[sel.index] || null;
     if (sel.kind === 'blackout') return (d.blackouts || [])[sel.index] || null;
+    if (sel.kind === 'monster') return (d.editorMonsters || [])[sel.index] || null;
+    if (sel.kind === 'boss') return d.editorBoss || null;
     if (sel.kind === 'fireball') return (d.fireballEmitters || [])[sel.index] || null;
     if (sel.kind === 'goal') return d.goal || null;
     return null;
@@ -352,6 +354,7 @@
     if (!Array.isArray(d.portals)) d.portals = [];
     if (!Array.isArray(d.switches)) d.switches = [];
     if (!Array.isArray(d.blackouts)) d.blackouts = [];
+    if (!Array.isArray(d.editorMonsters)) d.editorMonsters = [];
     for (const p of d.platforms || []) ensureObjId(d, p);
     for (const p of d.movingPlatforms || []) ensureObjId(d, p);
     for (const s of d.spikes || []) ensureObjId(d, s);
@@ -752,6 +755,10 @@
     removeOverlappingRects(d.portals, cut);
     removeOverlappingRects(d.switches, cut);
     removeOverlappingRects(d.blackouts, cut);
+    removeOverlappingRects(d.editorMonsters, cut);
+    if (d.editorBoss && d.editorBoss.x < cut.x + cut.w && d.editorBoss.x + d.editorBoss.w > cut.x && d.editorBoss.y < cut.y + cut.h && d.editorBoss.y + d.editorBoss.h > cut.y) {
+      d.editorBoss = null;
+    }
     if (d.coins && d.coins.length) {
       d.coins = d.coins.filter(function (c) {
         const r = Number(c.r) > 0 ? Number(c.r) : 14;
@@ -1102,6 +1109,8 @@
     else if (k === 'portal') r = (d.portals || [])[i];
     else if (k === 'switch') r = (d.switches || [])[i];
     else if (k === 'blackout') r = (d.blackouts || [])[i];
+    else if (k === 'monster') r = (d.editorMonsters || [])[i];
+    else if (k === 'boss') r = d.editorBoss;
     return !!(r && wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h);
   }
 
@@ -1562,6 +1571,14 @@
       const b = blackouts[i];
       if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) return { kind: 'blackout', index: i };
     }
+    const monsters = d.editorMonsters || [];
+    for (let i = monsters.length - 1; i >= 0; i--) {
+      const m = monsters[i];
+      if (wx >= m.x && wx <= m.x + m.w && wy >= m.y && wy <= m.y + m.h) return { kind: 'monster', index: i };
+    }
+    if (d.editorBoss && wx >= d.editorBoss.x && wx <= d.editorBoss.x + d.editorBoss.w && wy >= d.editorBoss.y && wy <= d.editorBoss.y + d.editorBoss.h) {
+      return { kind: 'boss', index: 0 };
+    }
     const spikes = d.spikes || [];
     for (let i = spikes.length - 1; i >= 0; i--) {
       const s = spikes[i];
@@ -1746,7 +1763,20 @@
       ctx.save();
       if (obj && obj.invisible) ctx.globalAlpha = 0.3;
       ctx.fillStyle = editorFill(obj, fallback);
-      ctx.fillRect(x, y, w, h);
+      if (obj && obj.shape === 'circle') {
+        ctx.beginPath();
+        ctx.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (obj && obj.shape === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(x + w / 2, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, w, h);
+      }
       if (stroke) {
         ctx.strokeStyle = stroke;
         ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
@@ -1958,6 +1988,21 @@
     for (const n of d.numbers || []) paintEditorNumber(ctx, n, n.x, n.y, 1);
     for (const t of d.texts || []) paintEditorText(ctx, t, t.x, t.y);
 
+    for (const m of d.editorMonsters || []) {
+      const a = toScreen(m.x, m.y);
+      paintEditorRect(m, a.x, a.y, m.w * cam.s, m.h * cam.s, m.color || '#fb7185', '#fecdd3');
+      ctx.fillStyle = '#fff1f2';
+      ctx.font = `${Math.max(8, 9 * cam.s)}px sans-serif`;
+      ctx.fillText('MON', a.x + 3, a.y + 12);
+    }
+    if (d.editorBoss) {
+      const bss = d.editorBoss;
+      const a = toScreen(bss.x, bss.y);
+      paintEditorRect(bss, a.x, a.y, bss.w * cam.s, bss.h * cam.s, bss.color || '#e11d48', '#fecaca');
+      ctx.fillStyle = '#fff1f2';
+      ctx.font = `${Math.max(8, 10 * cam.s)}px sans-serif`;
+      ctx.fillText('BOSS', a.x + 3, a.y + 14);
+    }
     for (const b of d.blackouts || []) {
       const a = toScreen(b.x, b.y);
       const bw = b.w * cam.s;
@@ -2313,6 +2358,112 @@
   }
 
   let editorRedrawScheduled = false;
+  function syncEntityInspector() {
+    const panel = document.getElementById('lvlEdEntityProps');
+    const d = editorState.data;
+    const obj = objectFromSel(d, editorSelection);
+    const kind = editorSelection && editorSelection.kind;
+    const show = obj && (kind === 'monster' || kind === 'boss' || (kind === 'platform' && obj.shape));
+    if (!panel) return;
+    if (!show) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    const title = document.getElementById('lvlEdEntityTitle');
+    if (title) title.textContent = kind === 'boss' ? 'Boss' : kind === 'monster' ? 'Monster' : 'Shape';
+    const set = function (id, value) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = value == null ? '' : String(value);
+    };
+    const chk = function (id, on) {
+      const el = document.getElementById(id);
+      if (el) el.checked = !!on;
+    };
+    set('lvlEntW', obj.w);
+    set('lvlEntH', obj.h);
+    set('lvlEntDelay', obj.spawnAfter || 0);
+    set('lvlEntHp', obj.hp || 1);
+    set('lvlEntColor', obj.color || '#f43f5e');
+    set('lvlEntTexture', obj.texture || '');
+    set('lvlEntSpawnIf', obj.spawnIf || '');
+    set('lvlEntRange', obj.range || 0);
+    chk('lvlEntChase', obj.chase);
+    chk('lvlEntRandom', obj.random);
+    chk('lvlEntPhysics', obj.physics !== false);
+    chk('lvlEntWalls', obj.throughWalls);
+    set('lvlEntPattern', obj.pattern || 'patrol');
+    set('lvlEntShape', obj.shape || 'rect');
+    set('lvlEntWin', obj.win || 'boss');
+    const atk = obj.attacks || {};
+    chk('lvlEntTouch', atk.touch !== false);
+    chk('lvlEntShot', atk.projectile);
+    chk('lvlEntLaser', atk.laser);
+    set('lvlEntTouchDmg', obj.touchDmg || 1);
+    set('lvlEntShotDmg', obj.projectileDmg || 1);
+    set('lvlEntLaserDmg', obj.laserDmg || 1);
+    set('lvlEntSword', obj.swordDmg || 10);
+    set('lvlEntCrit', Math.round((Number(obj.critChance) || 0) * 100));
+    set('lvlEntCritDmg', obj.critDmg || 20);
+    set('lvlEntShield', obj.shieldResist || 0);
+    set('lvlEntShieldDur', obj.shieldDuration || 0);
+    set('lvlEntStomp', obj.stompDmg || 1);
+    set('lvlEntMusic', obj.musicName || (d && d.musicName) || '');
+  }
+
+  function bindEntityInspector() {
+    const panel = document.getElementById('lvlEdEntityProps');
+    if (!panel || panel.dataset.bound) return;
+    panel.dataset.bound = '1';
+    panel.addEventListener('input', function () {
+      const d = editorState.data;
+      const obj = objectFromSel(d, editorSelection);
+      if (!obj) return;
+      const num = function (id) {
+        const el = document.getElementById(id);
+        return el ? Number(el.value) : 0;
+      };
+      const text = function (id) {
+        const el = document.getElementById(id);
+        return el ? el.value : '';
+      };
+      const on = function (id) {
+        const el = document.getElementById(id);
+        return !!(el && el.checked);
+      };
+      obj.w = Math.max(8, num('lvlEntW') || obj.w);
+      obj.h = Math.max(8, num('lvlEntH') || obj.h);
+      obj.spawnAfter = Math.max(0, num('lvlEntDelay') || 0);
+      obj.hp = Math.max(1, num('lvlEntHp') || 1);
+      obj.color = text('lvlEntColor') || obj.color;
+      obj.texture = text('lvlEntTexture');
+      obj.spawnIf = text('lvlEntSpawnIf').trim();
+      obj.range = Math.max(0, num('lvlEntRange') || 0);
+      obj.minX = obj.x - obj.range;
+      obj.maxX = obj.x + obj.w + obj.range;
+      obj.chase = on('lvlEntChase');
+      obj.random = on('lvlEntRandom');
+      obj.physics = on('lvlEntPhysics');
+      obj.throughWalls = on('lvlEntWalls');
+      obj.pattern = text('lvlEntPattern') || 'patrol';
+      if (editorSelection && editorSelection.kind === 'platform') obj.shape = text('lvlEntShape') || 'rect';
+      obj.win = text('lvlEntWin') || 'boss';
+      obj.attacks = { touch: on('lvlEntTouch'), projectile: on('lvlEntShot'), laser: on('lvlEntLaser') };
+      obj.touchDmg = num('lvlEntTouchDmg') || 1;
+      obj.projectileDmg = num('lvlEntShotDmg') || 1;
+      obj.laserDmg = num('lvlEntLaserDmg') || 1;
+      obj.swordDmg = num('lvlEntSword') || 10;
+      obj.critChance = (num('lvlEntCrit') || 0) / 100;
+      obj.critDmg = num('lvlEntCritDmg') || 20;
+      obj.shieldResist = num('lvlEntShield') || 0;
+      obj.shieldDuration = num('lvlEntShieldDur') || 0;
+      obj.stompDmg = num('lvlEntStomp') || 1;
+      obj.musicName = text('lvlEntMusic').trim();
+      if (d) d.musicName = obj.musicName;
+      scheduleEditorRedraw();
+    });
+  }
+
   function scheduleEditorRedraw() {
     const canvas = document.getElementById('lvlEditorCanvas');
     const ctx = canvas && canvas.getContext('2d');
@@ -2332,6 +2483,7 @@
         syncStageFlagsUi();
         syncAppearanceUi();
         syncSymbolUi();
+        syncEntityInspector();
       } finally {
         editorRedrawScheduled = false;
         if (editorHasRainbow()) scheduleEditorRedraw();
@@ -2570,6 +2722,70 @@
           })
         );
         editorSelection = { kind: 'blackout', index: d.blackouts.length - 1 };
+      } else if (editorTool === 'monster') {
+        if (!d.editorMonsters) d.editorMonsters = [];
+        d.editorMonsters.push({
+          id: nextEditorId(d),
+          x: Math.round((w.x - 14) / 8) * 8,
+          y: Math.round((w.y - 14) / 8) * 8,
+          w: 28,
+          h: 28,
+          color: '#fb7185',
+          texture: '',
+          spawnAfter: 0,
+          spawnIf: '',
+          range: 120,
+          chase: false,
+          random: false,
+          physics: true,
+          throughWalls: false,
+          pattern: 'patrol',
+          hp: 1,
+        });
+        editorSelection = { kind: 'monster', index: d.editorMonsters.length - 1 };
+      } else if (editorTool === 'boss') {
+        d.editorBoss = {
+          x: Math.round((w.x - 32) / 8) * 8,
+          y: Math.round((w.y - 32) / 8) * 8,
+          w: 64,
+          h: 64,
+          color: '#e11d48',
+          texture: '',
+          spawnAfter: 0,
+          spawnIf: '',
+          range: 240,
+          chase: true,
+          random: false,
+          physics: true,
+          throughWalls: false,
+          pattern: 'patrol',
+          hp: 8,
+          win: 'boss',
+          attacks: { touch: true, projectile: false, laser: false },
+          touchDmg: 1,
+          projectileDmg: 1,
+          laserDmg: 1,
+          swordDmg: 10,
+          critChance: 0.1,
+          critDmg: 20,
+          shieldResist: 0,
+          shieldDuration: 3,
+          stompDmg: 1,
+          musicName: '',
+        };
+        editorSelection = { kind: 'boss', index: 0 };
+      } else if (editorTool === 'shape') {
+        d.platforms.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - 24) / 8) * 8,
+            y: Math.round((w.y - 24) / 8) * 8,
+            w: 48,
+            h: 48,
+            shape: 'circle',
+          })
+        );
+        editorSelection = { kind: 'platform', index: d.platforms.length - 1 };
       }
       scheduleEditorRedraw();
     }
@@ -2685,6 +2901,13 @@
         const b = d.blackouts[drag.sel.index];
         b.x += dx;
         b.y += dy;
+      } else if (drag.sel.kind === 'monster') {
+        const m = d.editorMonsters[drag.sel.index];
+        m.x += dx;
+        m.y += dy;
+      } else if (drag.sel.kind === 'boss' && d.editorBoss) {
+        d.editorBoss.x += dx;
+        d.editorBoss.y += dy;
       }
       updateEditorHover(onCanvas ? w : null);
       scheduleEditorRedraw();
@@ -4553,6 +4776,7 @@
         portal: 'portals',
         switch: 'switches',
         blackout: 'blackouts',
+        monster: 'editorMonsters',
       };
       const key = names[kind];
       if (!key) return null;
@@ -4600,6 +4824,13 @@
     function deleteEditorSelection() {
       if (!editorSelection || !editorState.data) return;
       const d = editorState.data;
+      if (editorSelection.kind === 'boss') {
+        d.editorBoss = null;
+        editorSelection = null;
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Deleted.';
+        scheduleEditorRedraw();
+        return;
+      }
       const list = editorListForKind(d, editorSelection.kind);
       if (!list || editorSelection.index == null || !list[editorSelection.index]) return;
       list.splice(editorSelection.index, 1);
@@ -4620,6 +4851,7 @@
     document.getElementById('btnLvlEdDelete').addEventListener('click', deleteEditorSelection);
 
     bindEditorCanvas();
+    bindEntityInspector();
     var lvlEdTitleInput = document.getElementById('lvlEdTitle');
     if (lvlEdTitleInput) {
       lvlEdTitleInput.addEventListener('input', function () {

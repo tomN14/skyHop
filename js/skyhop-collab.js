@@ -123,6 +123,32 @@
     if (window.SkyHopSessionChat) window.SkyHopSessionChat.detach();
   }
 
+  function renderCollabBoard(st) {
+    var list = el('raceLeaderboardList');
+    var hud = el('raceLeaderboard');
+    if (hud) hud.classList.remove('hidden');
+    if (!list || !st) return;
+    var rows = [];
+    var me = window.__skyhopCollabPlayerId;
+    Object.keys(mpProgress).forEach(function (id) {
+      if (id === me) return;
+      var p = mpProgress[id] || {};
+      rows.push({ name: p.name || 'Player', stage: p.stage0 != null ? p.stage0 : p.stage || 0, done: !!p.finished, you: false });
+    });
+    rows.push({ name: 'You', stage: st.stage0 || 0, done: !!st.finished, you: true });
+    rows.sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? -1 : 1;
+      return b.stage - a.stage;
+    });
+    list.innerHTML = rows.slice(0, 5).map(function (r, i) {
+      return '<li class="flex items-center justify-between gap-2 border-b border-slate-700/50 py-0.5 text-[11px] ' +
+        (r.you ? 'font-bold text-amber-200' : 'text-slate-300') +
+        '"><span class="text-slate-500">#' + (i + 1) + '</span><span class="flex-1 truncate">' +
+        String(r.name).replace(/[&<>]/g, '') + '</span><span class="font-mono text-indigo-200">' +
+        (r.done ? 'Done' : 'St ' + (r.stage + 1)) + '</span></li>';
+    }).join('');
+  }
+
   function startCollabProgressPinger() {
     if (collabPinger) {
       clearInterval(collabPinger);
@@ -157,6 +183,7 @@
       if (st.og != null) payload.og = st.og;
       Object.assign(payload, probeFields());
       window.SkyHopCollabProgressTick(payload);
+      renderCollabBoard(st);
     }, 100);
   }
 
@@ -186,7 +213,7 @@
       pendingLevel = null;
       hideScreen();
       var levelHud = el('raceLeaderboard');
-      if (levelHud) levelHud.classList.add('hidden');
+      if (levelHud) levelHud.classList.remove('hidden');
       window.SKYHOP.beginLevelSession({
         kind: msg.type === 'raceStart' ? 'race' : 'collab',
         stage: msg.level,
@@ -220,7 +247,7 @@
       }
       hideScreen();
       var raceHud = el('raceLeaderboard');
-      if (raceHud) raceHud.classList.add('hidden');
+      if (raceHud) raceHud.classList.remove('hidden');
       window.SKYHOP.beginCollab({
         type: 'mp',
         difficulty: msg.difficulty || 'normal',
@@ -233,6 +260,10 @@
     }
     if (msg.type === 'playerJoined' && msg.players) {
       window.__skyhopMpRoster = msg.players;
+      msg.players.forEach(function (p) {
+        if (!p || p.id === window.__skyhopCollabPlayerId) return;
+        if (!mpProgress[p.id]) mpProgress[p.id] = { name: p.name || p.username || 'Player', stage: 0 };
+      });
       return;
     }
     if (msg.type === 'playerProgress') {

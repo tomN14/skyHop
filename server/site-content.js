@@ -164,6 +164,21 @@ function withFinancialSection(html) {
   const oldRacePick = 'Online race: host session ID, join, WebSocket sync. The host picks World 1 or World 2, or a user level';
   const nextRacePick = 'Online race: host session ID, join, WebSocket sync. The host picks any main world, or a user level';
   if (htmlNext.includes(oldRacePick)) htmlNext = htmlNext.split(oldRacePick).join(nextRacePick);
+  const extraLines = [
+    'If you are in SkyHop during that 10 minute window, the race starts for you on its own. You still cannot move until the exact start',
+    'Online races and collab show the top 5, even when fewer than 5 people are in the session',
+    'The level editor can place monsters, bosses, circles, and triangles. A boss stage can be won by beating the boss, reaching the goal, or both',
+    'Polls have 2 to 6 options. Collections are a sequence of levels, and publishing one requires clearing every stage',
+    'Account shows your strike count and total play time. The owner can post announcements, warn one player, message anyone, and edit account stats',
+  ];
+  if (htmlNext.includes(nextTournament) && !htmlNext.includes(extraLines[0])) {
+    const at = htmlNext.indexOf(nextTournament);
+    const liEnd = htmlNext.indexOf('</li>', at);
+    if (liEnd !== -1) {
+      const insert = extraLines.map((line) => '\n            <li>' + line + '</li>').join('');
+      htmlNext = htmlNext.slice(0, liEnd + 5) + insert + htmlNext.slice(liEnd + 5);
+    }
+  }
   const oldClose = 'A company under −500 coins of weekly profit is closed.';
   const nextClose = 'A company that finishes a week with 0 cash is closed, after its first week.';
   if (htmlNext.includes(oldClose)) htmlNext = htmlNext.split(oldClose).join(nextClose);

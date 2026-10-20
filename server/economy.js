@@ -5,6 +5,7 @@
 import crypto from 'crypto';
 import { durationKeyToBanUntil, effectiveRole } from './moderation.js';
 import * as CustomWorlds from './custom-worlds.js';
+import { payWeeklySalaries } from './community.js';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const TOURNAMENT_LOBBY_MS = 10 * 60 * 1000;
@@ -767,6 +768,7 @@ async function applyWeek(store, state) {
       state.loans = state.loans.filter((loan) => loan.lender !== c.id && !(loan.borrowerType === 'company' && loan.borrowerId === c.id));
     }
   }
+  await payWeeklySalaries(store, state);
 }
 
 async function settle(store, state) {

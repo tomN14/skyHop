@@ -1192,6 +1192,36 @@
     if (key === 'player_death_count') return deaths;
     if (key === 'player_pos_x') return player.x + player.w / 2;
     if (key === 'player_pos_y') return player.y + player.h / 2;
+    if (key === 'boss_size') return bossState ? Math.max(bossState.w || 0, bossState.h || 0) : 0;
+    if (key === 'boss_spawned') return bossState && bossState.spawned !== false ? 1 : 0;
+    if (key === 'boss_health') return bossState ? Math.max(0, Number(bossState.hp) || 0) : 0;
+    if (key === 'player_health') return typeof bossPlayerHp === 'number' ? bossPlayerHp : 0;
+    if (key === 'monster_health') {
+      const live = monsterStates.filter((m) => m && (m.hp == null || m.hp > 0) && m.spawned !== false);
+      if (!live.length) return 0;
+      return live.reduce((sum, m) => sum + (m.hp == null ? 1 : Number(m.hp) || 0), 0);
+    }
+    if (key === 'monster_spawned') return monsterStates.some((m) => m && m.spawned !== false) ? 1 : 0;
+    if (key === 'monster_environmental_interaction') return monsterStates.some((m) => m && m.throughWalls) ? 0 : 1;
+    if (key === 'collection_length') return window.__skyhopCollection ? Number(window.__skyhopCollection.length) || 0 : 0;
+    if (key === 'is_collection') return window.__skyhopCollection ? 1 : 0;
+    if (key === 'music_name') {
+      if (window.SkyHopMusic && window.SkyHopMusic.trackName) return window.SkyHopMusic.trackName();
+      return stage && stage.musicName ? String(stage.musicName) : '';
+    }
+    const spec = bossState && bossState.spec;
+    if (key === 'boss_laser_attack') return spec && spec.attacks && spec.attacks.laser ? 1 : 0;
+    if (key === 'boss_laser_attack_dmg') return spec ? Number(spec.laserDmg) || 0 : 0;
+    if (key === 'boss_laser_cooldown') return spec ? Number(spec.laserCooldown) || 0 : 0;
+    if (key === 'boss_laser_warning_time') return spec ? Number(spec.laserWarning) || 0 : 0;
+    if (key === 'boss_projectile_attack') return spec && spec.attacks && spec.attacks.projectile ? 1 : 0;
+    if (key === 'boss_projectile_attack_dmg') return spec ? Number(spec.projectileDmg) || 0 : 0;
+    if (key === 'boss_projectile_attack_cooldown') return spec ? Number(spec.projectileCooldown) || 0 : 0;
+    if (key === 'boss_projectile_attack_frequency') return spec && Number(spec.projectileCooldown) > 0 ? 1 / Number(spec.projectileCooldown) : 0;
+    if (key === 'boss_touch_dmg') return spec ? Number(spec.touchDmg) || 0 : 0;
+    if (key === 'boss_environmental_interaction') return spec && spec.throughWalls ? 0 : 1;
+    if (key === 'boss_attack_laser') return bossState && bossState.laserOn ? 1 : 0;
+    if (key === 'boss_attack_projectile') return bossState && bossState.projectileOn ? 1 : 0;
     return 0;
   }
 
@@ -1358,6 +1388,39 @@
           if (name === 'jump_limit') {
             setJumpLimitFromScript(value);
             return;
+          }
+          if (bossState && bossState.spec) {
+            const on = Number(value) !== 0 && value !== false && value !== '0';
+            if (name === 'boss_attack_laser' || name === 'boss_laser_attack') {
+              bossState.laserOn = on;
+              bossState.spec.attacks.laser = on || bossState.spec.attacks.laser;
+              return;
+            }
+            if (name === 'boss_attack_projectile' || name === 'boss_projectile_attack') {
+              bossState.projectileOn = on;
+              bossState.spec.attacks.projectile = on || bossState.spec.attacks.projectile;
+              return;
+            }
+            if (name === 'boss_laser_attack_dmg') {
+              bossState.spec.laserDmg = Number(value) || 0;
+              return;
+            }
+            if (name === 'boss_projectile_attack_dmg') {
+              bossState.spec.projectileDmg = Number(value) || 0;
+              return;
+            }
+            if (name === 'boss_touch_dmg') {
+              bossState.spec.touchDmg = Number(value) || 0;
+              return;
+            }
+            if (name === 'boss_laser_warning_time') {
+              bossState.spec.laserWarning = Number(value) || 0;
+              return;
+            }
+            if (name === 'boss_laser_cooldown' || name === 'boss_projectile_attack_cooldown') {
+              bossState.spec[name === 'boss_laser_cooldown' ? 'laserCooldown' : 'projectileCooldown'] = Number(value) || 0;
+              return;
+            }
           }
           window.SkyHopSpl.setToggleAttr(stage, name, value);
         },
@@ -2524,8 +2587,15 @@
     if (a <= 0) return false;
     const now = performance.now();
     if (now < player.hazardIFrameUntil) return false;
-    if (now < shieldInvincibleUntil) return false;
-    bossPlayerHp -= a;
+    if (now < shieldInvincibleUntil) {
+      const resist = bossState && bossState.spec && bossState.spec.shieldResist != null ? Number(bossState.spec.shieldResist) : 100;
+      const kept = Math.max(0, Math.min(100, resist));
+      amt = Math.floor(a * (1 - kept / 100));
+      if (amt <= 0) return false;
+    } else {
+      amt = a;
+    }
+    bossPlayerHp -= amt;
     if (bossPlayerHp <= 0) {
       die();
       return true;
@@ -2598,12 +2668,16 @@
     }
     let crit = false;
     if (hit) {
-      crit = Math.random() < 0.1;
-      const dmg = crit ? 20 : 10;
+      const spec = bossState && bossState.spec;
+      const critChance = spec && spec.critChance != null ? Number(spec.critChance) : 0.1;
+      crit = Math.random() < (Number.isFinite(critChance) ? critChance : 0.1);
+      const baseDmg = spec && Number(spec.swordDmg) > 0 ? Number(spec.swordDmg) : 10;
+      const critDmg = spec && Number(spec.critDmg) > 0 ? Number(spec.critDmg) : baseDmg * 2;
+      const dmg = crit ? critDmg : baseDmg;
+      if (bossState.maxHp == null) bossState.maxHp = bossState.hp;
+      bossState.hp = Math.max(0, bossState.hp - dmg);
       if (inCollab && window.SkyHopCollabNotifyBossHit) {
-        window.SkyHopCollabNotifyBossHit(stageIndex, dmg, bossState.hp);
-      } else {
-        bossState.hp -= dmg;
+        window.SkyHopCollabNotifyBossHit(stageIndex, dmg, bossState.maxHp);
       }
       syncEpicBossHud();
     }
@@ -2618,10 +2692,69 @@
     const now = performance.now();
     if (now < shieldItemReadyAt) return;
     shieldItemReadyAt = now + SHIELD_ITEM_CD_MS;
-    shieldInvincibleUntil = now + SHIELD_INVULN_MS;
+    const shieldSec = bossState && bossState.spec && Number(bossState.spec.shieldDuration) > 0 ? Number(bossState.spec.shieldDuration) : 0;
+    shieldInvincibleUntil = now + (shieldSec ? shieldSec * 1000 : SHIELD_INVULN_MS);
     player.hazardIFrameUntil = Math.max(player.hazardIFrameUntil, shieldInvincibleUntil);
     shieldRingAnim = { t0: now };
     syncWeaponHud(now);
+  }
+
+  function actorReady(actor, stage) {
+    if (!actor || actor.editor !== true && actor.spec == null && actor.spawnAfter == null && !actor.spawnIf) return true;
+    if (actor.spawned) return true;
+    const elapsed = stageStartedAt ? (performance.now() - stageStartedAt) / 1000 : 0;
+    const wait = Number(actor.spawnAfter) || 0;
+    const cond = actor.spawnIf ? splGet(stage, String(actor.spawnIf)) : 1;
+    if (elapsed >= wait && cond) {
+      actor.spawned = true;
+      return true;
+    }
+    return false;
+  }
+
+  function prepareEditorActors(s) {
+    const extra = Array.isArray(s.editorMonsters) ? s.editorMonsters : [];
+    extra.forEach(function (raw) {
+      const wait = Number(raw.spawnAfter) || 0;
+      monsterStates.push({
+        ...raw,
+        editor: true,
+        vy: 0,
+        vx: Number(raw.vx) || 50,
+        w: Math.max(8, Number(raw.w) || 28),
+        h: Math.max(8, Number(raw.h) || 28),
+        minX: raw.minX != null ? Number(raw.minX) : Number(raw.x) - 120,
+        maxX: raw.maxX != null ? Number(raw.maxX) : Number(raw.x) + (Number(raw.w) || 28) + 120,
+        hp: Math.max(1, Number(raw.hp) || 1),
+        spawned: !(wait > 0) && !raw.spawnIf,
+        spawnAfter: wait,
+      });
+    });
+    if (s.editorBoss && typeof s.editorBoss === 'object') {
+      const b = s.editorBoss;
+      const win = b.win === 'goal' || b.win === 'both' ? b.win : 'boss';
+      s.winMode = win;
+      s.bossStage = win !== 'goal';
+      if (b.musicName) s.musicName = b.musicName;
+      const wait = Number(b.spawnAfter) || 0;
+      bossState = {
+        x: Number(b.x) || 200,
+        y: Number(b.y) || 200,
+        w: Math.max(12, Number(b.w) || 64),
+        h: Math.max(12, Number(b.h) || 64),
+        hp: Math.max(1, Number(b.hp) || 8),
+        vx: 70,
+        minX: b.minX != null ? Number(b.minX) : 0,
+        maxX: b.maxX != null ? Number(b.maxX) : s.worldW || 960,
+        color: b.color || '#f43f5e',
+        spec: b,
+        editor: true,
+        spawned: !(wait > 0) && !b.spawnIf,
+        spawnAfter: wait,
+        spawnIf: b.spawnIf || '',
+        shootAcc: 0,
+      };
+    }
   }
 
   function loadStage(i) {
@@ -2670,8 +2803,9 @@
     gravityDir = 1;
     gravityArrowWasInside = (s.gravityArrows || []).map(() => false);
     resetStageGadgets(s);
-    monsterStates = (s.monsters || []).map((m) => ({ ...m, vy: m.vy ?? 0 }));
-    bossState = s.boss ? { ...s.boss } : null;
+    monsterStates = (s.monsters || []).map((m) => ({ ...m, vy: m.vy ?? 0, spawned: true }));
+    bossState = s.boss ? { ...s.boss, spawned: true } : null;
+    prepareEditorActors(s);
     if (bossState) {
       bossState.vx = (s.boss.vx || 0) * runtimeOpts.bossMoveSpeedMul;
       bossState.shootAcc = 0;
@@ -2692,8 +2826,11 @@
       } else {
         if (runtimeOpts.bossHpOverride != null) bossState.hp = runtimeOpts.bossHpOverride;
       }
+      if (bossState.maxHp == null) bossState.maxHp = bossState.hp;
+      const pendingBossHp = window.__skyhopPendingBossHp && window.__skyhopPendingBossHp[stageIndex];
+      if (pendingBossHp != null) bossState.hp = pendingBossHp;
       if (inCollab && window.SkyHopCollabNotifyBossInit) {
-        window.SkyHopCollabNotifyBossInit(stageIndex, bossState.hp);
+        window.SkyHopCollabNotifyBossInit(stageIndex, bossState.maxHp);
       }
     }
     itemPickups = (s.itemPickups || []).map((p) => ({ ...p, collected: false }));
@@ -3025,7 +3162,10 @@
   }
 
   function goalReached(stage) {
-    if (stage.bossStage || !objectLive(stage.goal)) return false;
+    if (stage.winMode === 'boss') return false;
+    if (stage.bossStage && stage.winMode !== 'goal' && stage.winMode !== 'both') return false;
+    if (stage.winMode === 'both' && !(bossState && bossState.hp <= 0)) return false;
+    if (!objectLive(stage.goal)) return false;
     return PHY.rectsOverlap(
       { x: player.x, y: player.y, w: player.w, h: player.h },
       stage.goal
@@ -3092,7 +3232,12 @@
     const gravStep = C.GRAVITY * gravityDir * dt * runtimeOpts.gravityMul;
     for (const m of monsterStates) {
       if (m.y > stage.worldH + 200) continue;
-
+      if (m.hp != null && m.hp <= 0) continue;
+      if (!actorReady(m, stage)) continue;
+      const usePhysics = m.physics !== false;
+      if (!usePhysics) {
+        m.vy = 0;
+      } else {
       m.vy = (m.vy || 0) + gravStep;
       m.y += m.vy * dt;
 
@@ -3141,8 +3286,13 @@
         }
         hitMy = PHY.solidCollide(solidRects, m.x, m.y, m.w, m.h);
       }
+      }
 
-      if (chase && !runtimeOpts.monstersFriendly) {
+      if (m.pattern === 'still') m.vx = 0;
+      else if (m.pattern === 'sine') m.vx = Math.sin(performance.now() / 400) * 80;
+      if (m.random && Math.random() < dt * 0.8) m.vx = (Math.random() - 0.5) * 160;
+      const monsterChase = m.chase || (chase && !runtimeOpts.monstersFriendly);
+      if (monsterChase && !runtimeOpts.monstersFriendly) {
         const px = player.x + player.w / 2;
         const mx = m.x + m.w / 2;
         m.vx = px > mx ? Math.abs(chaseSpd) : -Math.abs(chaseSpd);
@@ -3161,7 +3311,7 @@
         }
       }
 
-      let hitMx = PHY.solidCollide(solidRects, m.x, m.y, m.w, m.h);
+      let hitMx = m.throughWalls || m.physics === false ? null : PHY.solidCollide(solidRects, m.x, m.y, m.w, m.h);
       let mxi = 0;
       while (hitMx && mxi < 20) {
         mxi++;
@@ -3186,7 +3336,8 @@
       if (!PHY.rectsOverlap(body, mon)) continue;
       const stomp = player.vy * gravityDir > 0 && player.y + player.h < m.y + m.h * 0.55;
       if (stomp) {
-        m.y += 4000;
+        m.hp = m.hp == null ? 0 : m.hp - 1;
+        if (m.hp <= 0) m.y += 4000;
         player.vy = -420 * gravityDir * runtimeOpts.jumpMul;
         player.hazardIFrameUntil = performance.now() + C.BOSS_STOMP_IFRAME_MS;
       } else if (!runtimeOpts.monstersFriendly && performance.now() >= player.hazardIFrameUntil) {
@@ -3331,6 +3482,10 @@
   function updateBoss(stage, dt, tSec, solidRects) {
     if (!bossState) return false;
     const b = bossState;
+    if (!actorReady(b, stage)) return false;
+    if (b.spec && b.spec.throughWalls) {
+      /* editor bosses may ignore walls */
+    }
     const nowT = performance.now();
     if (b.epic) {
       stepEpicBossWander(b, stage, dt, nowT);
@@ -3349,9 +3504,11 @@
     const nowBoss = performance.now();
     if (nowBoss >= projectileStageGateUntil) {
       b.shootAcc = (b.shootAcc || 0) + dt;
-      if (b.shootAcc >= shootPeriod) {
+      const editorPeriod = b.spec && Number(b.spec.projectileCooldown) > 0 ? Number(b.spec.projectileCooldown) : 0;
+      if (b.shootAcc >= (editorPeriod || shootPeriod)) {
         b.shootAcc = 0;
-        if (runtimeOpts.bossShoots) {
+        const editorShoots = b.spec ? !!((b.spec.attacks && b.spec.attacks.projectile) || b.projectileOn) : runtimeOpts.bossShoots;
+        if (editorShoots) {
           const spd = 220 * projectileSpeedScale();
           const cx = b.x + b.w / 2;
           const cy = b.y + b.h / 2;
@@ -3379,21 +3536,39 @@
         ? epicPlayerStompsEpicBoss(b)
         : player.vy * gravityDir > 0 && player.y + player.h <= b.y + 18;
       if (stomp && nowT >= (b.stompCd || 0)) {
+        const stompDmg = b.spec && Number(b.spec.stompDmg) > 0 ? Number(b.spec.stompDmg) : 1;
+        if (b.maxHp == null) b.maxHp = b.hp;
+        b.hp = Math.max(0, b.hp - stompDmg);
         if (inCollab && window.SkyHopCollabNotifyBossHit) {
-          window.SkyHopCollabNotifyBossHit(stageIndex, 1, b.hp);
-        } else {
-          b.hp--;
+          window.SkyHopCollabNotifyBossHit(stageIndex, stompDmg, b.maxHp);
         }
         b.stompCd = performance.now() + 500;
         player.vy = -380 * gravityDir * runtimeOpts.jumpMul;
         player.hazardIFrameUntil = performance.now() + C.BOSS_STOMP_IFRAME_MS;
         syncEpicBossHud();
       } else if (performance.now() >= player.hazardIFrameUntil) {
-        if (b.epic) {
-          if (tryBossPlayerDamage(STAGE_50_TOUCH_DMG)) return true;
-        } else {
-          return tryBossPlayerDamage(1);
+        const touchOn = !b.spec || !b.spec.attacks || b.spec.attacks.touch !== false;
+        if (touchOn) {
+          if (b.epic) {
+            if (tryBossPlayerDamage(STAGE_50_TOUCH_DMG)) return true;
+          } else {
+            const touchDmg = b.spec && Number(b.spec.touchDmg) > 0 ? Number(b.spec.touchDmg) : 1;
+            return tryBossPlayerDamage(touchDmg);
+          }
         }
+      }
+    }
+    if (b.spec && ((b.spec.attacks && b.spec.attacks.laser) || b.laserOn)) {
+      const warn = (Number(b.spec.laserWarning) || 0.6) * 1000;
+      const cd = (Number(b.spec.laserCooldown) || 2.5) * 1000;
+      if (!b.laserNext) b.laserNext = nowT + warn;
+      b.laserAimX = player.x + player.w / 2;
+      if (nowT >= b.laserNext) {
+        const dmg = Number(b.spec.laserDmg) || 1;
+        if (Math.abs(player.x + player.w / 2 - (b.x + b.w / 2)) < Math.max(16, b.w * 0.35) || b.laserOn) {
+          if (tryBossPlayerDamage(dmg)) return true;
+        }
+        b.laserNext = nowT + cd;
       }
     }
     if (b.epic) {
@@ -3790,7 +3965,7 @@
     if (lavaHit(stage)) die();
     if (laserHit(stage)) die();
 
-    if (stage.bossStage && bossDefeated()) {
+    if (stage.bossStage && bossDefeated() && stage.winMode !== 'both') {
       if (finishLevelSessionIfNeeded()) return;
       const extBoss = window.SKYHOP_EXTERNAL_LEVEL;
       if (extBoss) {
@@ -3885,6 +4060,7 @@
         syncRecordingUi();
       } else {
         gameState = 'stage_clear';
+        if (window.SkyHopCollectionStageCleared) window.SkyHopCollectionStageCleared(stageIndex);
         stageClearTitle.textContent = `Boss down!`;
         stageClearSub.textContent = 'Next stage unlocked.';
         syncNextStageButton();
@@ -3903,6 +4079,7 @@
       if (extGoal) {
         if (hasMoreStagesAfterCurrent()) {
           gameState = 'stage_clear';
+          if (window.SkyHopCollectionStageCleared) window.SkyHopCollectionStageCleared(stageIndex);
           stageClearTitle.textContent = `Stage ${stageIndex + 1} complete`;
           stageClearSub.textContent = 'Good luck on the next climb.';
           syncNextStageButton();
@@ -3924,6 +4101,7 @@
             }
           }
         } else {
+          if (window.SkyHopCollectionStageCleared) window.SkyHopCollectionStageCleared(stageIndex);
           notifyExternalLevelClear(extGoal);
           stageClearTitle.textContent = 'Level complete';
           stageClearSub.textContent = extGoal.levelTitle ? `“${extGoal.levelTitle}”` : '';
@@ -4145,7 +4323,21 @@
         g.addColorStop(1, '#312e81');
       }
       ctx.fillStyle = g;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
+      const shape = src && src.shape;
+      if (shape === 'circle') {
+        ctx.beginPath();
+        ctx.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (shape === 'triangle') {
+        ctx.beginPath();
+        ctx.moveTo(r.x + r.w / 2, r.y);
+        ctx.lineTo(r.x + r.w, r.y + r.h);
+        ctx.lineTo(r.x, r.y + r.h);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+      }
       ctx.strokeStyle = hazardous
         ? 'rgba(254, 202, 202, 0.95)'
         : noWallJump
@@ -5253,10 +5445,19 @@
   });
 
   window.SkyHopApplyCollabBossHp = function (stage0, hp) {
-    if (!inCollab || !bossState) return;
-    if (Number(stage0) !== stageIndex) return;
-    bossState.hp = Math.max(0, Number(hp) || 0);
+    if (!inCollab) return;
+    const stage0n = Number(stage0);
+    const nextHp = Math.max(0, Number(hp) || 0);
+    if (!bossState || stage0n !== stageIndex) {
+      window.__skyhopPendingBossHp = window.__skyhopPendingBossHp || {};
+      window.__skyhopPendingBossHp[stage0n] = nextHp;
+      return;
+    }
+    bossState.hp = nextHp;
     syncEpicBossHud();
+    if (bossState.hp <= 0 && window.SkyHopCollabNotifyFinish && stageIndex >= stagesNow().length - 1 && gameState === 'playing') {
+      window.SkyHopCollabNotifyFinish(getRunElapsedMs(), deaths);
+    }
   };
 
   window.SkyHopTriggerCollabWin = function (timeMs, deathsArg) {

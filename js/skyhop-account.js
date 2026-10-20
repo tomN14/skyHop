@@ -549,6 +549,15 @@
       if (accStatTimeBest) accStatTimeBest.textContent = fmtClock(st.bestTimeMs);
       if (accStatTimeAvg) accStatTimeAvg.textContent = fmtClock(st.avgTimeMs);
       if (accStatDeathAvg) accStatDeathAvg.textContent = fmtAvgDeaths(st.avgDeaths);
+      const strikesEl = document.getElementById('accStatStrikes');
+      const playEl = document.getElementById('accStatPlayTime');
+      if (strikesEl) strikesEl.textContent = String(me && me.strikes != null ? me.strikes : 0);
+      if (playEl) {
+        const sec = Math.floor((me && me.playTimeMs ? me.playTimeMs : 0) / 1000);
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        playEl.textContent = h + ':' + String(m).padStart(2, '0');
+      }
     }
 
     function updateModDashboardFab(me) {

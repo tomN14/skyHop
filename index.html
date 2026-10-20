@@ -442,6 +442,8 @@
         </div>
         <button id="btnAwardedLevels" type="button" class="mt-2 w-full rounded-2xl border-2 border-blue-500/55 bg-blue-950/50 px-6 py-3 text-sm font-semibold text-blue-100 shadow-lg hover:bg-blue-900/60">Awarded User Levels</button>
         <button id="btnOpenCollabMenu" type="button" class="mt-2 w-full rounded-2xl border-2 border-teal-500/45 bg-teal-950/50 px-6 py-3 text-sm font-semibold text-teal-100 shadow-lg hover:bg-teal-900/60">Collab (both worlds)</button>
+        <button id="btnOpenPolls" type="button" class="mt-2 w-full rounded-2xl border-2 border-fuchsia-500/45 bg-fuchsia-950/40 px-6 py-3 text-sm font-semibold text-fuchsia-100 shadow-lg hover:bg-fuchsia-900/50">Polls</button>
+        <button id="btnOpenCollections" type="button" class="mt-2 w-full rounded-2xl border-2 border-cyan-500/45 bg-cyan-950/40 px-6 py-3 text-sm font-semibold text-cyan-100 shadow-lg hover:bg-cyan-900/50">Collections</button>
         <button id="btnOpenAccount" type="button" class="mt-2 w-full rounded-2xl border border-violet-500/45 bg-violet-950/45 px-6 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-900/55 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 focus:ring-offset-slate-900">
           <span data-i18n="menu.account">Account &amp; cloud stats</span>
         </button>
@@ -656,7 +658,19 @@
               <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.fastest">Fastest run</dt><dd id="accStatTimeBest" class="font-mono text-lg text-amber-200">—</dd></div>
               <div><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.avgTime">Avg time / run</dt><dd id="accStatTimeAvg" class="font-mono text-lg text-amber-100/90">—</dd></div>
               <div class="sm:col-span-2"><dt class="text-[10px] uppercase tracking-wide text-slate-500" data-i18n="acc.avgDeaths">Avg deaths / run</dt><dd id="accStatDeathAvg" class="font-mono text-lg text-slate-200">—</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Strikes</dt><dd id="accStatStrikes" class="font-mono text-lg text-rose-200">0</dd></div>
+              <div><dt class="text-[10px] uppercase tracking-wide text-slate-500">Play time</dt><dd id="accStatPlayTime" class="font-mono text-lg text-emerald-200">0:00</dd></div>
             </dl>
+            <div class="mt-4 border-t border-white/10 pt-3">
+              <p class="text-xs font-semibold text-violet-200">Music</p>
+              <label class="mt-2 block text-[11px] text-slate-500" for="accMusicTrack">Track</label>
+              <select id="accMusicTrack" class="mt-0.5 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white">
+                <option value="" selected>None</option>
+              </select>
+              <label class="mt-3 block text-[11px] text-slate-500" for="accMusicVolume">Volume <span id="accMusicVolLabel">70</span></label>
+              <input id="accMusicVolume" type="range" min="0" max="100" value="70" class="mt-1 w-full accent-violet-400" />
+              <p class="mt-1 text-[10px] text-slate-500">The track repeats until you pick another one. Volume 0 turns the music off.</p>
+            </div>
           </div>
           <div class="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-left">
             <p class="text-xs font-sem text-violet-300" data-i18n="acc.achievements">Achievements</p>
@@ -1210,6 +1224,30 @@
           <textarea id="ownerScriptGuideEditor" rows="10" class="mt-1 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-200" spellcheck="false"></textarea>
           <button id="ownerBtnSaveSiteContent" type="button" class="mt-3 w-full rounded-xl border border-emerald-500/45 bg-emerald-950/50 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-900/40">Save ToS, feature list &amp; script guide</button>
           <p id="ownerSiteContentMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-violet-200/90">Announcements and warnings</p>
+          <textarea id="ownerAnnounceText" rows="2" maxlength="800" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Announcement everyone sees after login"></textarea>
+          <button id="ownerBtnAddAnnounce" type="button" class="mt-2 rounded-xl border border-violet-400/45 px-3 py-1.5 text-xs font-semibold text-violet-100">Post announcement</button>
+          <ul id="ownerAnnounceList" class="mt-2 space-y-1 text-xs text-slate-300"></ul>
+          <input id="ownerWarnUser" type="text" maxlength="32" class="mt-3 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Username to warn" />
+          <textarea id="ownerWarnText" rows="2" maxlength="800" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Warning that player sees after login"></textarea>
+          <button id="ownerBtnAddWarn" type="button" class="mt-2 rounded-xl border border-amber-400/45 px-3 py-1.5 text-xs font-semibold text-amber-100">Send warning</button>
+          <ul id="ownerWarnList" class="mt-2 space-y-1 text-xs text-slate-300"></ul>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-violet-200/90">Edit account stats</p>
+          <input id="ownerStatUser" type="text" maxlength="32" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Username" />
+          <input id="ownerStatBest" type="number" min="0" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Best time (ms)" />
+          <input id="ownerStatRuns" type="number" min="0" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Run count" />
+          <input id="ownerStatDeaths" type="number" min="0" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Total deaths" />
+          <button id="ownerBtnSaveStats" type="button" class="mt-2 rounded-xl border border-emerald-400/45 px-3 py-1.5 text-xs font-semibold text-emerald-100">Save account stats</button>
+          <p class="mt-2 text-[11px] text-slate-500">Best time also adds a campaign run so the leaderboard can show it. Run count and deaths change the Account card.</p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-violet-200/90">Message any player</p>
+          <input id="ownerChatUser" type="text" maxlength="32" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="Username" />
+          <button id="ownerBtnOpenChat" type="button" class="mt-2 rounded-xl border border-sky-400/45 px-3 py-1.5 text-xs font-semibold text-sky-100">Open chat</button>
         </div>
         <p id="ownerAdminMsg" class="mt-3 hidden text-xs text-slate-300"></p>
       </div>
@@ -1955,6 +1993,9 @@ end;</pre>
         <button type="button" class="lvl-tool rounded-lg border border-emerald-400/50 px-2 py-1 text-xs font-semibold text-emerald-100 hover:border-emerald-200/70" data-tool="portal">Portal</button>
         <button type="button" class="lvl-tool rounded-lg border border-lime-400/45 px-2 py-1 text-xs font-semibold text-lime-100 hover:border-lime-200/70" data-tool="switch">Switch</button>
         <button type="button" class="lvl-tool rounded-lg border border-zinc-400/45 px-2 py-1 text-xs font-semibold text-zinc-100 hover:border-zinc-200/70" data-tool="blackout">Make level black</button>
+        <button type="button" class="lvl-tool rounded-lg border border-rose-400/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:border-rose-200/70" data-tool="monster">Monster</button>
+        <button type="button" class="lvl-tool rounded-lg border border-red-500/50 px-2 py-1 text-xs font-semibold text-red-100 hover:border-red-200/70" data-tool="boss">Boss</button>
+        <button type="button" class="lvl-tool rounded-lg border border-indigo-400/45 px-2 py-1 text-xs font-semibold text-indigo-100 hover:border-indigo-200/70" data-tool="shape">Shape</button>
         <button id="btnLvlEdToMoverY" type="button" class="rounded-lg border border-cyan-500/35 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Block to vertical mover</button>
         <button id="btnLvlEdRotate" type="button" class="rounded-lg border border-amber-500/40 px-2 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Rotate 90°</button>
         <button id="btnLvlEdUndo" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:bg-white/10 disabled:opacity-40">Undo</button>
@@ -2014,6 +2055,37 @@ end;</pre>
       <div id="lvlEdSplPanel" class="hidden border-b border-white/10 bg-slate-950 px-3 py-2">
         <p class="mb-1 text-[10px] text-slate-400">SPL sandbox. The script must start with <span class="font-mono text-fuchsia-200">use skyhop;</span>. SPL itself runs the program, including <span class="font-mono">test.forLoop</span>, <span class="font-mono">test.while</span>, and the SPL libraries. File, network, and system access are blocked. Read stage settings with <span class="font-mono">skyhop.get("stage_time_limit")</span> and <span class="font-mono">skyhop.get("jump_limit")</span>. Hover an object for its center, then <span class="font-mono">skyhop.tag(x, y, 1)</span> and <span class="font-mono">skyhop.rotate(1, 90)</span>.</p>
         <textarea id="lvlEdSplText" spellcheck="false" class="h-44 w-full rounded-lg border border-white/15 bg-slate-900 p-2 font-mono text-[11px] text-slate-100" placeholder="use skyhop;&#10;&#10;skyhop.tag(420, 315, 1);&#10;&#10;test.while(1):&#10;    test.ifTrue(skyhop.get(&quot;is_player_jumping&quot;)):&#10;        skyhop.rotate(1, 90);&#10;        test.break;&#10;    end;&#10;end;"></textarea>
+      </div>
+      <div id="lvlEdEntityProps" class="hidden flex flex-wrap items-end gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-300">
+        <span id="lvlEdEntityTitle" class="font-semibold text-rose-100">Monster</span>
+        <label>W <input id="lvlEntW" type="number" class="w-14 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>H <input id="lvlEntH" type="number" class="w-14 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Delay <input id="lvlEntDelay" type="number" step="0.1" class="w-16 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>HP <input id="lvlEntHp" type="number" class="w-14 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Color <input id="lvlEntColor" type="color" value="#f43f5e" class="h-6 w-8 bg-slate-950" /></label>
+        <label>Texture <input id="lvlEntTexture" type="text" class="w-24 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Spawn if <input id="lvlEntSpawnIf" type="text" placeholder="skyhop.get key" class="w-28 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Range <input id="lvlEntRange" type="number" class="w-16 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntChase" type="checkbox" /> Chase</label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntRandom" type="checkbox" /> Random</label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntPhysics" type="checkbox" checked /> Physics</label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntWalls" type="checkbox" /> Through walls</label>
+        <label>Pattern <select id="lvlEntPattern" class="rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white"><option value="patrol">patrol</option><option value="still">still</option><option value="sine">sine</option></select></label>
+        <label>Shape <select id="lvlEntShape" class="rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white"><option value="rect">rect</option><option value="circle">circle</option><option value="triangle">triangle</option></select></label>
+        <label>Win <select id="lvlEntWin" class="rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white"><option value="boss">beat boss</option><option value="goal">reach goal</option><option value="both">both</option></select></label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntTouch" type="checkbox" checked /> Touch</label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntShot" type="checkbox" /> Projectiles</label>
+        <label class="inline-flex items-center gap-1"><input id="lvlEntLaser" type="checkbox" /> Laser</label>
+        <label>Touch dmg <input id="lvlEntTouchDmg" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Shot dmg <input id="lvlEntShotDmg" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Laser dmg <input id="lvlEntLaserDmg" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Sword <input id="lvlEntSword" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Crit % <input id="lvlEntCrit" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Crit dmg <input id="lvlEntCritDmg" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Shield % <input id="lvlEntShield" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Shield s <input id="lvlEntShieldDur" type="number" step="0.1" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Stomp <input id="lvlEntStomp" type="number" class="w-12 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
+        <label>Music <input id="lvlEntMusic" type="text" placeholder="composition name" class="w-32 rounded border border-white/15 bg-slate-950 px-1 py-0.5 text-white" /></label>
       </div>
       <div id="lvlEdAppearProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-violet-100">Selected look</span>
@@ -2451,6 +2523,42 @@ end;</pre>
     <span aria-hidden="true">⚠️</span>
   </button>
 
+    <div id="screenNotices" class="pointer-events-auto fixed inset-0 z-[80] hidden flex items-center justify-center bg-slate-950/90 p-4">
+      <div class="w-full max-w-md rounded-3xl border border-violet-400/40 bg-slate-900 p-6 shadow-2xl">
+        <p id="noticeKind" class="text-[11px] font-semibold uppercase tracking-wide text-violet-300">Announcement</p>
+        <p id="noticeBody" class="mt-3 text-sm leading-relaxed text-slate-100"></p>
+        <button id="noticeNext" type="button" class="mt-5 w-full rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white">Next</button>
+      </div>
+    </div>
+    <div id="screenPolls" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4">
+      <div class="my-auto w-full max-w-lg rounded-3xl border border-fuchsia-500/40 bg-slate-900 p-6">
+        <div class="flex items-center justify-between"><h2 class="text-lg font-bold text-fuchsia-100">Polls</h2><button id="btnClosePolls" type="button" class="text-sm text-slate-400">Close</button></div>
+        <input id="pollQuestion" maxlength="160" class="mt-3 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Question" />
+        <textarea id="pollOptions" rows="4" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="One option per line, 2 to 6"></textarea>
+        <button id="btnCreatePoll" type="button" class="mt-2 rounded-xl bg-fuchsia-600 px-3 py-1.5 text-xs font-semibold text-white">Create poll</button>
+        <p id="pollMsg" class="mt-2 hidden text-xs text-rose-300"></p>
+        <div id="pollList" class="mt-4 space-y-3"></div>
+      </div>
+    </div>
+    <div id="screenCollections" class="pointer-events-auto fixed inset-0 z-[46] hidden flex items-center justify-center overflow-y-auto bg-slate-950/98 p-4">
+      <div class="my-auto w-full max-w-lg rounded-3xl border border-cyan-500/40 bg-slate-900 p-6">
+        <div class="flex items-center justify-between"><h2 class="text-lg font-bold text-cyan-100">Collections</h2><button id="btnCloseCollections" type="button" class="text-sm text-slate-400">Close</button></div>
+        <input id="colSearch" class="mt-3 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Search collections" />
+        <div id="colList" class="mt-3 space-y-2"></div>
+        <div class="mt-4 border-t border-white/10 pt-3">
+          <p class="text-xs font-semibold text-cyan-200">Your collection</p>
+          <input id="colTitle" maxlength="80" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Collection name" />
+          <textarea id="colStages" rows="4" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 font-mono text-[11px] text-white" placeholder="levelId | title | music name | SPL for this stage"></textarea>
+          <textarea id="colShared" rows="3" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 font-mono text-[11px] text-white" placeholder="Shared SPL for every stage"></textarea>
+          <textarea id="colStageScript" rows="3" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-950 px-3 py-2 font-mono text-[11px] text-white" placeholder="Extra SPL applied to every stage in this draft"></textarea>
+          <div class="mt-2 flex gap-2">
+            <button id="btnSaveCollection" type="button" class="rounded-xl border border-cyan-400/40 px-3 py-1.5 text-xs font-semibold text-cyan-100">Save draft</button>
+            <button id="btnPublishCollection" type="button" class="rounded-xl bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white">Publish</button>
+          </div>
+          <p id="colMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+      </div>
+    </div>
   <script src="stages.js"></script>
   <script src="stages-extra.js"></script>
   <script src="stages-36-50.js"></script>
@@ -2487,6 +2595,7 @@ end;</pre>
   <script src="js/skyhop-leaderboards-panel.js"></script>
   <script src="js/skyhop-coin-shop.js"></script>
   <script src="js/skyhop-economy.js"></script>
+  <script src="js/skyhop-features.js"></script>
   <script src="js/skyhop-mod-dashboard.js"></script>
   <script src="js/skyhop-role-powers.js"></script>
   <script src="js/skyhop-public-sessions.js"></script>

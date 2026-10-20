@@ -580,8 +580,9 @@
         }
         return;
       }
-      if (window.SKYHOP.controlsLocked && window.SKYHOP.controlsLocked()) return;
       const st = getSnapshot();
+      renderBoard();
+      if (window.SKYHOP.controlsLocked && window.SKYHOP.controlsLocked()) return;
       if (ws && ws.readyState === 1) {
         try {
           const payload = {
@@ -718,6 +719,10 @@
     }
     if (msg.type === 'playerJoined' && msg.players) {
       window.__skyhopMpRoster = msg.players;
+      msg.players.forEach(function (p) {
+        if (!p || p.id === myPlayerId) return;
+        if (!mpProgress[p.id]) mpProgress[p.id] = { name: p.name || p.username || 'Player', stage: 0, finished: false };
+      });
       if (el.mpStatus) {
         el.mpStatus.textContent = msg.players.length + ' player(s) in session.';
         el.mpStatus.classList.remove('hidden');
