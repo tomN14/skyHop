@@ -179,6 +179,15 @@ function withFinancialSection(html) {
       htmlNext = htmlNext.slice(0, liEnd + 5) + insert + htmlNext.slice(liEnd + 5);
     }
   }
+  const musicLine = 'Account has a music player. The track you pick repeats until you choose another, volume 0 turns it off, and it starts on None';
+  const musicAnchor = 'Account shows your strike count and total play time. The owner can post announcements, warn one player, message anyone, and edit account stats';
+  if (!htmlNext.includes(musicLine) && htmlNext.includes(musicAnchor)) {
+    const musicAt = htmlNext.indexOf(musicAnchor);
+    const musicEnd = htmlNext.indexOf('</li>', musicAt);
+    if (musicEnd !== -1) {
+      htmlNext = htmlNext.slice(0, musicEnd + 5) + '\n            <li>' + musicLine + '</li>' + htmlNext.slice(musicEnd + 5);
+    }
+  }
   const oldClose = 'A company under −500 coins of weekly profit is closed.';
   const nextClose = 'A company that finishes a week with 0 cash is closed, after its first week.';
   if (htmlNext.includes(oldClose)) htmlNext = htmlNext.split(oldClose).join(nextClose);
