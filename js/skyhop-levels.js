@@ -2944,6 +2944,8 @@
   let awardedPage = 1;
   const editorScreen = document.getElementById('screenLevelEditor');
   const mineList = document.getElementById('levelsMineList');
+  const mineCollections = document.getElementById('levelsMineCollections');
+  const mineLevelsKind = document.getElementById('mineLevelsKind');
   const mineErr = document.getElementById('levelsMineErr');
   const minePanelLevels = document.getElementById('levelsMinePanelLevels');
   const minePanelRecordings = document.getElementById('levelsMinePanelRecordings');
@@ -3124,7 +3126,8 @@
     if (minePanelRecordings) minePanelRecordings.classList.toggle('hidden', mineActiveTab !== 'recordings');
     if (minePanelLogs) minePanelLogs.classList.toggle('hidden', mineActiveTab !== 'logs');
     const btnNew = document.getElementById('btnLevelsNew');
-    if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth());
+    const showingCollections = mineLevelsKind && mineLevelsKind.value === 'collections';
+    if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth() || showingCollections);
     if (mineTabLevels) {
       mineTabLevels.classList.toggle('border-violet-400', mineActiveTab === 'levels');
       mineTabLevels.classList.toggle('bg-violet-600/40', mineActiveTab === 'levels');
@@ -3348,7 +3351,96 @@
     }
   }
 
+  function mineShowingCollections() {
+    return !!(mineLevelsKind && mineLevelsKind.value === 'collections');
+  }
+
+  async function refreshMineCollections() {
+    if (!mineCollections) return;
+    mineErr.classList.add('hidden');
+    mineCollections.innerHTML = '';
+    if (mineList) mineList.classList.add('hidden');
+    mineCollections.classList.remove('hidden');
+    if (levelsMineSignIn) levelsMineSignIn.classList.toggle('hidden', hasAuth());
+    if (!hasAuth()) return;
+    try {
+      const data = await api('/api/collections?mine=1');
+      const rows = (data.collections || []).filter(function (row) { return row.yours; });
+      if (!rows.length) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+        li.textContent = 'No collections yet. Make one in the level editor.';
+        mineCollections.appendChild(li);
+        return;
+      }
+      rows.forEach(function (row) {
+        const cleared = {};
+        (row.cleared || []).forEach(function (index) { cleared[index] = true; });
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-200';
+        const head = document.createElement('div');
+        head.className = 'flex flex-wrap items-center justify-between gap-2';
+        const title = document.createElement('span');
+        title.className = 'font-sem text-white';
+        title.textContent = row.title || 'Collection';
+        const status = document.createElement('span');
+        status.className = 'text-xs text-slate-400';
+        const beaten = (row.cleared || []).length;
+        const total = row.stageCount || (row.stages || []).length;
+        const state = document.createElement('span');
+        state.textContent = row.published ? 'Published' : 'Draft';
+        status.appendChild(state);
+        status.appendChild(document.createTextNode(' · ' + beaten + '/' + total));
+        head.appendChild(title);
+        head.appendChild(status);
+        const stages = document.createElement('div');
+        stages.className = 'mt-2 space-y-1';
+        (row.stages || []).forEach(function (stage, index) {
+          const line = document.createElement('div');
+          line.className = 'flex items-center justify-between gap-2';
+          const name = document.createElement('span');
+          name.className = 'text-xs text-slate-300';
+          name.textContent = (index + 1) + '. ' + (stage.title || 'Level');
+          const beat = document.createElement('button');
+          beat.type = 'button';
+          beat.className = 'rounded-lg border border-cyan-400/50 px-2 py-1 text-xs text-cyan-100 hover:bg-cyan-950/50';
+          beat.textContent = cleared[index] ? 'Beaten' : 'Beat';
+          beat.addEventListener('click', function () {
+            if (window.SkyHopPlayCollection) window.SkyHopPlayCollection(row.id, index);
+          });
+          line.appendChild(name);
+          line.appendChild(beat);
+          stages.appendChild(line);
+        });
+        const playAll = document.createElement('button');
+        playAll.type = 'button';
+        playAll.className = 'mt-2 rounded-lg bg-cyan-600 px-2 py-1 text-xs font-semibold text-white';
+        playAll.textContent = 'Play all';
+        playAll.addEventListener('click', function () {
+          if (window.SkyHopPlayCollection) window.SkyHopPlayCollection(row.id);
+        });
+        li.appendChild(head);
+        li.appendChild(stages);
+        li.appendChild(playAll);
+        mineCollections.appendChild(li);
+      });
+    } catch (e) {
+      mineErr.textContent = String(e.message || e);
+      mineErr.classList.remove('hidden');
+    }
+  }
+
+  window.SkyHopRefreshMineCollections = function () {
+    if (mineShowingCollections() && mineActiveTab === 'levels') void refreshMineCollections();
+  };
+
   async function refreshMineList() {
+    if (mineShowingCollections()) {
+      await refreshMineCollections();
+      return;
+    }
+    if (mineCollections) mineCollections.classList.add('hidden');
+    if (mineList) mineList.classList.remove('hidden');
     mineErr.classList.add('hidden');
     mineList.innerHTML = '';
     if (levelsMineSignIn) {
@@ -4361,6 +4453,11 @@
       showMine(true);
       setMineTab('levels');
     });
+    if (mineLevelsKind) {
+      mineLevelsKind.addEventListener('change', () => {
+        setMineTab('levels');
+      });
+    }
     if (mineTabLevels) mineTabLevels.addEventListener('click', () => setMineTab('levels'));
     if (mineTabRecordings) mineTabRecordings.addEventListener('click', () => setMineTab('recordings'));
     if (mineTabLogs) mineTabLogs.addEventListener('click', () => setMineTab('logs'));

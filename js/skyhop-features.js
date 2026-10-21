@@ -561,17 +561,26 @@
   window.SkyHopCollectionStageCleared = function (index) {
     const bag = window.__skyhopCollection;
     if (!bag || !bag.id || !bag.yours) return;
-    api('/api/collections', { method: 'POST', body: JSON.stringify({ id: bag.id, clearStage: index }) }).catch(function () {});
+    const stageIndex = typeof bag.reportIndex === 'function' ? bag.reportIndex(index) : index;
+    api('/api/collections', { method: 'POST', body: JSON.stringify({ id: bag.id, clearStage: stageIndex }) }).catch(function () {});
   };
 
-  function playCollection(id) {
-    api('/api/collections?id=' + encodeURIComponent(id))
+  function playCollection(id, onlyIndex) {
+    const single = onlyIndex == null || onlyIndex === '' ? null : Math.floor(Number(onlyIndex));
+    const mine = document.getElementById('screenLevelsMine');
+    const fromMine = !!(mine && !mine.classList.contains('hidden'));
+    return api('/api/collections?id=' + encodeURIComponent(id))
       .then(function (col) {
         const stages = col.stages || [];
         return Promise.all(stages.map(function (stage) {
-          return fetch('/api/levels/' + encodeURIComponent(stage.levelId)).then(function (res) { return res.json(); });
+          return fetch('/api/levels/' + encodeURIComponent(stage.levelId)).then(function (res) {
+            return res.json().then(function (body) {
+              if (!res.ok) throw new Error((body && body.error) || 'Level missing');
+              return body;
+            });
+          });
         })).then(function (rows) {
-          const playable = rows.map(function (row, index) {
+          const built = rows.map(function (row, index) {
             const data = JSON.parse(JSON.stringify(row.data || {}));
             const meta = stages[index] || {};
             data.musicName = meta.musicName || data.musicName || '';
@@ -579,8 +588,16 @@
             if (scripts.length) data.script = scripts.join('\n');
             return data;
           });
-          window.__skyhopCollection = { id: col.id, length: playable.length, yours: !!col.yours };
+          const playable = single == null ? built : (built[single] ? [built[single]] : []);
+          if (!playable.length) throw new Error('That stage is missing.');
+          window.__skyhopCollection = {
+            id: col.id,
+            length: stages.length,
+            yours: !!col.yours,
+            reportIndex: function (playIndex) { return single == null ? playIndex : single; },
+          };
           closeScreen('screenCollections');
+          if (fromMine && mine) mine.classList.add('hidden');
           if (window.SKYHOP && window.SKYHOP.startUserLevel) {
             window.SKYHOP.startUserLevel(playable, {
               mode: 'play',
@@ -588,13 +605,26 @@
               levelTitle: col.title,
               onContinue: function () {
                 window.__skyhopCollection = null;
+                if (fromMine && mine) {
+                  mine.classList.remove('hidden');
+                  if (typeof window.SkyHopRefreshMineCollections === 'function') window.SkyHopRefreshMineCollections();
+                }
               },
             });
           }
         });
       })
-      .catch(function (e) { setMsg('colMsg', e.message); });
+      .catch(function (e) {
+        setMsg('colMsg', e.message);
+        const err = document.getElementById('levelsMineErr');
+        if (fromMine && err) {
+          err.textContent = e.message || 'Could not start that collection.';
+          err.classList.remove('hidden');
+        }
+      });
   }
+
+  window.SkyHopPlayCollection = playCollection;
 
   function bindEditorCollection() {
     const toggle = document.getElementById('btnLvlEdCollection');

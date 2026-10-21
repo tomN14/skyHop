@@ -5238,7 +5238,7 @@ export async function handleApi(req, res) {
     const id = u.searchParams.get('id');
     try {
       if (id) json(res, 200, await Community.getCollection(store, userId, id));
-      else json(res, 200, await Community.searchCollections(store, userId, u.searchParams.get('q') || ''));
+      else json(res, 200, await Community.searchCollections(store, userId, u.searchParams.get('q') || '', u.searchParams.get('mine') === '1'));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

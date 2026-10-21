@@ -186,7 +186,15 @@ export async function deletePoll(store, user, pollId, isOwner) {
   return listPolls(store, user.id);
 }
 
-function publicCollection(row, userId) {
+function clearedStageIndexes(bag, collectionId) {
+  const map = (bag.collectionClears && bag.collectionClears[collectionId]) || {};
+  return Object.keys(map)
+    .map((key) => Number(key))
+    .filter((n) => Number.isInteger(n) && n >= 0);
+}
+
+function publicCollection(row, userId, cleared) {
+  const yours = uid(row.ownerId) === uid(userId);
   return {
     id: row.id,
     title: row.title,
@@ -199,20 +207,22 @@ function publicCollection(row, userId) {
       title: stage.title || '',
       musicName: stage.musicName || '',
     })),
-    sharedScript: uid(row.ownerId) === uid(userId) ? row.sharedScript || '' : undefined,
-    yours: uid(row.ownerId) === uid(userId),
+    sharedScript: yours ? row.sharedScript || '' : undefined,
+    yours,
+    cleared: yours ? cleared || [] : undefined,
   };
 }
 
-export async function searchCollections(store, userId, q) {
+export async function searchCollections(store, userId, q, mineOnly) {
   const bag = await load(store);
   const query = String(q || '').trim().toLowerCase();
   const rows = bag.collections.filter((row) => {
+    if (mineOnly && uid(row.ownerId) !== uid(userId)) return false;
     if (!row.published && uid(row.ownerId) !== uid(userId)) return false;
     if (!query) return true;
     return String(row.title || '').toLowerCase().includes(query) || String(row.ownerName || '').toLowerCase().includes(query);
   });
-  return { collections: rows.slice(0, 40).map((row) => publicCollection(row, userId)) };
+  return { collections: rows.slice(0, 40).map((row) => publicCollection(row, userId, clearedStageIndexes(bag, row.id))) };
 }
 
 export async function saveCollection(store, user, body) {
@@ -248,7 +258,7 @@ export async function saveCollection(store, user, body) {
     row.published = true;
   }
   await save(store, bag);
-  return publicCollection(row, user.id);
+  return publicCollection(row, user.id, clearedStageIndexes(bag, row.id));
 }
 
 export async function markCollectionStage(store, user, collectionId, stageIndex) {
@@ -269,7 +279,7 @@ export async function getCollection(store, userId, id) {
   if (!row) throw new Error('Collection not found.');
   if (!row.published && uid(row.ownerId) !== uid(userId)) throw new Error('That collection is not published.');
   return {
-    ...publicCollection(row, userId),
+    ...publicCollection(row, userId, clearedStageIndexes(bag, row.id)),
     stages: row.stages.map((stage) => ({
       levelId: stage.levelId,
       title: stage.title || '',

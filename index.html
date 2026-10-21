@@ -1871,7 +1871,12 @@ end;</pre>
       <p id="levelsMineErr" class="mx-auto mb-2 hidden max-w-2xl text-center text-sm text-rose-300"></p>
       <div id="levelsMinePanelLevels" class="mx-auto w-full max-w-2xl flex-1 overflow-y-auto">
         <p id="levelsMineSignIn" class="hidden text-center text-sm text-slate-400">Sign in to create and edit levels.</p>
+        <select id="mineLevelsKind" class="mb-3 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+          <option value="levels">Levels</option>
+          <option value="collections">Collections</option>
+        </select>
         <ul id="levelsMineList" class="list-none space-y-2 p-0"></ul>
+        <ul id="levelsMineCollections" class="hidden list-none space-y-2 p-0"></ul>
       </div>
       <div id="levelsMinePanelRecordings" class="mx-auto hidden w-full max-w-2xl flex-1 overflow-y-auto">
         <p class="mb-2 text-center text-xs text-slate-500">Clips under the size limit (about 25 minutes) stay as one file. Longer recordings are split into 15-minute chunks after that. Tap Record or Record Run and Input Log while playing and give it a name.</p>
