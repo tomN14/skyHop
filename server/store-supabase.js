@@ -945,6 +945,15 @@ export function createSupabaseStore() {
       return true;
     },
 
+    async revokeTextureEverywhere(filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn) return;
+      const { error: grantErr } = await sb.from('skyhop_user_texture_grants').delete().eq('texture_filename', fn);
+      if (grantErr) throw new Error(grantErr.message);
+      const { error: skinErr } = await sb.from('skyhop_users').update({ skin_texture: null }).eq('skin_texture', fn);
+      if (skinErr) throw new Error(skinErr.message);
+    },
+
     async removeTextureGrant(userId, filename) {
       const fn = path.basename(String(filename || ''));
       if (!fn) return false;

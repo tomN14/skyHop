@@ -884,6 +884,17 @@ export function createFileStore() {
       return s.textureGrants.length < before;
     },
 
+    async revokeTextureEverywhere(filename) {
+      const fn = path.basename(String(filename || ''));
+      if (!fn) return;
+      const s = loadStore();
+      s.textureGrants = s.textureGrants.filter((g) => g.filename !== fn);
+      for (const u of s.users) {
+        if ((u.skinTexture || '') === fn) u.skinTexture = null;
+      }
+      saveStore();
+    },
+
     async transferCoins(fromUserId, toUserId, amount, opts) {
       const amt = Math.floor(Number(amount));
       if (!Number.isFinite(amt) || amt < 1) throw new Error('Invalid amount.');

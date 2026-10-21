@@ -1919,6 +1919,23 @@
   let skinImg = /** @type {HTMLImageElement|null} */ (null);
   let skinImgSrc = '';
   let skinTexName = '';
+  let skinSizeCustom = false;
+  const SKIN_UNIT_PX = 20;
+  function applyEquippedSkinSize() {
+    const me = window.__skyhopLastMe;
+    const unitsW = me ? Math.floor(Number(me.skinWidthUnits)) : 0;
+    const unitsH = me ? Math.floor(Number(me.skinHeightUnits)) : 0;
+    const custom = unitsW >= 1 && unitsH >= 1;
+    const nextW = custom ? unitsW * SKIN_UNIT_PX : 28;
+    const nextH = custom ? unitsH * SKIN_UNIT_PX : 40;
+    skinSizeCustom = custom;
+    if (player.w === nextW && player.h === nextH) return;
+    const foot = player.y + player.h;
+    player.x += (player.w - nextW) / 2;
+    player.w = nextW;
+    player.h = nextH;
+    player.y = foot - nextH;
+  }
   function skinTextureUrl(tex) {
     if (!tex) return '';
     if (typeof window.SkyHopSkinImageUrl === 'function') return window.SkyHopSkinImageUrl(tex);
@@ -1940,6 +1957,7 @@
     skinImgSrc = url;
     skinTexName = tex;
     skinImg = null;
+    applyEquippedSkinSize();
     if (!tex) return;
     const im = new Image();
     if (url.indexOf('/api/shop/skins/') >= 0) im.crossOrigin = 'anonymous';
@@ -2786,6 +2804,7 @@
       }
     }
     beginStageRules(s);
+    applyEquippedSkinSize();
     player.x = s.spawn.x;
     player.y = s.spawn.y - player.h;
     player.vx = 0;
@@ -4860,11 +4879,12 @@
     const r = 6;
     const px = player.x;
     const py = player.y;
+    applyEquippedSkinSize();
     const pw = player.w;
     const ph = player.h;
     if (skinImg && skinImg.complete && skinImg.naturalWidth > 0) {
       const shopSkin = String(skinTexName).indexOf('shop-') === 0;
-      const scale = shopSkin ? 1.35 : 1;
+      const scale = shopSkin && !skinSizeCustom ? 1.35 : 1;
       const dw = pw * scale;
       const dh = ph * scale;
       const dx = px + (pw - dw) / 2;

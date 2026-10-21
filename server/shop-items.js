@@ -18,6 +18,8 @@ export const SHOP_BUCKET = 'skyhop-shop';
 export const MAX_SHOP_IMAGE_BYTES = 1536 * 1024;
 export const MIN_SHOP_PRICE = 50;
 export const MAX_SHOP_PRICE = 1_000_000;
+export const SKIN_UNIT_MIN = 1;
+export const SKIN_UNIT_MAX = 4;
 
 export function shopTierFromPrice(price) {
   const p = Math.floor(Number(price) || 0);
@@ -89,10 +91,51 @@ function mapOwnerRow(r) {
     source: 'owner',
     mimeType: r.mime_type || r.mimeType || 'image/png',
     storagePath: r.storage_path || r.storagePath || null,
+    createdBy: r.created_by || r.createdBy || '',
+    widthUnits: unitOrNull(r.width_units != null ? r.width_units : r.widthUnits),
+    heightUnits: unitOrNull(r.height_units != null ? r.height_units : r.heightUnits),
   };
 }
 
-function publicShopItem(it) {
+function unitOrNull(value) {
+  if (value == null || value === '') return null;
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n < SKIN_UNIT_MIN || n > SKIN_UNIT_MAX) return null;
+  return n;
+}
+
+function sizePair(width, height) {
+  const w = width == null || width === '' ? null : unitOrNull(width);
+  const h = height == null || height === '' ? null : unitOrNull(height);
+  if ((width != null && width !== '' && w == null) || (height != null && height !== '' && h == null)) {
+    throw new Error('Width and height must be ' + SKIN_UNIT_MIN + '–' + SKIN_UNIT_MAX + ' units, or blank for the normal size.');
+  }
+  if ((w == null) !== (h == null)) throw new Error('Set both width and height, or leave both blank.');
+  return { widthUnits: w, heightUnits: h };
+}
+
+export function isShopItemCreator(item, user) {
+  if (!item || !user) return false;
+  if (item.createdBy && String(item.createdBy) === String(user.id || '')) return true;
+  if (!item.createdBy) {
+    const name = String(item.creator || '').trim().toLowerCase();
+    const username = String(user.username || '').trim().toLowerCase();
+    if (name && username && name === username) return true;
+  }
+  return false;
+}
+
+function shopFlags(item, actor) {
+  if (!actor) return {};
+  const creator = isShopItemCreator(item, actor);
+  return {
+    canEdit: !!(actor.owner || (actor.graphicDesigner && creator)),
+    canDelete: !!(item.source === 'owner' && creator && (actor.graphicDesigner || actor.owner)),
+    unsellable: !!creator,
+  };
+}
+
+function publicShopItem(it, actor) {
   return {
     id: it.id,
     texture: it.texture,
@@ -107,6 +150,9 @@ function publicShopItem(it) {
     tier: it.tier,
     tierLabel: it.tierLabel,
     source: it.source,
+    widthUnits: it.widthUnits || null,
+    heightUnits: it.heightUnits || null,
+    ...shopFlags(it, actor),
   };
 }
 
@@ -153,6 +199,9 @@ function applyOverride(item, ov) {
   const tier = shopTierFromPrice(price);
   const page = ov.page != null ? Number(ov.page) : item.page;
   const slot = ov.slot != null ? Number(ov.slot) : item.slot;
+  const widthUnits = Object.prototype.hasOwnProperty.call(ov, 'widthUnits') ? unitOrNull(ov.widthUnits) : unitOrNull(item.widthUnits);
+  const heightUnits = Object.prototype.hasOwnProperty.call(ov, 'heightUnits') ? unitOrNull(ov.heightUnits) : unitOrNull(item.heightUnits);
+  const createdBy = ov.createdBy || item.createdBy || '';
   return {
     ...item,
     label,
@@ -162,6 +211,9 @@ function applyOverride(item, ov) {
     sellPrice,
     page,
     slot,
+    widthUnits,
+    heightUnits,
+    createdBy,
     tier: tier.id,
     tierLabel: tier.label,
     hidden: !!ov.hidden,
@@ -210,25 +262,34 @@ async function allShopItems(diskTextureSet) {
     .sort((a, b) => a.page - b.page || a.slot - b.slot || String(a.id).localeCompare(String(b.id)));
 }
 
-function catalogPayload(items) {
+function catalogPayload(items, actor) {
   let maxPage = SHOP_PAGES;
   for (const it of items) {
     if (it.page > maxPage) maxPage = it.page;
   }
-  return { items: items.map((it) => publicShopItem(it)), pages: maxPage, slotsPerPage: SHOP_SLOTS_PER_PAGE };
+  return { items: items.map((it) => publicShopItem(it, actor)), pages: maxPage, slotsPerPage: SHOP_SLOTS_PER_PAGE };
 }
 
-export async function listShopItems(diskTextureSet) {
+export async function listShopItems(diskTextureSet, actor) {
   const items = (await allShopItems(diskTextureSet)).filter((it) => !it.hidden);
-  return catalogPayload(items);
+  return catalogPayload(items, actor);
 }
 
-export async function listShopItemsForOwner(diskTextureSet) {
+export async function listShopItemsForOwner(diskTextureSet, actor) {
   const items = await allShopItems(diskTextureSet);
   return {
-    ...catalogPayload(items.filter((it) => !it.hidden)),
-    hiddenItems: items.filter((it) => it.hidden).map((it) => publicShopItem(it)),
+    ...catalogPayload(items.filter((it) => !it.hidden), actor),
+    hiddenItems: items.filter((it) => it.hidden).map((it) => publicShopItem(it, actor)),
   };
+}
+
+export async function skinUnitsForTexture(filename) {
+  const fn = path.basename(String(filename || ''));
+  if (!fn) return { widthUnits: null, heightUnits: null };
+  const items = await allShopItems(null);
+  const item = items.find((x) => x.texture === fn);
+  if (!item) return { widthUnits: null, heightUnits: null };
+  return { widthUnits: item.widthUnits || null, heightUnits: item.heightUnits || null };
 }
 
 export async function getShopItemById(id) {
@@ -238,13 +299,16 @@ export async function getShopItemById(id) {
   return items.find((x) => x.id === want) || null;
 }
 
-export async function updateShopListing(id, { label, price, sellPrice, creator, credits }) {
+export async function updateShopListing(id, { label, price, sellPrice, creator, credits, widthUnits, heightUnits, claimCreatorId }) {
   const item = await getShopItemById(id);
   if (!item) throw new Error('Unknown shop item.');
   const prices = validatePrices(price, sellPrice);
   const name = String(label || '').trim().slice(0, 80) || item.label || 'Shop item';
   const author = String(creator == null ? item.creator || '' : creator).trim().slice(0, 40);
   const creditLine = String(credits == null ? item.credits || '' : credits).trim().slice(0, 40);
+  const size = widthUnits === undefined && heightUnits === undefined
+    ? { widthUnits: item.widthUnits || null, heightUnits: item.heightUnits || null }
+    : sizePair(widthUnits, heightUnits);
   const overrides = await loadOverrides();
   const prev = overrides[item.id] && typeof overrides[item.id] === 'object' ? overrides[item.id] : {};
   overrides[item.id] = {
@@ -254,6 +318,9 @@ export async function updateShopListing(id, { label, price, sellPrice, creator, 
     credits: creditLine,
     price: prices.price,
     sellPrice: prices.sellPrice,
+    widthUnits: size.widthUnits,
+    heightUnits: size.heightUnits,
+    createdBy: prev.createdBy || item.createdBy || claimCreatorId || '',
   };
   await saveOverrides(overrides);
   return publicShopItem(applyOverride(item, overrides[item.id]));
@@ -277,6 +344,32 @@ export async function setShopItemListed(id, listed) {
   overrides[item.id] = next;
   await saveOverrides(overrides);
   return publicShopItem(applyOverride(item, next));
+}
+
+export async function deleteOwnerShopItem(id) {
+  const item = await getShopItemById(id);
+  if (!item || item.source !== 'owner') throw new Error('That skin cannot be deleted.');
+  if (useSupabase()) {
+    const sb = sbClient();
+    if (item.storagePath) {
+      await sb.storage.from(SHOP_BUCKET).remove([item.storagePath]);
+    }
+    const { error } = await sb.from('skyhop_shop_items').delete().eq('id', item.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const db = fileLoad();
+    const rec = db.items.find((row) => row.id === item.id);
+    if (rec && rec.storagePath) {
+      const fp = path.join(FILES_DIR, path.basename(rec.storagePath));
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    }
+    db.items = db.items.filter((row) => row.id !== item.id);
+    fileSave(db);
+  }
+  const overrides = await loadOverrides();
+  delete overrides[item.id];
+  await saveOverrides(overrides);
+  return { id: item.id, texture: item.texture };
 }
 
 export async function findShopItemByTexture(filename) {
@@ -338,7 +431,7 @@ async function ensureShopBucket() {
   }
 }
 
-export async function createOwnerShopItem({ label, price, sellPrice, creator, credits, buffer, contentType }) {
+export async function createOwnerShopItem({ label, price, sellPrice, creator, credits, widthUnits, heightUnits, createdBy, buffer, contentType }) {
   if (!buffer || !buffer.length) throw new Error('Image is required.');
   if (buffer.length > MAX_SHOP_IMAGE_BYTES) throw new Error('Image must be 1.5 MB or smaller.');
   const ext = extFromContentType(contentType) || sniffImageExt(buffer);
@@ -348,6 +441,8 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, cr
   const author = String(creator || '').trim().slice(0, 40);
   const creditLine = String(credits || '').trim().slice(0, 40);
   const prices = validatePrices(price, sellPrice);
+  const size = sizePair(widthUnits, heightUnits);
+  const makerId = String(createdBy || '').trim();
   const current = await listShopItems(null);
   const pos = nextFreeSlot(current.items);
   const id = crypto.randomUUID();
@@ -389,18 +484,18 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, cr
       throw new Error(error.message);
     }
     const made = mapOwnerRow(row);
-    if (author || creditLine) {
-      const overrides = await loadOverrides();
-      const prev = overrides[id] && typeof overrides[id] === 'object' ? overrides[id] : {};
-      overrides[id] = {
-        ...prev,
-        ...(author ? { creator: author } : {}),
-        credits: creditLine,
-      };
-      await saveOverrides(overrides);
-      return publicShopItem(applyOverride(made, overrides[id]));
-    }
-    return publicShopItem(made);
+    const overrides = await loadOverrides();
+    const prev = overrides[id] && typeof overrides[id] === 'object' ? overrides[id] : {};
+    overrides[id] = {
+      ...prev,
+      ...(author ? { creator: author } : {}),
+      credits: creditLine,
+      widthUnits: size.widthUnits,
+      heightUnits: size.heightUnits,
+      createdBy: makerId,
+    };
+    await saveOverrides(overrides);
+    return publicShopItem(applyOverride(made, overrides[id]));
   }
 
   const db = fileLoad();
@@ -419,10 +514,24 @@ export async function createOwnerShopItem({ label, price, sellPrice, creator, cr
     storagePath,
     mimeType: mime,
     createdAt,
+    createdBy: makerId,
+    widthUnits: size.widthUnits,
+    heightUnits: size.heightUnits,
   };
   db.items.push(rec);
   fileSave(db);
-  return publicShopItem(mapOwnerRow(rec));
+  const overrides = await loadOverrides();
+  const prev = overrides[id] && typeof overrides[id] === 'object' ? overrides[id] : {};
+  overrides[id] = {
+    ...prev,
+    ...(author ? { creator: author } : {}),
+    credits: creditLine,
+    widthUnits: size.widthUnits,
+    heightUnits: size.heightUnits,
+    createdBy: makerId,
+  };
+  await saveOverrides(overrides);
+  return publicShopItem(applyOverride(mapOwnerRow(rec), overrides[id]));
 }
 
 export async function readShopSkinByTexture(filename) {

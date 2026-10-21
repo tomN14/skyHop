@@ -226,6 +226,16 @@ async function enrichReports(rows) {
   return out;
 }
 
+function shopActorFromSession(sess) {
+  if (!sess || !sess.user) return null;
+  return {
+    id: sess.user.id,
+    username: sess.user.username,
+    owner: effectiveRole(sess.user) === 'owner',
+    graphicDesigner: isGraphicDesigner(sess.user),
+  };
+}
+
 async function buildMePayload(userId, req = null) {
   if (typeof store.clearExpiredBanIfAny === 'function') await store.clearExpiredBanIfAny(userId);
   const user = await store.findUserById(userId);
@@ -290,6 +300,16 @@ async function buildMePayload(userId, req = null) {
     playTimeMs = 0;
     statOverride = null;
   }
+  let skinWidthUnits = null;
+  let skinHeightUnits = null;
+  try {
+    const sized = await ShopItems.skinUnitsForTexture(user.skinTexture ?? user.skin_texture ?? '');
+    skinWidthUnits = sized.widthUnits;
+    skinHeightUnits = sized.heightUnits;
+  } catch {
+    skinWidthUnits = null;
+    skinHeightUnits = null;
+  }
   let unlockedTextures = [];
   if (typeof store.listTextureGrantsForUser === 'function') {
     try {
@@ -315,6 +335,8 @@ async function buildMePayload(userId, req = null) {
     coinsInfinite,
     coins: user.coins != null ? Number(user.coins) : 0,
     skinTexture: user.skinTexture ?? user.skin_texture ?? null,
+    skinWidthUnits: skinWidthUnits,
+    skinHeightUnits: skinHeightUnits,
     profileBio: user.profileBio ?? user.profile_bio ?? null,
     profileAvatarUrl: resolveProfileAvatarUrl(user, req),
     unlockedTextures,
@@ -978,7 +1000,13 @@ export async function handleApi(req, res) {
       }
       await store.setUserSkinTexture(uid, fname);
       const me = await buildMePayload(uid);
-      json(res, 200, { ok: true, skinTexture: me.skinTexture, coins: me.coins });
+      json(res, 200, {
+        ok: true,
+        skinTexture: me.skinTexture,
+        skinWidthUnits: me.skinWidthUnits,
+        skinHeightUnits: me.skinHeightUnits,
+        coins: me.coins,
+      });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -1437,8 +1465,9 @@ export async function handleApi(req, res) {
 
   if (pathname === '/api/shop/items' && req.method === 'GET') {
     try {
+      const sess = await getActiveSessionUser(req);
       const disk = await listTextureFilenames();
-      const out = await ShopItems.listShopItems(disk);
+      const out = await ShopItems.listShopItems(disk, shopActorFromSession(sess));
       json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
@@ -1561,6 +1590,10 @@ export async function handleApi(req, res) {
       json(res, 400, { error: 'Unknown shop item.' });
       return true;
     }
+    if (ShopItems.isShopItemCreator(item, sess.user)) {
+      json(res, 400, { error: 'You cannot sell a skin you made.' });
+      return true;
+    }
     const sellPrice = Math.max(0, Math.floor(Number(item.sellPrice) || 0));
     if (sellPrice <= 0) {
       json(res, 400, { error: 'This item cannot be sold.' });
@@ -1617,7 +1650,7 @@ export async function handleApi(req, res) {
     }
     try {
       const disk = await listTextureFilenames();
-      json(res, 200, await ShopItems.listShopItemsForOwner(disk));
+      json(res, 200, await ShopItems.listShopItemsForOwner(disk, shopActorFromSession(sess)));
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }
@@ -1642,6 +1675,14 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
+      const existing = await ShopItems.getShopItemById(body.id);
+      if (!existing) throw new Error('Unknown shop item.');
+      const ownerEdit = effectiveRole(sess.user) === 'owner';
+      const ownSkin = isGraphicDesigner(sess.user) && ShopItems.isShopItemCreator(existing, sess.user);
+      if (!ownerEdit && !ownSkin) {
+        json(res, 403, { error: 'You can only edit skins you made.' });
+        return true;
+      }
       const label = censorProfanity(String(body.label || '')).text.slice(0, 80);
       const creator = censorProfanity(String(body.creator || '')).text.slice(0, 40);
       const credits = censorProfanity(String(body.credits || '')).text.slice(0, 40);
@@ -1651,8 +1692,44 @@ export async function handleApi(req, res) {
         credits,
         price: body.price,
         sellPrice: body.sellPrice,
+        widthUnits: body.widthUnits,
+        heightUnits: body.heightUnits,
+        claimCreatorId: ShopItems.isShopItemCreator(existing, sess.user) ? sess.user.id : '',
       });
       json(res, 200, { ok: true, item });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/shop/items/delete' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const existing = await ShopItems.getShopItemById(body.id);
+      if (!existing) throw new Error('Unknown shop item.');
+      const maker = ShopItems.isShopItemCreator(existing, sess.user);
+      const allowed = maker && existing.source === 'owner' && (isGraphicDesigner(sess.user) || effectiveRole(sess.user) === 'owner');
+      if (!allowed) {
+        json(res, 403, { error: 'You can only delete skins you made.' });
+        return true;
+      }
+      const removed = await ShopItems.deleteOwnerShopItem(existing.id);
+      if (typeof store.revokeTextureEverywhere === 'function') {
+        await store.revokeTextureEverywhere(removed.texture);
+      }
+      json(res, 200, { ok: true });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -1724,15 +1801,23 @@ export async function handleApi(req, res) {
       credits = censorProfanity(credits).text.slice(0, 40);
       const price = Number(req.headers['x-shop-price']);
       const sellPrice = Number(req.headers['x-shop-sell-price']);
+      const widthRaw = String(req.headers['x-shop-width'] || '').trim();
+      const heightRaw = String(req.headers['x-shop-height'] || '').trim();
       const item = await ShopItems.createOwnerShopItem({
         label,
         creator,
         credits,
         price,
         sellPrice,
+        widthUnits: widthRaw,
+        heightUnits: heightRaw,
+        createdBy: sess.user.id,
         buffer: buf,
         contentType,
       });
+      if (typeof store.addTextureGrant === 'function') {
+        await store.addTextureGrant(sess.userId, item.texture);
+      }
       json(res, 201, { ok: true, item });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });

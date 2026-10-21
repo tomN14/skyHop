@@ -303,6 +303,18 @@
   add('Draft', 'Borrador', 'Brouillon', 'Entwurf', 'Rascunho', '草稿', '下書き', '초안');
   add('Published', 'Publicado', 'Publié', 'Veröffentlicht', 'Publicado', '已发布', '公開済み', '공개됨');
   add('No collections yet. Make one in the level editor.', 'Aún no hay colecciones. Crea una en el editor de niveles.', 'Pas encore de collection. Créez-en une dans l’éditeur de niveaux.', 'Noch keine Sammlung. Erstelle eine im Level-Editor.', 'Ainda não há coleções. Cria uma no editor de níveis.', '还没有关卡集。在关卡编辑器里做一个。', 'コレクションはまだありません。レベルエディタで作ります。', '아직 컬렉션이 없습니다. 레벨 편집기에서 만드세요.');
+  add('Normal size', 'Tamaño normal', 'Taille normale', 'Normale Größe', 'Tamanho normal', '正常大小', '通常サイズ', '기본 크기');
+  add('Yours', 'Tuyo', 'À vous', 'Deins', 'Teu', '你的', '自分の', '내 것');
+  add('Delete', 'Eliminar', 'Supprimer', 'Löschen', 'Apagar', '删除', '削除', '삭제');
+  add('Width', 'Ancho', 'Largeur', 'Breite', 'Largura', '宽度', '幅', '너비');
+  add('Height', 'Alto', 'Hauteur', 'Höhe', 'Altura', '高度', '高さ', '높이');
+  add('Width (units)', 'Ancho (unidades)', 'Largeur (unités)', 'Breite (Einheiten)', 'Largura (unidades)', '宽度（单位）', '幅（単位）', '너비 (단위)');
+  add('Height (units)', 'Alto (unidades)', 'Hauteur (unités)', 'Höhe (Einheiten)', 'Altura (unidades)', '高度（单位）', '高さ（単位）', '높이 (단위)');
+  add('Leave both blank for the normal player size. 1 unit is 20 pixels. Skins already in the shop stay the normal size until a size is saved.', 'Deja ambos vacíos para el tamaño normal. 1 unidad son 20 píxeles. Las skins que ya están en la tienda siguen en tamaño normal hasta que se guarde un tamaño.', 'Laissez les deux vides pour la taille normale. 1 unité fait 20 pixels. Les skins déjà en boutique gardent la taille normale tant qu’une taille n’est pas enregistrée.', 'Lass beide leer für die normale Größe. 1 Einheit sind 20 Pixel. Skins, die schon im Shop sind, bleiben normal groß, bis eine Größe gespeichert wird.', 'Deixa ambos vazios para o tamanho normal. 1 unidade são 20 píxeis. As skins que já estão na loja ficam no tamanho normal até se guardar um tamanho.', '两个都留空就是正常玩家大小。1 单位是 20 像素。商店里已有的皮肤保持正常大小，直到保存了尺寸。', '両方空欄なら通常の大きさです。1単位は20ピクセル。店にあるスキンはサイズを保存するまで通常サイズのままです。', '둘 다 비우면 기본 플레이어 크기입니다. 1단위는 20픽셀입니다. 상점에 있는 스킨은 크기를 저장하기 전까지 기본 크기입니다.');
+  add('You can only edit skins you made.', 'Solo puedes editar las skins que hiciste.', 'Vous ne pouvez modifier que les skins que vous avez créées.', 'Du kannst nur Skins bearbeiten, die du gemacht hast.', 'Só podes editar as skins que fizeste.', '你只能编辑自己做的皮肤。', '自分が作ったスキンだけ編集できます。', '직접 만든 스킨만 편집할 수 있습니다.');
+  add('You can only delete skins you made.', 'Solo puedes eliminar las skins que hiciste.', 'Vous ne pouvez supprimer que les skins que vous avez créées.', 'Du kannst nur Skins löschen, die du gemacht hast.', 'Só podes apagar as skins que fizeste.', '你只能删除自己做的皮肤。', '自分が作ったスキンだけ削除できます。', '직접 만든 스킨만 삭제할 수 있습니다.');
+  add('You cannot sell a skin you made.', 'No puedes vender una skin que hiciste.', 'Vous ne pouvez pas vendre une skin que vous avez créée.', 'Du kannst eine Skin, die du gemacht hast, nicht verkaufen.', 'Não podes vender uma skin que fizeste.', '你不能出售自己做的皮肤。', '自分が作ったスキンは売れません。', '직접 만든 스킨은 팔 수 없습니다.');
+  add('You have no skins in the shop yet.', 'Todavía no tienes skins en la tienda.', 'Vous n’avez pas encore de skin dans la boutique.', 'Du hast noch keine Skins im Shop.', 'Ainda não tens skins na loja.', '你还没有皮肤在商店里。', 'まだショップにスキンがありません。', '아직 상점에 올린 스킨이 없습니다.');
   add('Announcement', 'Anuncio', 'Annonce', 'Ankündigung', 'Anúncio', '公告', 'お知らせ', '공지');
   add('Warning', 'Aviso', 'Avertissement', 'Warnung', 'Aviso', '警告', '警告', '경고');
   add('Next', 'Siguiente', 'Suivant', 'Weiter', 'Seguinte', '下一个', '次へ', '다음');

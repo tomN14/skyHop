@@ -1482,7 +1482,11 @@
             headers: { Authorization: 'Bearer ' + tok },
             body: JSON.stringify({ skinTexture: sel.value || null }),
           });
-          if (window.__skyhopLastMe) window.__skyhopLastMe.skinTexture = data.skinTexture;
+          if (window.__skyhopLastMe) {
+            window.__skyhopLastMe.skinTexture = data.skinTexture;
+            window.__skyhopLastMe.skinWidthUnits = data.skinWidthUnits;
+            window.__skyhopLastMe.skinHeightUnits = data.skinHeightUnits;
+          }
           if (msg) {
             msg.textContent = 'Skin saved. Updates in-game after reload or when the canvas refreshes.';
             msg.classList.remove('hidden');

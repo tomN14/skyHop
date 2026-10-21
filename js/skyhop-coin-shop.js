@@ -98,6 +98,13 @@
     return isOwner() || !!(me && me.graphicDesigner);
   }
 
+  function sizeLabel(it) {
+    var w = Math.floor(Number(it && it.widthUnits));
+    var h = Math.floor(Number(it && it.heightUnits));
+    if (w >= 1 && h >= 1) return w + ' × ' + h + ' units';
+    return 'Normal size';
+  }
+
   function updateCoinDisplay() {
     var el = document.getElementById('shopCoinBalance');
     var me = window.__skyhopLastMe;
@@ -198,8 +205,9 @@
         (has
           ? 'border border-amber-500/40 bg-amber-950/50 text-amber-100 hover:bg-amber-900/50'
           : 'bg-emerald-600 text-white hover:bg-emerald-500');
-      btn.textContent = has ? 'Sell' : 'Buy';
-      if (!tok) {
+      var locked = has && !!it.unsellable;
+      btn.textContent = locked ? 'Yours' : has ? 'Sell' : 'Buy';
+      if (!tok || locked) {
         btn.disabled = true;
         btn.className += ' opacity-50 cursor-not-allowed';
       } else {
@@ -229,7 +237,9 @@
               showConfirm(
                 'Confirm buying ' +
                   (item.label || item.texture) +
-                  '?\n\nFor ' +
+                  '?\n\nSize: ' +
+                  sizeLabel(item) +
+                  '\n\nFor ' +
                   String(item.price) +
                   ' coins' +
                   (item.creator
@@ -259,6 +269,10 @@
       cell.appendChild(img);
       cell.appendChild(tier);
       cell.appendChild(label);
+      var dims = document.createElement('p');
+      dims.className = 'text-center text-[10px] text-slate-400';
+      dims.textContent = sizeLabel(it);
+      cell.appendChild(dims);
       if (it.creator) {
         var by = document.createElement('p');
         by.className = 'text-center text-[10px] text-slate-500';
@@ -278,17 +292,38 @@
         }
       }
       cell.appendChild(btn);
-      if (canManageShop()) {
+      if (it.canEdit || it.canDelete || isOwner()) {
         var tools = document.createElement('div');
         tools.className = 'mt-2 flex w-full max-w-[8rem] gap-1';
-        var editBtn = document.createElement('button');
-        editBtn.type = 'button';
-        editBtn.className = 'flex-1 rounded-lg border border-white/15 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/5';
-        editBtn.textContent = 'Edit';
-        editBtn.addEventListener('click', function () {
-          openOwnerAddShop();
-        });
-        tools.appendChild(editBtn);
+        if (it.canEdit) {
+          var editBtn = document.createElement('button');
+          editBtn.type = 'button';
+          editBtn.className = 'flex-1 rounded-lg border border-white/15 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-white/5';
+          editBtn.textContent = 'Edit';
+          editBtn.addEventListener('click', function () {
+            openOwnerAddShop();
+          });
+          tools.appendChild(editBtn);
+        }
+        if (it.canDelete) {
+          var deleteBtn = document.createElement('button');
+          deleteBtn.type = 'button';
+          deleteBtn.className = 'flex-1 rounded-lg border border-rose-500/40 px-2 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-950/40';
+          deleteBtn.textContent = 'Delete';
+          (function (item) {
+            deleteBtn.addEventListener('click', function () {
+              showConfirm('Delete ' + (item.label || item.texture) + '? It leaves the shop, and players who had it lose it.', function () {
+                return api('/api/owner/shop/items/delete', {
+                  method: 'POST',
+                  body: JSON.stringify({ id: item.id }),
+                }).then(function () {
+                  return refreshMeAfterShop().then(loadShopCatalog);
+                });
+              });
+            });
+          })(it);
+          tools.appendChild(deleteBtn);
+        }
         if (isOwner()) {
           var removeBtn = document.createElement('button');
           removeBtn.type = 'button';
@@ -411,10 +446,14 @@
     hidden.innerHTML = '';
     var items = (data && data.items) || [];
     var hiddenItems = (data && data.hiddenItems) || [];
+    if (!isOwner()) {
+      items = items.filter(function (it) { return it.canEdit; });
+      hiddenItems = hiddenItems.filter(function (it) { return it.canDelete; });
+    }
     if (!items.length) {
       var empty = document.createElement('li');
       empty.className = 'text-xs text-slate-500';
-      empty.textContent = 'Nothing in the shop yet.';
+      empty.textContent = isOwner() ? 'Nothing in the shop yet.' : 'You have no skins in the shop yet.';
       listed.appendChild(empty);
     }
     items.forEach(function (it) {
@@ -459,6 +498,14 @@
       var credits = ownerField('Credits', it.credits || '');
       var buy = ownerField('Buy', it.price);
       var sell = ownerField('Sell', it.sellPrice);
+      var width = ownerField('Width', it.widthUnits || '');
+      var height = ownerField('Height', it.heightUnits || '');
+      width.input.min = '1';
+      width.input.max = '4';
+      height.input.min = '1';
+      height.input.max = '4';
+      width.input.placeholder = '1–4';
+      height.input.placeholder = '1–4';
       name.wrap.className += ' mt-2';
       creator.wrap.className += ' mt-2';
       credits.wrap.className += ' mt-2';
@@ -469,6 +516,10 @@
       prices.className = 'mt-2 grid grid-cols-2 gap-2';
       prices.appendChild(buy.wrap);
       prices.appendChild(sell.wrap);
+      var units = document.createElement('div');
+      units.className = 'mt-2 grid grid-cols-2 gap-2';
+      units.appendChild(width.wrap);
+      units.appendChild(height.wrap);
       buy.input.addEventListener('input', function () {
         var t = shopTierFromPrice(buy.input.value);
         tier.textContent = buy.input.value === '' ? '—' : t.label;
@@ -489,6 +540,8 @@
             credits: credits.input.value,
             price: Number(buy.input.value),
             sellPrice: Number(sell.input.value),
+            widthUnits: width.input.value === '' ? null : Number(width.input.value),
+            heightUnits: height.input.value === '' ? null : Number(height.input.value),
           }),
         })
           .then(function () {
@@ -524,7 +577,30 @@
       var actions = document.createElement('div');
       actions.appendChild(save);
       actions.appendChild(remove);
+      if (it.canDelete) {
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'mt-2 ml-2 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-950/40';
+        del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          setOwnerManageErr('');
+          del.disabled = true;
+          api('/api/owner/shop/items/delete', {
+            method: 'POST',
+            body: JSON.stringify({ id: it.id }),
+          })
+            .then(function () {
+              return refreshMeAfterShop().then(loadOwnerShopManage);
+            })
+            .catch(function (e) {
+              setOwnerManageErr(String(e.message || e));
+              del.disabled = false;
+            });
+        });
+        actions.appendChild(del);
+      }
       li.appendChild(prices);
+      li.appendChild(units);
       li.appendChild(actions);
     } else {
       var back = document.createElement('button');
@@ -548,9 +624,31 @@
       });
       var kept = document.createElement('p');
       kept.className = 'mt-2 text-xs text-slate-400';
-      kept.textContent = (it.label || it.texture) + ' · buy ' + String(it.price) + ' · sell ' + String(it.sellPrice);
+      kept.textContent = (it.label || it.texture) + ' · buy ' + String(it.price) + ' · sell ' + String(it.sellPrice) + ' · ' + sizeLabel(it);
       li.appendChild(kept);
       if (isOwner()) li.appendChild(back);
+      if (it.canDelete) {
+        var delHidden = document.createElement('button');
+        delHidden.type = 'button';
+        delHidden.className = 'mt-2 ml-2 rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-950/40';
+        delHidden.textContent = 'Delete';
+        delHidden.addEventListener('click', function () {
+          setOwnerManageErr('');
+          delHidden.disabled = true;
+          api('/api/owner/shop/items/delete', {
+            method: 'POST',
+            body: JSON.stringify({ id: it.id }),
+          })
+            .then(function () {
+              return refreshMeAfterShop().then(loadOwnerShopManage);
+            })
+            .catch(function (e) {
+              setOwnerManageErr(String(e.message || e));
+              delHidden.disabled = false;
+            });
+        });
+        li.appendChild(delHidden);
+      }
     }
     return li;
   }
@@ -594,6 +692,8 @@
     var creatorEl = document.getElementById('ownerShopCreator');
     var priceEl = document.getElementById('ownerShopPrice');
     var sellEl = document.getElementById('ownerShopSell');
+    var widthEl = document.getElementById('ownerShopWidth');
+    var heightEl = document.getElementById('ownerShopHeight');
     var creditsEl = document.getElementById('ownerShopCredits');
     var btn = document.getElementById('ownerShopSubmit');
     var file = fileEl && fileEl.files && fileEl.files[0];
@@ -621,6 +721,8 @@
           'X-Shop-Creator': encodeURIComponent(String((creatorEl && creatorEl.value) || '').slice(0, 40)),
           'X-Shop-Price': String((priceEl && priceEl.value) || ''),
           'X-Shop-Sell-Price': String((sellEl && sellEl.value) || ''),
+          'X-Shop-Width': String((widthEl && widthEl.value) || ''),
+          'X-Shop-Height': String((heightEl && heightEl.value) || ''),
           'X-Shop-Credits': encodeURIComponent(String((creditsEl && creditsEl.value) || '').slice(0, 40)),
         },
         body: file,
@@ -641,7 +743,10 @@
       if (creatorEl) creatorEl.value = '';
       if (priceEl) priceEl.value = '';
       if (sellEl) sellEl.value = '';
+      if (widthEl) widthEl.value = '';
+      if (heightEl) heightEl.value = '';
       if (creditsEl) creditsEl.value = '';
+      await refreshMeAfterShop();
       updateOwnerTierPreview();
       closeOwnerAddShop();
       var screen = document.getElementById('screenCoinShop');
@@ -656,6 +761,20 @@
     } finally {
       if (btn) btn.disabled = false;
     }
+  }
+
+  function refreshMeAfterShop() {
+    return api('/api/me')
+      .then(function (me) {
+        window.__skyhopLastMe = me;
+        if (typeof window.refreshSkinUiFromMe === 'function') window.refreshSkinUiFromMe(me);
+        try {
+          window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
+        } catch (e) {
+          /* */
+        }
+      })
+      .catch(function () {});
   }
 
   function syncOwnerAddShopFab() {
