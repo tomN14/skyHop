@@ -354,21 +354,179 @@
   }
 
   let collectionDraftId = '';
+  let collectionStages = [];
 
-  function parseStages(text, extraScript) {
-    return String(text || '')
-      .split('\n')
-      .map(function (line) { return line.trim(); })
-      .filter(Boolean)
-      .map(function (line) {
-        const parts = line.split('|');
+  function setLvlColMsg(text) {
+    const el = document.getElementById('lvlColMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('hidden', !text);
+  }
+
+  function renderCollectionOrder() {
+    const list = document.getElementById('lvlColOrder');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!collectionStages.length) {
+      const empty = document.createElement('li');
+      empty.className = 'text-[11px] text-slate-500';
+      empty.textContent = 'No stages yet.';
+      list.appendChild(empty);
+      return;
+    }
+    collectionStages.forEach(function (stage, index) {
+      const li = document.createElement('li');
+      li.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-2';
+      const head = document.createElement('div');
+      head.className = 'flex items-center justify-between gap-2';
+      const name = document.createElement('span');
+      name.className = 'font-semibold text-white';
+      name.textContent = (index + 1) + '. ' + (stage.title || 'Level');
+      const actions = document.createElement('span');
+      actions.className = 'flex gap-1';
+      function mini(label, fn) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rounded border border-white/15 px-1.5 py-0.5 text-[10px]';
+        btn.textContent = label;
+        btn.addEventListener('click', fn);
+        actions.appendChild(btn);
+      }
+      mini('Up', function () {
+        if (index < 1) return;
+        const swap = collectionStages[index - 1];
+        collectionStages[index - 1] = collectionStages[index];
+        collectionStages[index] = swap;
+        renderCollectionOrder();
+      });
+      mini('Down', function () {
+        if (index >= collectionStages.length - 1) return;
+        const swap = collectionStages[index + 1];
+        collectionStages[index + 1] = collectionStages[index];
+        collectionStages[index] = swap;
+        renderCollectionOrder();
+      });
+      mini('Remove', function () {
+        collectionStages.splice(index, 1);
+        renderCollectionOrder();
+      });
+      head.appendChild(name);
+      head.appendChild(actions);
+      const music = document.createElement('input');
+      music.className = 'mt-2 w-full rounded border border-white/15 bg-slate-950 px-2 py-1 text-[11px] text-white';
+      music.placeholder = 'Music name for this stage';
+      music.value = stage.musicName || '';
+      music.addEventListener('input', function () { stage.musicName = music.value; });
+      const script = document.createElement('textarea');
+      script.rows = 2;
+      script.className = 'mt-1 w-full rounded border border-white/15 bg-slate-950 p-2 font-mono text-[11px] text-slate-100';
+      script.placeholder = 'SPL for this stage';
+      script.value = stage.script || '';
+      script.addEventListener('input', function () { stage.script = script.value; });
+      li.appendChild(head);
+      li.appendChild(music);
+      li.appendChild(script);
+      list.appendChild(li);
+    });
+  }
+
+  function loadEditorLevels() {
+    const pick = document.getElementById('lvlColLevelPick');
+    if (!pick) return Promise.resolve();
+    return api('/api/levels/mine').then(function (data) {
+      pick.innerHTML = '';
+      (data.levels || []).forEach(function (row) {
+        const opt = document.createElement('option');
+        opt.value = row.id;
+        opt.textContent = row.title || 'Level';
+        pick.appendChild(opt);
+      });
+      if (!pick.options.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No saved levels yet';
+        pick.appendChild(opt);
+      }
+    }).catch(function (e) { setLvlColMsg(e.message); });
+  }
+
+  function loadEditorCollections() {
+    const pick = document.getElementById('lvlColExisting');
+    if (!pick) return Promise.resolve();
+    return api('/api/collections?q=').then(function (data) {
+      const current = pick.value;
+      pick.innerHTML = '';
+      const fresh = document.createElement('option');
+      fresh.value = '';
+      fresh.textContent = 'New collection';
+      pick.appendChild(fresh);
+      (data.collections || []).forEach(function (row) {
+        if (!row.yours) return;
+        const opt = document.createElement('option');
+        opt.value = row.id;
+        opt.textContent = row.title || 'Collection';
+        pick.appendChild(opt);
+      });
+      if (current) pick.value = current;
+    }).catch(function (e) { setLvlColMsg(e.message); });
+  }
+
+  function openCollectionDraft(id) {
+    if (!id) {
+      collectionDraftId = '';
+      collectionStages = [];
+      const title = document.getElementById('lvlColTitle');
+      const shared = document.getElementById('lvlColShared');
+      if (title) title.value = '';
+      if (shared) shared.value = '';
+      renderCollectionOrder();
+      return;
+    }
+    api('/api/collections?id=' + encodeURIComponent(id)).then(function (col) {
+      collectionDraftId = col.id;
+      collectionStages = (col.stages || []).map(function (stage) {
         return {
-          levelId: (parts[0] || '').trim(),
-          title: (parts[1] || '').trim(),
-          musicName: (parts[2] || '').trim(),
-          script: [(parts[3] || '').trim(), extraScript || ''].filter(Boolean).join('\n'),
+          levelId: stage.levelId,
+          title: stage.title || 'Level',
+          musicName: stage.musicName || '',
+          script: stage.script || '',
         };
       });
+      const title = document.getElementById('lvlColTitle');
+      const shared = document.getElementById('lvlColShared');
+      if (title) title.value = col.title || '';
+      if (shared) shared.value = col.sharedScript || '';
+      renderCollectionOrder();
+    }).catch(function (e) { setLvlColMsg(e.message); });
+  }
+
+  function saveEditorCollection(publish) {
+    const title = document.getElementById('lvlColTitle');
+    const shared = document.getElementById('lvlColShared');
+    api('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: collectionDraftId || undefined,
+        title: title ? title.value : '',
+        stages: collectionStages.map(function (stage) {
+          return {
+            levelId: stage.levelId,
+            title: stage.title || '',
+            musicName: stage.musicName || '',
+            script: stage.script || '',
+          };
+        }),
+        sharedScript: shared ? shared.value : '',
+        publish: !!publish,
+      }),
+    }).then(function (row) {
+      collectionDraftId = row.id;
+      setLvlColMsg(publish ? 'Published.' : 'Collection saved. Beat every stage, then publish.');
+      const pick = document.getElementById('lvlColExisting');
+      loadEditorCollections().then(function () {
+        if (pick) pick.value = row.id;
+      });
+    }).catch(function (e) { setLvlColMsg(e.message); });
   }
 
   function renderCollections(data) {
@@ -438,27 +596,72 @@
       .catch(function (e) { setMsg('colMsg', e.message); });
   }
 
-  function saveCollection(publish) {
-    const stages = parseStages(
-      document.getElementById('colStages') && document.getElementById('colStages').value,
-      document.getElementById('colStageScript') && document.getElementById('colStageScript').value
-    );
-    api('/api/collections', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: collectionDraftId || undefined,
-        title: document.getElementById('colTitle') && document.getElementById('colTitle').value,
-        stages: stages,
-        sharedScript: document.getElementById('colShared') && document.getElementById('colShared').value,
-        publish: !!publish,
-      }),
-    })
-      .then(function (row) {
-        collectionDraftId = row.id;
-        setMsg('colMsg', publish ? 'Published.' : 'Draft saved. Beat every stage, then publish.');
-        searchCollections();
-      })
-      .catch(function (e) { setMsg('colMsg', e.message); });
+  function bindEditorCollection() {
+    const toggle = document.getElementById('btnLvlEdCollection');
+    const panel = document.getElementById('lvlEdCollection');
+    if (toggle && panel && !toggle.dataset.bound) {
+      toggle.dataset.bound = '1';
+      toggle.addEventListener('click', function () {
+        const open = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !open);
+        if (open) {
+          loadEditorLevels();
+          loadEditorCollections();
+          renderCollectionOrder();
+        }
+      });
+    }
+    const existing = document.getElementById('lvlColExisting');
+    if (existing && !existing.dataset.bound) {
+      existing.dataset.bound = '1';
+      existing.addEventListener('change', function () { openCollectionDraft(existing.value); });
+    }
+    const add = document.getElementById('lvlColAdd');
+    if (add && !add.dataset.bound) {
+      add.dataset.bound = '1';
+      add.addEventListener('click', function () {
+        const pick = document.getElementById('lvlColLevelPick');
+        if (!pick || !pick.value) {
+          setLvlColMsg('Save a level, then pick it here.');
+          return;
+        }
+        collectionStages.push({
+          levelId: pick.value,
+          title: pick.options[pick.selectedIndex] ? pick.options[pick.selectedIndex].textContent : 'Level',
+          musicName: '',
+          script: '',
+        });
+        renderCollectionOrder();
+        setLvlColMsg('');
+      });
+    }
+    const addCurrent = document.getElementById('lvlColAddCurrent');
+    if (addCurrent && !addCurrent.dataset.bound) {
+      addCurrent.dataset.bound = '1';
+      addCurrent.addEventListener('click', function () {
+        if (!window.SkyHopSaveLevelDraft) return;
+        Promise.resolve(window.SkyHopSaveLevelDraft()).then(function (id) {
+          if (!id) {
+            setLvlColMsg('Save this level before adding it.');
+            return;
+          }
+          const titleEl = document.getElementById('lvlEdTitle');
+          collectionStages.push({
+            levelId: id,
+            title: titleEl && titleEl.value.trim() ? titleEl.value.trim() : 'Level',
+            musicName: '',
+            script: '',
+          });
+          renderCollectionOrder();
+          loadEditorLevels();
+          setLvlColMsg('Added this level.');
+        }).catch(function (e) { setLvlColMsg(e.message); });
+      });
+    }
+    const save = document.getElementById('lvlColSave');
+    if (save && !save.dataset.bound) save.dataset.bound = '1', save.addEventListener('click', function () { saveEditorCollection(false); });
+    const pub = document.getElementById('lvlColPublish');
+    if (pub && !pub.dataset.bound) pub.dataset.bound = '1', pub.addEventListener('click', function () { saveEditorCollection(true); });
   }
 
   function loadOwnerLists() {
@@ -529,10 +732,7 @@
     if (closeCols) closeCols.addEventListener('click', function () { closeScreen('screenCollections'); });
     const search = document.getElementById('colSearch');
     if (search) search.addEventListener('input', searchCollections);
-    const save = document.getElementById('btnSaveCollection');
-    if (save) save.addEventListener('click', function () { saveCollection(false); });
-    const pub = document.getElementById('btnPublishCollection');
-    if (pub) pub.addEventListener('click', function () { saveCollection(true); });
+    bindEditorCollection();
     const addA = document.getElementById('ownerBtnAddAnnounce');
     if (addA) addA.addEventListener('click', function () {
       api('/api/owner/announcements', { method: 'POST', body: JSON.stringify({ text: document.getElementById('ownerAnnounceText').value }) })

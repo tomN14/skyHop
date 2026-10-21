@@ -3894,6 +3894,7 @@
       editorState.published = false;
       lvlEdStatus.textContent = titleWasCensored ? 'Saved (profanity in title was censored).' : 'Saved.';
       syncEditorUi();
+      return editorState.id;
     } catch (e) {
       lvlEdStatus.textContent = String(e.message || e);
     }
@@ -4441,6 +4442,7 @@
       });
     }
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
+    window.SkyHopSaveLevelDraft = saveDraft;
     const allowBox = document.getElementById('lvlEdAllowCopy');
     if (allowBox) {
       allowBox.addEventListener('change', function () {
