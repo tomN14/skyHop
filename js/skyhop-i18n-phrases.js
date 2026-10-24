@@ -100,6 +100,7 @@
     ['Block', 'Bloque', 'Bloc', 'Block', 'Bloco', '方块', 'ブロック', '블록'],
     ['Portal', 'Portal', 'Portail', 'Portal', 'Portal', '传送门', 'ポータル', '포탈'],
     ['Switch', 'Interruptor', 'Interrupteur', 'Schalter', 'Interruptor', '开关', 'スイッチ', '스위치'],
+    ['Spring', 'Muelle', 'Ressort', 'Feder', 'Mola', '弹簧', 'ばね', '스프링'],
     ['Public', 'Público', 'Public', 'Öffentlich', 'Público', '公开', '公開', '공개'],
     ['Private', 'Privado', 'Privé', 'Privat', 'Privado', '私人', '非公開', '비공개'],
     ['Chat', 'Chat', 'Chat', 'Chat', 'Chat', '聊天', 'チャット', '채팅'],

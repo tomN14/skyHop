@@ -336,6 +336,8 @@
   add('None', 'Ninguna', 'Aucune', 'Keine', 'Nenhuma', '无', 'なし', '없음');
   add('No music', 'Sin música', 'Pas de musique', 'Keine Musik', 'Sem música', '无音乐', '音楽なし', '음악 없음');
   add('The track repeats until you pick another one. Volume 0 turns the music off.', 'La pista se repite hasta que eliges otra. Volumen 0 apaga la música.', 'La piste se répète jusqu’à ce que vous en choisissiez une autre. Le volume 0 coupe la musique.', 'Der Titel wiederholt sich, bis du einen anderen wählst. Lautstärke 0 schaltet die Musik aus.', 'A faixa repete-se até escolheres outra. Volume 0 desliga a música.', '曲目一直重复，直到你换一首。音量 0 会关掉音乐。', '別の曲を選ぶまで繰り返します。音量0で音楽が消えます。', '다른 곡을 고르기 전까지 반복됩니다. 볼륨 0은 음악을 끕니다.');
+  add('Bounce', 'Rebote', 'Rebond', 'Abprall', 'Salto', '弹力', '弾み', '튕김');
+  add('Landing on it launches you upward.', 'Al caer encima sales lanzado hacia arriba.', 'Atterrir dessus vous propulse vers le haut.', 'Eine Landung darauf schleudert dich nach oben.', 'Aterrar nele lança-te para cima.', '踩上去会把你向上弹起。', '乗ると上へ打ち上げられます。', '밟으면 위로 튀어 오릅니다.');
 
   rows.forEach(function (row) {
     for (var i = 0; i < codes.length; i += 1) {

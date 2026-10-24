@@ -1,10 +1,11 @@
 /**
  * Experimental level-editor assistant.
  * Account opt-in, permanent per-level mark, and a staff-only prompt log.
- * Requests are planned in SkyHop from the editor operations and SPL the game already runs.
+ * Requests are read by a small network trained inside SkyHop, then turned into editor objects and SPL.
  */
 import { effectiveRole } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
+import { scoreRequest } from './level-ai-net.js';
 import * as UserLevels from './user-levels.js';
 
 const KEY = 'level_ai';
@@ -150,13 +151,15 @@ function sanitizeOps(raw) {
     if (!item || typeof item !== 'object') continue;
     const op = String(item.op || '');
     if (op === 'platform' || op === 'spike' || op === 'lava') {
-      ops.push({
+      const row = {
         op,
         x: num(item.x, -500, 9000, 0),
         y: num(item.y, -500, 5000, 0),
         w: num(item.w, 8, 2000, 80),
         h: num(item.h, 8, 800, 22),
-      });
+      };
+      if (op === 'platform' && (item.shape === 'circle' || item.shape === 'triangle')) row.shape = item.shape;
+      ops.push(row);
     } else if (op === 'coin' || op === 'spawn' || op === 'goal') {
       ops.push({
         op,
@@ -186,6 +189,79 @@ function sanitizeOps(raw) {
         projectile: !!item.projectile,
         laser: !!item.laser,
         win: item.win === 'goal' || item.win === 'both' ? item.win : 'boss',
+      });
+    } else if (op === 'portal') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 16, 200, 48),
+        h: num(item.h, 16, 200, 48),
+        destOx: num(item.destOx, -400, 400, 24),
+        destOy: num(item.destOy, -800, 800, -72),
+      });
+    } else if (op === 'switch') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 12, 200, 40),
+        h: num(item.h, 8, 80, 16),
+        moveX: num(item.moveX, -400, 400, 48),
+        moveY: num(item.moveY, -400, 400, 0),
+      });
+    } else if (op === 'spring') {
+      const row = {
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 8, 400, 48),
+        h: num(item.h, 8, 200, 24),
+      };
+      if (item.vy != null && Number.isFinite(Number(item.vy))) row.vy = num(item.vy, -4000, -200, -1080);
+      ops.push(row);
+    } else if (op === 'mover' || op === 'lifter') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 16, 800, 80),
+        h: num(item.h, 8, 200, 20),
+        axis: op === 'lifter' || item.axis === 'y' ? 'y' : 'x',
+        amp: num(item.amp, 8, 400, 80),
+      });
+    } else if (op === 'gravity') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 16, 200, 40),
+        h: num(item.h, 16, 200, 64),
+        targetDir: Number(item.targetDir) < 0 ? -1 : 1,
+      });
+    } else if (op === 'fireball') {
+      const from = item.from === 'right' || item.from === 'top' || item.from === 'bottom' ? item.from : 'left';
+      ops.push({ op, from, pos: num(item.pos, 0, 8000, 300) });
+    } else if (op === 'blackout') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 400),
+        w: num(item.w, 16, 400, 40),
+        h: num(item.h, 16, 400, 40),
+        blackSec: num(item.blackSec, 0.2, 30, 3),
+        afterSec: num(item.afterSec, 0, 30, 2),
+        onTouch: item.onTouch !== false,
+      });
+    } else if (op === 'sign') {
+      ops.push({
+        op,
+        x: num(item.x, -500, 9000, 200),
+        y: num(item.y, -500, 5000, 300),
+        w: num(item.w, 40, 800, 160),
+        h: num(item.h, 16, 400, 48),
+        text: censorProfanity(String(item.text || 'Text').slice(0, 40)).text || 'Text',
+        size: num(item.size, 10, 72, 22),
       });
     }
   }
@@ -220,43 +296,196 @@ function levelSummary(data) {
   };
 }
 
-const NUMBER_WORDS = {
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-};
-
-function hasWord(text, word) {
-  return new RegExp('\\b' + word + '\\b', 'i').test(text);
+function objectCount(slots, fallback, max) {
+  const reserved = [slots.seconds, slots.hp, slots.damage, slots.jumps].filter((n) => n != null);
+  const free = (slots.numbers || []).filter((n) => !reserved.includes(n));
+  if (!free.length) return fallback;
+  return Math.max(1, Math.min(max, Math.round(free[0])));
 }
 
-function mentioned(text, words) {
-  return words.some((word) => hasWord(text, word));
+function signText(slots) {
+  const raw = slots.sign ? String(slots.sign).slice(0, 40) : 'Text';
+  return censorProfanity(raw).text || 'Text';
 }
 
-function readNumber(text, pattern, fallback) {
-  const match = text.match(pattern);
-  if (!match) return fallback;
-  if (NUMBER_WORDS[match[1]]) return NUMBER_WORDS[match[1]];
-  const n = Number(match[1]);
-  return Number.isFinite(n) ? n : fallback;
-}
+export function planLevelRequest(prompt, data) {
+  const summary = levelSummary(data);
+  const scored = scoreRequest(prompt);
+  const slots = scored.slots;
+  const on = (label) => scored.scores[label] >= scored.threshold;
+  const worldW = num(summary.worldW, 400, 8000, 1400);
+  const floorY = floorYOf(summary);
+  const action = [
+    'arena', 'platform', 'spike', 'lava', 'coin', 'spawn', 'goal', 'monster', 'boss', 'shoot', 'laser',
+    'portal', 'switch', 'spring', 'mover', 'lifter', 'gravity', 'fireball', 'blackout', 'sign', 'circle', 'triangle',
+    'chase', 'jump', 'whole', 'replace',
+  ];
+  if (on('explain') && !action.some((label) => label !== 'explain' && label !== 'replace' && on(label))) {
+    return { explanation: describeScript(summary.spl), spl: null, ops: [] };
+  }
 
-function secondsFrom(text) {
-  return readNumber(
-    text,
-    /every\s+(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:seconds|second|secs|sec)/,
-    readNumber(text, /(?:cooldown|every)\s+(\d+(?:\.\d+)?)/, 3)
-  );
-}
+  const whole = on('whole');
+  const arena = whole || on('arena');
+  const seconds = Math.max(0.2, Math.min(120, slots.seconds == null ? 3 : slots.seconds));
+  const damage = slots.damage == null ? null : Math.max(1, Math.min(100, Math.round(slots.damage)));
+  const bossAttack = (on('shoot') || on('laser')) && !(on('fireball') && !on('boss') && !on('laser'));
+  const placeBoss = whole || (on('boss') && !bossAttack) || (bossAttack && !summary.hasBoss) || (on('boss') && !summary.hasBoss);
+  const hp = slots.hp == null ? (placeBoss ? 8 : 1) : Math.max(1, Math.min(100000, Math.round(slots.hp)));
+  const notes = [];
+  const ops = [];
 
+  const specificPlatform = on('circle') || on('triangle') || on('mover') || on('lifter');
+  if (arena || (on('platform') && !specificPlatform)) {
+    if (arena) {
+      const small = !whole;
+      const left = small ? 280 : 120;
+      const right = small ? worldW - 320 : worldW - 140;
+      const top = floorY - (small ? 200 : 280);
+      ops.push(
+        { op: 'platform', x: left, y: top, w: 22, h: Math.max(80, floorY - top) },
+        { op: 'platform', x: right, y: top, w: 22, h: Math.max(80, floorY - top) },
+        { op: 'platform', x: left + 70, y: floorY - 130, w: 150, h: 22 },
+        { op: 'platform', x: Math.round((left + right) / 2 - 70), y: floorY - 220, w: 140, h: 22 },
+        { op: 'platform', x: right - 190, y: floorY - 160, w: 150, h: 22 }
+      );
+      notes.push('Added an arena with platforms at different heights.');
+    } else {
+      const count = objectCount(slots, 3, 6);
+      for (let i = 0; i < count; i += 1) {
+        const x = Math.round(140 + ((worldW - 420) * i) / Math.max(1, count - 1));
+        ops.push({ op: 'platform', x, y: floorY - 120 - (i % 3) * 90, w: 160, h: 22 });
+      }
+      notes.push('Added ' + count + ' platforms at different heights.');
+    }
+  }
+  if (on('circle')) {
+    ops.push({ op: 'platform', x: 420, y: floorY - 160, w: 48, h: 48, shape: 'circle' });
+    notes.push('Added a round platform.');
+  }
+  if (on('triangle')) {
+    ops.push({ op: 'platform', x: 560, y: floorY - 160, w: 48, h: 48, shape: 'triangle' });
+    notes.push('Added a triangle.');
+  }
+  if (on('spike') || whole) {
+    const count = objectCount(slots, 1, 6);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'spike', x: 460 + i * 90, y: floorY - 28, w: 80, h: 28 });
+    notes.push('Added spikes.');
+  }
+  if (on('lava')) {
+    ops.push({ op: 'lava', x: 700, y: floorY - 24, w: 140, h: 24 });
+    notes.push('Added lava.');
+  }
+  if (on('coin') || whole) {
+    const count = objectCount(slots, 4, 8);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'coin', x: 240 + i * 90, y: floorY - 90 });
+    notes.push('Added ' + count + ' coins.');
+  }
+  if (on('spawn')) {
+    ops.push({ op: 'spawn', x: 80, y: floorY - 80 });
+    notes.push('Moved the spawn.');
+  }
+  if (on('goal') || whole) {
+    ops.push({ op: 'goal', x: worldW - 220, y: floorY - 160 });
+    notes.push('Moved the goal.');
+  }
+  if (on('monster') || on('chase') || whole) {
+    const count = objectCount(slots, whole ? 2 : 1, 6);
+    for (let i = 0; i < count; i += 1) {
+      ops.push({
+        op: 'monster',
+        x: 360 + i * 140,
+        y: floorY - 48,
+        w: 28,
+        h: 28,
+        hp: hp > 1 && !placeBoss ? hp : 1,
+        chase: on('chase'),
+        pattern: 'patrol',
+      });
+    }
+    notes.push('Added ' + count + ' monster' + (count === 1 ? '' : 's') + '.');
+  }
+  if (placeBoss) {
+    ops.push({
+      op: 'boss',
+      x: Math.round(worldW * 0.62),
+      y: floorY - 96,
+      w: 64,
+      h: 64,
+      hp,
+      touch: true,
+      projectile: bossAttack || !on('laser'),
+      laser: on('laser'),
+      win: 'boss',
+    });
+    notes.push('Added a boss.');
+  }
+  if (on('portal')) {
+    const count = objectCount(slots, 1, 4);
+    for (let i = 0; i < count; i += 1) {
+      ops.push({ op: 'portal', x: 240 + i * 180, y: floorY - 120, w: 48, h: 48, destOx: 24, destOy: -72 });
+    }
+    notes.push('Added a portal.');
+  }
+  if (on('switch')) {
+    ops.push({ op: 'switch', x: 320, y: floorY - 40, w: 40, h: 16, moveX: 48, moveY: 0 });
+    notes.push('Added a switch.');
+  }
+  if (on('spring')) {
+    const count = objectCount(slots, 1, 6);
+    for (let i = 0; i < count; i += 1) {
+      ops.push({ op: 'spring', x: 300 + i * 120, y: floorY - 24, w: 48, h: 24 });
+    }
+    notes.push(count === 1 ? 'Added a spring.' : 'Added ' + count + ' springs.');
+  }
+  if (on('mover')) {
+    ops.push({ op: 'mover', x: 480, y: floorY - 140, w: 80, h: 20, axis: 'x', amp: 80 });
+    notes.push('Added a moving platform.');
+  }
+  if (on('lifter')) {
+    ops.push({ op: 'lifter', x: 640, y: floorY - 180, w: 80, h: 20, axis: 'y', amp: 80 });
+    notes.push('Added an elevator.');
+  }
+  if (on('gravity')) {
+    ops.push({ op: 'gravity', x: 760, y: floorY - 160, w: 40, h: 64, targetDir: slots.down ? 1 : -1 });
+    notes.push(slots.down ? 'Added a gravity arrow pointing down.' : 'Added a gravity arrow pointing up.');
+  }
+  if (on('fireball')) {
+    ops.push({ op: 'fireball', from: 'left', pos: Math.max(64, floorY - 120) });
+    notes.push('Added a fireball shooter.');
+  }
+  if (on('blackout')) {
+    const blackSec = on('shoot') || on('laser') || slots.seconds == null ? 3 : Math.max(0.2, Math.min(30, slots.seconds));
+    ops.push({ op: 'blackout', x: 860, y: floorY - 80, w: 40, h: 40, blackSec, afterSec: 2, onTouch: true });
+    notes.push('Added a blackout.');
+  }
+  if (on('sign')) {
+    ops.push({ op: 'sign', x: 200, y: floorY - 200, w: 160, h: 48, text: signText(slots), size: 22 });
+    notes.push('Added a sign.');
+  }
+
+  const lines = [];
+  if ((bossAttack && !on('laser')) || (placeBoss && !on('laser'))) lines.push.apply(lines, attackLines('projectile', seconds, damage));
+  if (on('laser')) lines.push.apply(lines, attackLines('laser', seconds, damage));
+  if (on('jump')) {
+    const jumps = Math.max(1, Math.min(20, Math.round(slots.jumps == null ? 3 : slots.jumps)));
+    lines.push('jump_cap <- skyhop.get("jump_limit");', 'jump_cap <- ' + jumps + ';');
+    notes.push('Set the jump limit to ' + jumps + '.');
+  }
+  let spl = null;
+  if (lines.length) {
+    spl = on('replace') ? 'use skyhop;\n' + lines.join('\n') : mergeScript(summary.spl, lines);
+    if ((bossAttack && !on('laser')) || (placeBoss && !on('laser'))) notes.push('Boss shots are on, with ' + seconds + ' seconds between them.');
+    if (on('laser')) notes.push('The boss laser is on, with ' + seconds + ' seconds between shots.');
+  }
+  if (!ops.length && !spl) {
+    return {
+      explanation: 'Describe the platforms, enemies, portals, switches, or other objects you want in the level.',
+      spl: null,
+      ops: [],
+    };
+  }
+  return { explanation: notes.join(' '), spl, ops };
+}
 function floorYOf(summary) {
   const worldH = num(summary.worldH, 300, 4000, 720);
   let floorY = worldH - 100;
@@ -312,145 +541,6 @@ function describeScript(spl) {
   if (/jump_limit/.test(text)) bits.push('it changes the jump limit');
   if (!bits.length) return 'The script starts with use skyhop; and uses the commands already in the level. I can add boss shots, a boss laser, or a jump limit.';
   return 'The current script ' + bits.join(', ') + '.';
-}
-
-export function planLevelRequest(prompt, data) {
-  const summary = levelSummary(data);
-  const text = String(prompt || '').toLowerCase();
-  const worldW = num(summary.worldW, 400, 8000, 1400);
-  const floorY = floorYOf(summary);
-  const building = mentioned(text, ['build', 'create', 'make', 'add', 'place', 'put', 'write', 'arena', 'platform', 'boss', 'monster', 'spike', 'lava', 'coin', 'spawn', 'goal']);
-  const explaining = mentioned(text, ['explain', 'what', 'why', 'how', 'understand', 'mean']) && !mentioned(text, ['build', 'create', 'make', 'add', 'place', 'write']);
-  if (explaining) {
-    return { explanation: describeScript(summary.spl), spl: null, ops: [] };
-  }
-  const unsupported = mentioned(text, ['mover', 'portal', 'switch', 'blackout', 'gravity', 'fireball', 'text', 'shape', 'circle', 'triangle']);
-  const notes = [];
-  const ops = [];
-  const whole = /entire level|whole level|full level|level for me/.test(text);
-  const arena = whole || mentioned(text, ['arena']);
-  const platforms = arena || mentioned(text, ['platform', 'platforms', 'height', 'heights']);
-  const shoot = mentioned(text, ['shoot', 'shot', 'shots', 'projectile', 'projectiles']);
-  const laser = mentioned(text, ['laser']);
-  const createBoss = whole || /boss arena/.test(text) || /(?:add|create|place|build)\s+(?:a\s+|the\s+)?boss/.test(text) || /make\s+a\s+boss/.test(text);
-  const boss = createBoss || ((shoot || laser) && !summary.hasBoss);
-  const monsters = mentioned(text, ['monster', 'monsters', 'enemy', 'enemies']);
-  const seconds = Math.max(0.2, Math.min(120, secondsFrom(text)));
-  const damage = readNumber(text, /(\d+)\s*(?:damage|dmg)/, null);
-  const hp = readNumber(text, /(\d+)\s*(?:hp|health)/, boss ? 8 : 1);
-
-  if (platforms) {
-    if (arena) {
-      const small = hasWord(text, 'small') || !whole;
-      const left = small && !whole ? 280 : 120;
-      const right = small && !whole ? worldW - 320 : worldW - 140;
-      const top = floorY - (small && !whole ? 200 : 280);
-      ops.push(
-        { op: 'platform', x: left, y: top, w: 22, h: Math.max(80, floorY - top) },
-        { op: 'platform', x: right, y: top, w: 22, h: Math.max(80, floorY - top) },
-        { op: 'platform', x: left + 70, y: floorY - 130, w: 150, h: 22 },
-        { op: 'platform', x: Math.round((left + right) / 2 - 70), y: floorY - 220, w: 140, h: 22 },
-        { op: 'platform', x: right - 190, y: floorY - 160, w: 150, h: 22 }
-      );
-      notes.push('Added an arena with platforms at different heights.');
-    } else {
-      const count = Math.max(1, Math.min(6, readNumber(text, /(\d+|one|two|three|four|five|six)\s+platforms?/, 3)));
-      for (let i = 0; i < count; i += 1) {
-        const x = Math.round(140 + ((worldW - 420) * i) / Math.max(1, count - 1));
-        ops.push({ op: 'platform', x, y: floorY - 120 - (i % 3) * 90, w: 160, h: 22 });
-      }
-      notes.push('Added ' + count + ' platforms at different heights.');
-    }
-  }
-  if (mentioned(text, ['spike', 'spikes']) || whole) {
-    ops.push({ op: 'spike', x: 460, y: floorY - 28, w: 80, h: 28 });
-    notes.push('Added spikes.');
-  }
-  if (mentioned(text, ['lava'])) {
-    ops.push({ op: 'lava', x: 700, y: floorY - 24, w: 140, h: 24 });
-    notes.push('Added lava.');
-  }
-  if (mentioned(text, ['coin', 'coins']) || whole) {
-    const count = Math.max(1, Math.min(8, readNumber(text, /(\d+|one|two|three|four|five|six|seven|eight)\s+coins?/, 4)));
-    for (let i = 0; i < count; i += 1) ops.push({ op: 'coin', x: 240 + i * 90, y: floorY - 90 });
-    notes.push('Added ' + count + ' coins.');
-  }
-  if (mentioned(text, ['spawn'])) {
-    ops.push({ op: 'spawn', x: 80, y: floorY - 80 });
-    notes.push('Moved the spawn.');
-  }
-  if (mentioned(text, ['goal']) || whole) {
-    ops.push({ op: 'goal', x: worldW - 220, y: floorY - 160 });
-    notes.push('Moved the goal.');
-  }
-  if (monsters || whole) {
-    const count = Math.max(1, Math.min(6, readNumber(text, /(\d+|one|two|three|four|five|six)\s+(?:monsters|enemies)/, whole ? 2 : 1)));
-    for (let i = 0; i < count; i += 1) {
-      ops.push({
-        op: 'monster',
-        x: 360 + i * 140,
-        y: floorY - 48,
-        w: 28,
-        h: 28,
-        hp: hp > 1 && !boss ? hp : 1,
-        chase: mentioned(text, ['chase', 'chases']),
-        pattern: 'patrol',
-      });
-    }
-    notes.push('Added ' + count + ' monster' + (count === 1 ? '' : 's') + '.');
-  }
-  if (boss) {
-    const win = /both/.test(text) ? 'both' : mentioned(text, ['goal']) && /win/.test(text) ? 'goal' : 'boss';
-    ops.push({
-      op: 'boss',
-      x: Math.round(worldW * 0.62),
-      y: floorY - 96,
-      w: 64,
-      h: 64,
-      hp: hp,
-      touch: true,
-      projectile: shoot || (!laser && (boss || whole)),
-      laser,
-      win,
-    });
-    notes.push('Added a boss.');
-  }
-
-  const lines = [];
-  if (shoot || (boss && !laser)) lines.push.apply(lines, attackLines('projectile', seconds, damage));
-  if (laser) lines.push.apply(lines, attackLines('laser', seconds, damage));
-  if (mentioned(text, ['jump']) && /limit/.test(text)) {
-    const jumps = readNumber(text, /(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+jumps?/, 3);
-    lines.push('jump_cap <- skyhop.get("jump_limit");', 'jump_cap <- ' + jumps + ';');
-    notes.push('Set the jump limit to ' + jumps + '.');
-  }
-  let spl = null;
-  if (lines.length) {
-    spl = /replace|rewrite/.test(text) ? 'use skyhop;\n' + lines.join('\n') : mergeScript(summary.spl, lines);
-    if (shoot || (boss && !laser)) notes.push('Boss shots are on, with ' + seconds + ' seconds between them.');
-    if (laser) notes.push('The boss laser is on, with ' + seconds + ' seconds between shots.');
-  }
-  if (!ops.length && !spl) {
-    if (unsupported) {
-      return {
-        explanation: 'I can place platforms, spikes, lava, coins, the spawn, the goal, monsters, and a boss, and I can write the boss shot, boss laser, and jump-limit scripts. That other object has to be placed with its own editor tool.',
-        spl: null,
-        ops: [],
-      };
-    }
-    if (mentioned(text, ['fix', 'error', 'debug', 'broken'])) {
-      return { explanation: describeScript(summary.spl) + ' A script has to start with use skyhop; and assign with <-.', spl: null, ops: [] };
-    }
-    return {
-      explanation: building
-        ? 'I could not match that to a level change I know how to make.'
-        : 'Tell me the arena, platforms, boss, monsters, or the boss attack you want. I build those directly in the editor.',
-      spl: null,
-      ops: [],
-    };
-  }
-  if (unsupported) notes.push('The other object has to be placed with its own editor tool.');
-  return { explanation: notes.join(' '), spl, ops };
 }
 
 async function remember(store, levelId, entry) {

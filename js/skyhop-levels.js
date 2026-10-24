@@ -67,6 +67,7 @@
       gravityArrows: [],
       portals: [],
       switches: [],
+      springs: [],
       blackouts: [],
       stage_time_limit: -1,
       jump_limit: -1,
@@ -235,6 +236,27 @@
     normalizeLook(b);
   }
 
+  function normalizeSpring(d, s) {
+    if (!s || typeof s !== 'object') return;
+    ensureObjId(d, s);
+    let w = Number(s.w);
+    let h = Number(s.h);
+    if (!Number.isFinite(w) || w < 8) w = 48;
+    if (!Number.isFinite(h) || h < 8) h = 24;
+    s.w = Math.min(400, w);
+    s.h = Math.min(200, h);
+    if (s.vy == null || s.vy === '') delete s.vy;
+    else {
+      let vy = Number(s.vy);
+      if (!Number.isFinite(vy)) delete s.vy;
+      else {
+        if (vy > 0) vy = -vy;
+        s.vy = Math.max(-4000, Math.min(-200, vy));
+      }
+    }
+    normalizeLook(s);
+  }
+
   function portalDest(p) {
     if (!p) return { x: 0, y: 0 };
     return { x: p.x + Number(p.destOx || 0), y: p.y + Number(p.destOy || 0) };
@@ -252,6 +274,7 @@
       { kind: 'coin', list: d.coins || [] },
       { kind: 'number', list: d.numbers || [] },
       { kind: 'text', list: d.texts || [] },
+      { kind: 'spring', list: d.springs || [] },
     ];
   }
 
@@ -261,6 +284,7 @@
     if (sel.kind === 'mover') return (d.movingPlatforms || [])[sel.index] || null;
     if (sel.kind === 'portal') return (d.portals || [])[sel.index] || null;
     if (sel.kind === 'switch') return (d.switches || [])[sel.index] || null;
+    if (sel.kind === 'spring') return (d.springs || [])[sel.index] || null;
     if (sel.kind === 'spike') return (d.spikes || [])[sel.index] || null;
     if (sel.kind === 'lava') return (d.lava || [])[sel.index] || null;
     if (sel.kind === 'gravity') return (d.gravityArrows || [])[sel.index] || null;
@@ -302,6 +326,7 @@
     if (!Array.isArray(raw.gravityArrows)) raw.gravityArrows = [];
     if (!Array.isArray(raw.portals)) raw.portals = [];
     if (!Array.isArray(raw.switches)) raw.switches = [];
+    if (!Array.isArray(raw.springs)) raw.springs = [];
     if (!Array.isArray(raw.blackouts)) raw.blackouts = [];
     raw.grapple = !!raw.grapple;
     raw.doubleJump = !!raw.doubleJump;
@@ -355,6 +380,7 @@
     if (!Array.isArray(d.gravityArrows)) d.gravityArrows = [];
     if (!Array.isArray(d.portals)) d.portals = [];
     if (!Array.isArray(d.switches)) d.switches = [];
+    if (!Array.isArray(d.springs)) d.springs = [];
     if (!Array.isArray(d.blackouts)) d.blackouts = [];
     if (!Array.isArray(d.editorMonsters)) d.editorMonsters = [];
     for (const p of d.platforms || []) ensureObjId(d, p);
@@ -372,6 +398,10 @@
     for (const sw of d.switches) {
       normalizeSwitch(d, sw);
       normalizeToggleFields(sw);
+    }
+    for (const s of d.springs) {
+      normalizeSpring(d, s);
+      normalizeToggleFields(s);
     }
     for (const b of d.blackouts) {
       normalizeBlackout(d, b);
@@ -579,6 +609,40 @@
     scheduleEditorRedraw();
   }
 
+  function selectedSpring() {
+    const d = editorState.data;
+    if (!d || !editorSelection || editorSelection.kind !== 'spring') return null;
+    return (d.springs || [])[editorSelection.index] || null;
+  }
+
+  function springBounceOf(s) {
+    const vy = Number(s && s.vy);
+    if (!Number.isFinite(vy) || vy === 0) return 1080;
+    return Math.abs(vy);
+  }
+
+  function syncSpringInspector() {
+    const wrap = document.getElementById('lvlEdSpringProps');
+    const bounceEl = document.getElementById('lvlEdSpringBounce');
+    const s = selectedSpring();
+    if (!wrap) return;
+    wrap.classList.toggle('hidden', !s);
+    wrap.classList.toggle('flex', !!s);
+    if (!s || !bounceEl || document.activeElement === bounceEl) return;
+    bounceEl.value = String(Math.round(springBounceOf(s)));
+  }
+
+  function applySpringFromUi() {
+    const s = selectedSpring();
+    const bounceEl = document.getElementById('lvlEdSpringBounce');
+    if (!s || !bounceEl) return;
+    let bounce = Number(bounceEl.value);
+    if (!Number.isFinite(bounce)) bounce = springBounceOf(s);
+    bounce = Math.max(200, Math.min(4000, Math.abs(bounce)));
+    s.vy = -bounce;
+    scheduleEditorRedraw();
+  }
+
   function startSwitchLinkMode() {
     if (!selectedSwitch()) return;
     switchLinkMode = true;
@@ -756,6 +820,7 @@
     carveRectList(d.gravityArrows, cut);
     removeOverlappingRects(d.portals, cut);
     removeOverlappingRects(d.switches, cut);
+    removeOverlappingRects(d.springs, cut);
     removeOverlappingRects(d.blackouts, cut);
     removeOverlappingRects(d.editorMonsters, cut);
     if (d.editorBoss && d.editorBoss.x < cut.x + cut.w && d.editorBoss.x + d.editorBoss.w > cut.x && d.editorBoss.y < cut.y + cut.h && d.editorBoss.y + d.editorBoss.h > cut.y) {
@@ -787,6 +852,7 @@
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'spring') return (d.springs || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'coin') return (d.coins || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'number') return (d.numbers || [])[editorSelection.index] || null;
@@ -803,6 +869,7 @@
     if (kind === 'gravity') return '#fbbf24';
     if (kind === 'portal') return '#059669';
     if (kind === 'switch') return '#65a30d';
+    if (kind === 'spring') return '#0d9488';
     if (kind === 'blackout') return '#111827';
     if (kind === 'coin') return '#f59e0b';
     if (kind === 'number') return '#e0f2fe';
@@ -939,6 +1006,7 @@
     if (editorSelection.kind === 'gravity') return (d.gravityArrows || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'portal') return (d.portals || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'switch') return (d.switches || [])[editorSelection.index] || null;
+    if (editorSelection.kind === 'spring') return (d.springs || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'blackout') return (d.blackouts || [])[editorSelection.index] || null;
     if (editorSelection.kind === 'goal') return d.goal || null;
     if (editorSelection.kind === 'text') return (d.texts || [])[editorSelection.index] || null;
@@ -1110,6 +1178,7 @@
     else if (k === 'gravity') r = (d.gravityArrows || [])[i];
     else if (k === 'portal') r = (d.portals || [])[i];
     else if (k === 'switch') r = (d.switches || [])[i];
+    else if (k === 'spring') r = (d.springs || [])[i];
     else if (k === 'blackout') r = (d.blackouts || [])[i];
     else if (k === 'monster') r = (d.editorMonsters || [])[i];
     else if (k === 'boss') r = d.editorBoss;
@@ -1161,6 +1230,9 @@
     } else if (drag.sel.kind === 'switch') {
       const sw = d.switches[drag.sel.index];
       drag.startSwitch = { x: sw.x, y: sw.y };
+    } else if (drag.sel.kind === 'spring') {
+      const s = d.springs[drag.sel.index];
+      drag.startSpring = { x: s.x, y: s.y };
     } else if (drag.sel.kind === 'blackout') {
       const b = d.blackouts[drag.sel.index];
       drag.startBlackout = { x: b.x, y: b.y };
@@ -1224,6 +1296,12 @@
       if (sw) {
         sw.x = snap8(sw.x);
         sw.y = snap8(sw.y);
+      }
+    } else if (k === 'spring') {
+      const s = d.springs[drag.sel.index];
+      if (s) {
+        s.x = snap8(s.x);
+        s.y = snap8(s.y);
       }
     } else if (k === 'blackout') {
       const b = d.blackouts[drag.sel.index];
@@ -1568,6 +1646,11 @@
       const sw = switches[i];
       if (wx >= sw.x && wx <= sw.x + sw.w && wy >= sw.y && wy <= sw.y + sw.h) return { kind: 'switch', index: i };
     }
+    const springs = d.springs || [];
+    for (let i = springs.length - 1; i >= 0; i--) {
+      const s = springs[i];
+      if (wx >= s.x && wx <= s.x + s.w && wy >= s.y && wy <= s.y + s.h) return { kind: 'spring', index: i };
+    }
     const blackouts = d.blackouts || [];
     for (let i = blackouts.length - 1; i >= 0; i--) {
       const b = blackouts[i];
@@ -1847,6 +1930,8 @@
         const sh = obj.h * cam.s;
         ctx.fillStyle = editorFill(obj, '#9f1239');
         fillSpikeTeeth(ctx, a.x, a.y, swid, sh, obj.rot);
+      } else if (kind === 'spring') {
+        paintEditorSpring(obj, wx, wy);
       } else if (kind === 'blackout') {
         paintEditorRect(obj, a.x, a.y, obj.w * cam.s, obj.h * cam.s, '#111827', 'rgba(226,232,240,0.7)');
       } else if (kind === 'gravity') {
@@ -1892,6 +1977,25 @@
       ctx.restore();
     }
 
+    function paintEditorSpring(obj, wx, wy) {
+      const a = toScreen(wx, wy);
+      const sw = obj.w * cam.s;
+      const sh = obj.h * cam.s;
+      paintEditorRect(obj, a.x, a.y, sw, sh, '#0d9488', 'rgba(204, 251, 241, 0.75)');
+      ctx.save();
+      ctx.strokeStyle = 'rgba(204, 251, 241, 0.95)';
+      ctx.lineWidth = Math.max(1, cam.s);
+      const coils = 3;
+      for (let i = 1; i <= coils; i += 1) {
+        const y = a.y + (sh * i) / (coils + 1);
+        ctx.beginPath();
+        ctx.moveTo(a.x + Math.max(2, sw * 0.12), y);
+        ctx.lineTo(a.x + sw - Math.max(2, sw * 0.12), y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     for (const L of d.lava) {
       const a = toScreen(L.x, L.y);
       paintEditorRect(L, a.x, a.y, L.w * cam.s, L.h * cam.s, '#ea580c', 'rgba(254, 215, 170, 0.45)');
@@ -1917,6 +2021,8 @@
       }
       ctx.restore();
     }
+
+    for (const sp of d.springs || []) paintEditorSpring(sp, sp.x, sp.y);
 
     for (const p of d.platforms) {
       const a = toScreen(p.x, p.y);
@@ -2235,6 +2341,10 @@
         const b = d.blackouts[editorSelection.index];
         const a = toScreen(b.x, b.y);
         ctx.strokeRect(a.x - 2, a.y - 2, b.w * cam.s + 4, b.h * cam.s + 4);
+      } else if (editorSelection.kind === 'spring') {
+        const s = d.springs[editorSelection.index];
+        const a = toScreen(s.x, s.y);
+        ctx.strokeRect(a.x - 2, a.y - 2, s.w * cam.s + 4, s.h * cam.s + 4);
       }
     }
 
@@ -2343,6 +2453,7 @@
       d.gravityArrows,
       d.portals,
       d.switches,
+      d.springs,
       d.blackouts,
       d.coins,
       d.numbers,
@@ -2481,6 +2592,7 @@
         syncPortalInspector();
         syncSwitchInspector();
         syncBlackoutInspector();
+        syncSpringInspector();
         syncSizeInspector();
         syncStageFlagsUi();
         syncAppearanceUi();
@@ -2717,6 +2829,20 @@
           })
         );
         editorSelection = { kind: 'switch', index: d.switches.length - 1 };
+      } else if (editorTool === 'spring') {
+        if (!d.springs) d.springs = [];
+        const swid = 48;
+        const sh = 24;
+        d.springs.push(
+          withPaint({
+            id: nextEditorId(d),
+            x: Math.round((w.x - swid / 2) / 8) * 8,
+            y: Math.round((w.y - sh / 2) / 8) * 8,
+            w: swid,
+            h: sh,
+          })
+        );
+        editorSelection = { kind: 'spring', index: d.springs.length - 1 };
       } else if (editorTool === 'blackout') {
         if (!d.blackouts) d.blackouts = [];
         d.blackouts.push(
@@ -2907,6 +3033,10 @@
         const sw = d.switches[drag.sel.index];
         sw.x += dx;
         sw.y += dy;
+      } else if (drag.sel.kind === 'spring') {
+        const s = d.springs[drag.sel.index];
+        s.x += dx;
+        s.y += dy;
       } else if (drag.sel.kind === 'blackout') {
         const b = d.blackouts[drag.sel.index];
         b.x += dx;
@@ -3669,6 +3799,7 @@
     syncStageFlagsUi();
     syncAppearanceUi();
     syncBlackoutInspector();
+    syncSpringInspector();
     const up = document.getElementById('btnLvlEdUpload');
     const st = document.getElementById('lvlEdStatus');
     const sv = document.getElementById('btnLvlEdSave');
@@ -4578,11 +4709,14 @@
     if (!d || !result) return;
     d.aiAssisted = true;
     const ops = result.ops || [];
+    const freshSwitches = [];
     ops.forEach(function (op) {
       if (op.op === 'platform' || op.op === 'spike' || op.op === 'lava') {
         const key = op.op === 'platform' ? 'platforms' : op.op === 'spike' ? 'spikes' : 'lava';
         if (!d[key]) d[key] = [];
-        d[key].push({ id: nextEditorId(d), x: op.x, y: op.y, w: op.w, h: op.h });
+        const row = { id: nextEditorId(d), x: op.x, y: op.y, w: op.w, h: op.h };
+        if (op.shape === 'circle' || op.shape === 'triangle') row.shape = op.shape;
+        d[key].push(row);
       } else if (op.op === 'coin') {
         if (!d.coins) d.coins = [];
         d.coins.push({ id: nextEditorId(d), x: op.x, y: op.y });
@@ -4642,7 +4776,103 @@
           stompDmg: 1,
           musicName: '',
         };
+      } else if (op.op === 'portal') {
+        if (!d.portals) d.portals = [];
+        d.portals.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 48,
+          h: op.h || 48,
+          destOx: op.destOx,
+          destOy: op.destOy,
+        });
+      } else if (op.op === 'switch') {
+        if (!d.switches) d.switches = [];
+        const sw = {
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 40,
+          h: op.h || 16,
+          moveX: op.moveX,
+          moveY: op.moveY,
+        };
+        d.switches.push(sw);
+        freshSwitches.push(sw);
+      } else if (op.op === 'mover' || op.op === 'lifter') {
+        if (!d.movingPlatforms) d.movingPlatforms = [];
+        d.movingPlatforms.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 80,
+          h: op.h || 20,
+          move: { axis: op.axis === 'y' ? 'y' : 'x', amp: op.amp || 80, omega: 1, phase: 0 },
+        });
+      } else if (op.op === 'gravity') {
+        if (!d.gravityArrows) d.gravityArrows = [];
+        d.gravityArrows.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 40,
+          h: op.h || 64,
+          targetDir: op.targetDir < 0 ? -1 : 1,
+        });
+      } else if (op.op === 'fireball') {
+        if (!d.fireballEmitters) d.fireballEmitters = [];
+        d.fireballEmitters.push({ from: op.from || 'left', pos: op.pos, speed: 300, jitter: 48 });
+      } else if (op.op === 'spring') {
+        if (!d.springs) d.springs = [];
+        const row = {
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 48,
+          h: op.h || 24,
+        };
+        if (op.vy != null) row.vy = op.vy;
+        d.springs.push(row);
+      } else if (op.op === 'blackout') {
+        if (!d.blackouts) d.blackouts = [];
+        d.blackouts.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 40,
+          h: op.h || 40,
+          blackSec: op.blackSec,
+          afterSec: op.afterSec,
+          onTouch: op.onTouch !== false,
+        });
+      } else if (op.op === 'sign') {
+        if (!d.texts) d.texts = [];
+        d.texts.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w || 160,
+          h: op.h || 48,
+          text: op.text || 'Text',
+          size: op.size || 22,
+        });
       }
+    });
+    freshSwitches.forEach(function (sw) {
+      let best = null;
+      let bestD = Infinity;
+      (d.platforms || []).forEach(function (platform) {
+        if (platform.id == null) return;
+        const dx = platform.x + platform.w / 2 - sw.x;
+        const dy = platform.y + platform.h / 2 - sw.y;
+        const dist = dx * dx + dy * dy;
+        if (dist < bestD) {
+          bestD = dist;
+          best = platform.id;
+        }
+      });
+      if (best != null) sw.targetId = String(best);
     });
     if (typeof result.spl === 'string' && result.spl) {
       d.spl = result.spl;
@@ -5395,6 +5625,11 @@
     });
     const touchEl = document.getElementById('lvlEdBlackOnTouch');
     if (touchEl) touchEl.addEventListener('change', applyBlackoutFromUi);
+    const springBounce = document.getElementById('lvlEdSpringBounce');
+    if (springBounce) {
+      springBounce.addEventListener('change', applySpringFromUi);
+      springBounce.addEventListener('input', applySpringFromUi);
+    }
     const paintEl = document.getElementById('lvlEdColorPaint');
     if (paintEl) {
       paintEl.addEventListener('input', applyPaintFromUi);
@@ -5424,6 +5659,7 @@
         gravity: 'gravityArrows',
         portal: 'portals',
         switch: 'switches',
+        spring: 'springs',
         blackout: 'blackouts',
         monster: 'editorMonsters',
       };

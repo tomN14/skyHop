@@ -2014,6 +2014,7 @@ end;</pre>
         <button type="button" class="lvl-tool rounded-lg border border-amber-400/45 px-2 py-1 text-xs font-semibold text-amber-100 hover:border-amber-200/70" data-tool="gravity">Gravity</button>
         <button type="button" class="lvl-tool rounded-lg border border-emerald-400/50 px-2 py-1 text-xs font-semibold text-emerald-100 hover:border-emerald-200/70" data-tool="portal">Portal</button>
         <button type="button" class="lvl-tool rounded-lg border border-lime-400/45 px-2 py-1 text-xs font-semibold text-lime-100 hover:border-lime-200/70" data-tool="switch">Switch</button>
+        <button type="button" class="lvl-tool rounded-lg border border-teal-400/50 px-2 py-1 text-xs font-semibold text-teal-100 hover:border-teal-200/70" data-tool="spring">Spring</button>
         <button type="button" class="lvl-tool rounded-lg border border-zinc-400/45 px-2 py-1 text-xs font-semibold text-zinc-100 hover:border-zinc-200/70" data-tool="blackout">Make level black</button>
         <button type="button" class="lvl-tool rounded-lg border border-rose-400/45 px-2 py-1 text-xs font-semibold text-rose-100 hover:border-rose-200/70" data-tool="monster">Monster</button>
         <button type="button" class="lvl-tool rounded-lg border border-red-500/50 px-2 py-1 text-xs font-semibold text-red-100 hover:border-red-200/70" data-tool="boss">Boss</button>
@@ -2224,6 +2225,13 @@ end;</pre>
           Activate when touched
         </label>
         <span id="lvlEdBlackoutHint" class="text-[10px] text-slate-500">Walk onto the pad, wait the delay, then the screen goes black.</span>
+      </div>
+      <div id="lvlEdSpringProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
+        <span class="font-semibold text-teal-100">Spring</span>
+        <label class="inline-flex items-center gap-1">Bounce
+          <input id="lvlEdSpringBounce" type="number" min="200" max="4000" step="20" class="w-20 rounded-md border border-white/15 bg-slate-950 px-1.5 py-0.5 text-xs text-white" />
+        </label>
+        <span class="text-[10px] text-slate-500">Landing on it launches you upward.</span>
       </div>
       <div id="lvlEdMoverProps" class="hidden flex flex-wrap items-center justify-center gap-2 border-b border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
         <span class="font-semibold text-cyan-100">Selected mover</span>

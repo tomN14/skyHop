@@ -3844,6 +3844,7 @@
     if (springs && springs.length && player.onGround && wasFalling) {
       const body = { x: player.x, y: player.y, w: player.w, h: player.h };
       for (const sp of springs) {
+        if (!objectLive(sp)) continue;
         if (PHY.rectsOverlap(body, sp)) {
           const base = sp.vy != null ? sp.vy : C.SPRING_VY;
           player.vy = base * gravityDir * O.jumpMul;
@@ -4394,12 +4395,13 @@
     if (springs) {
       const bob = Math.sin(performance.now() / 280) * 2;
       for (const sp of springs) {
+        if (!objectLive(sp)) continue;
         const sx = sp.x;
         const sy = sp.y + bob;
         const g = ctx.createLinearGradient(sx, sy, sx, sy + sp.h);
         g.addColorStop(0, '#2dd4bf');
         g.addColorStop(1, '#0d9488');
-        ctx.fillStyle = g;
+        ctx.fillStyle = sp.color || sp.rainbow ? objectDrawColor(sp, '#14b8a6') : g;
         const rr = 6;
         ctx.beginPath();
         ctx.moveTo(sx + rr, sy);
