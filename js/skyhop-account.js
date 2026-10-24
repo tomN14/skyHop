@@ -1287,6 +1287,32 @@
         }
         var graphicBadge = document.getElementById('accGraphicBadge');
         if (graphicBadge) graphicBadge.classList.toggle('hidden', !me.graphicDesigner);
+        var experimental = document.getElementById('accExperimental');
+        if (experimental) {
+          experimental.checked = !!me.experimentalFeatures;
+          if (!experimental.dataset.bound) {
+            experimental.dataset.bound = '1';
+            experimental.addEventListener('change', function () {
+              api('/api/me/experimental', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + getToken() },
+                body: JSON.stringify({ enabled: experimental.checked }),
+              })
+                .then(function (out) {
+                  if (window.__skyhopLastMe) window.__skyhopLastMe.experimentalFeatures = !!out.experimentalFeatures;
+                  try {
+                    window.dispatchEvent(new CustomEvent('skyhop-auth-changed'));
+                  } catch (e) {
+                    /* */
+                  }
+                })
+                .catch(function (e) {
+                  experimental.checked = !experimental.checked;
+                  window.alert(String(e.message || e));
+                });
+            });
+          }
+        }
         void refreshStaffRoster();
         try {
           if (me.username) localStorage.setItem(LS_USER, me.username);

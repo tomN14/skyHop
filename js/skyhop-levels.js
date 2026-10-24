@@ -36,6 +36,8 @@
     readOnly: false,
     staffEdit: false,
     allowCopy: true,
+    collabRole: 'host',
+    collab: null,
   };
 
   /** When non-null, editor is editing built-in campaign slots (owner). */
@@ -1410,9 +1412,9 @@
     const undoBtn = document.getElementById('btnLvlEdUndo');
     const redoBtn = document.getElementById('btnLvlEdRedo');
     const pasteBtn = document.getElementById('btnLvlEdPaste');
-    if (undoBtn) undoBtn.disabled = !undoStack.length;
-    if (redoBtn) redoBtn.disabled = !redoStack.length;
-    if (pasteBtn) pasteBtn.disabled = !editorClipboard;
+    if (undoBtn) undoBtn.disabled = !undoStack.length || editorCollabLocked();
+    if (redoBtn) redoBtn.disabled = !redoStack.length || editorCollabLocked();
+    if (pasteBtn) pasteBtn.disabled = !editorClipboard || editorCollabLocked();
   }
 
   function resetEditorHistory() {
@@ -2517,6 +2519,14 @@
 
     function onDown(e) {
       if (!editorState.data) return;
+      if (editorCollabLocked()) {
+        if (lvlEdStatus) {
+          lvlEdStatus.textContent = editorState.collabRole === 'suggestor'
+            ? 'Suggestors propose a change from Editors. That does not edit the level.'
+            : 'Viewers can look at this level, not change it.';
+        }
+        return;
+      }
       normalizeEditorLevelInPlace(editorState.data);
       e.preventDefault();
       fitCam(canvas, editorState.data.worldW, editorState.data.worldH);
@@ -3078,6 +3088,7 @@
               canAward: onlineIsOwner,
               returnTo: 'awarded',
               allowCopy: items[i].allow_copy !== false,
+              aiAssisted: !!items[i].aiAssisted,
             })
           );
         }
@@ -3127,7 +3138,8 @@
     if (minePanelLogs) minePanelLogs.classList.toggle('hidden', mineActiveTab !== 'logs');
     const btnNew = document.getElementById('btnLevelsNew');
     const showingCollections = mineLevelsKind && mineLevelsKind.value === 'collections';
-    if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth() || showingCollections);
+    const showingShared = mineLevelsKind && mineLevelsKind.value === 'shared';
+    if (btnNew) btnNew.classList.toggle('hidden', mineActiveTab !== 'levels' || !hasAuth() || showingCollections || showingShared);
     if (mineTabLevels) {
       mineTabLevels.classList.toggle('border-violet-400', mineActiveTab === 'levels');
       mineTabLevels.classList.toggle('bg-violet-600/40', mineActiveTab === 'levels');
@@ -3355,6 +3367,10 @@
     return !!(mineLevelsKind && mineLevelsKind.value === 'collections');
   }
 
+  function mineShowingShared() {
+    return !!(mineLevelsKind && mineLevelsKind.value === 'shared');
+  }
+
   async function refreshMineCollections() {
     if (!mineCollections) return;
     mineErr.classList.add('hidden');
@@ -3434,9 +3450,51 @@
     if (mineShowingCollections() && mineActiveTab === 'levels') void refreshMineCollections();
   };
 
+  async function refreshSharedLevels() {
+    if (mineCollections) mineCollections.classList.add('hidden');
+    if (mineList) mineList.classList.remove('hidden');
+    mineErr.classList.add('hidden');
+    mineList.innerHTML = '';
+    if (levelsMineSignIn) levelsMineSignIn.classList.toggle('hidden', hasAuth());
+    if (!hasAuth()) return;
+    try {
+      const data = await api('/api/levels/collab/mine');
+      const rows = data.levels || [];
+      if (!rows.length) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/60 p-4 text-center text-sm text-slate-400';
+        li.textContent = 'No shared levels yet. A host can add you from Editors in the level editor.';
+        mineList.appendChild(li);
+        return;
+      }
+      rows.forEach(function (row) {
+        const li = document.createElement('li');
+        li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-200';
+        const status = (row.published ? 'Published' : 'Draft') + (row.aiAssisted ? ' · AI-assisted' : '');
+        const role = collabRoleLabel(row.role);
+        li.innerHTML =
+          '<div class="flex flex-wrap items-center justify-between gap-2">' +
+          '<span class="font-sem text-white">' + escapeHtml(row.title) + '</span>' +
+          '<span class="text-xs text-slate-400">' + escapeHtml(role) + ' · ' + status + '</span></div>' +
+          '<div class="mt-2 flex flex-wrap gap-2">' +
+          '<button type="button" class="lvl-row-open rounded-lg border border-indigo-400/50 px-2 py-1 text-xs text-indigo-100 hover:bg-indigo-950/50">Open</button>' +
+          '</div>';
+        li.querySelector('.lvl-row-open').addEventListener('click', () => openEditorForId(row.id));
+        mineList.appendChild(li);
+      });
+    } catch (e) {
+      mineErr.textContent = String(e.message || e);
+      mineErr.classList.remove('hidden');
+    }
+  }
+
   async function refreshMineList() {
     if (mineShowingCollections()) {
       await refreshMineCollections();
+      return;
+    }
+    if (mineShowingShared()) {
+      await refreshSharedLevels();
       return;
     }
     if (mineCollections) mineCollections.classList.add('hidden');
@@ -3452,7 +3510,7 @@
       for (const row of levels || []) {
         const li = document.createElement('li');
         li.className = 'rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-200';
-        const status = row.published ? 'Published' : row.beaten_verified ? 'Ready to publish' : 'Draft';
+        const status = (row.published ? 'Published' : row.beaten_verified ? 'Ready to publish' : 'Draft') + (row.aiAssisted ? ' · AI-assisted' : '');
         li.innerHTML =
           '<div class="flex flex-wrap items-center justify-between gap-2">' +
           '<span class="font-sem text-white">' +
@@ -3534,6 +3592,8 @@
       editorState.beatenOk = true;
       editorState.staffEdit = !!canEdit && !!row.canEdit;
       editorState.readOnly = !canEdit || !row.canEdit;
+      editorState.collabRole = null;
+      editorState.collab = null;
       editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
@@ -3564,8 +3624,10 @@
       editorState.title = row.title;
       editorState.published = !!row.published;
       editorState.beatenOk = !!row.beatenVerified;
-      editorState.readOnly = !!row.published;
+      editorState.readOnly = !!row.published || row.collabRole === 'viewer' || row.collabRole === 'suggestor';
       editorState.allowCopy = row.allowCopy !== false;
+      editorState.collabRole = row.collabRole || 'host';
+      editorState.collab = row.collab || { members: [], suggestions: [] };
       editorState.data = Object.assign({}, defaultLevelData(), row.data || {});
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
@@ -3589,6 +3651,8 @@
     editorState.beatenOk = false;
     editorState.readOnly = false;
     editorState.allowCopy = true;
+    editorState.collabRole = 'host';
+    editorState.collab = { members: [], suggestions: [] };
     editorState.data = defaultLevelData();
     resetEditorHistory();
     document.getElementById('lvlEdTitle').value = editorState.title;
@@ -3600,6 +3664,8 @@
   }
 
   function syncEditorUi() {
+    syncAiButton();
+    syncShareButton();
     syncStageFlagsUi();
     syncAppearanceUi();
     syncBlackoutInspector();
@@ -3617,7 +3683,7 @@
     if (allowWrap) allowWrap.classList.toggle('hidden', !showAllow);
     if (allowBox && showAllow) allowBox.checked = editorState.allowCopy !== false;
     if (delLvl) {
-      const showDelLvl = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.id;
+      const showDelLvl = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.id && editorIsHost();
       delLvl.classList.toggle('hidden', !showDelLvl);
     }
     if (editorState.staffEdit) {
@@ -3670,10 +3736,20 @@
     if (rt) rt.disabled = !!ro;
     if (del) del.disabled = !!ro;
     if (tit) tit.readOnly = !!ro;
+    if (allowBox) allowBox.disabled = !editorIsHost();
     if (ro) {
       up.classList.add('opacity-40');
       up.disabled = true;
-      st.textContent = 'Published — viewing only. Create a new level to edit.';
+      if (editorState.collabRole === 'viewer') st.textContent = 'Viewer — you can look at this level, not change it.';
+      else if (editorState.collabRole === 'suggestor') st.textContent = 'Suggestor — open Editors to propose a change. It does not edit the level.';
+      else st.textContent = 'Published — viewing only. Create a new level to edit.';
+      return;
+    }
+    if (editorState.collabRole === 'editor') {
+      if (delLvl) delLvl.classList.add('hidden');
+      up.classList.add('opacity-40');
+      up.disabled = true;
+      st.textContent = 'Editor — you can save this level. Only the host can publish it or enable the AI Assistant.';
       return;
     }
     if (!editorState.published && editorState.id && editorState.beatenOk) {
@@ -4150,6 +4226,7 @@
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
               allowCopy: it.allow_copy !== false,
+              aiAssisted: !!it.aiAssisted,
             })
           );
         }
@@ -4172,6 +4249,7 @@
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
               allowCopy: it.allow_copy !== false,
+              aiAssisted: !!it.aiAssisted,
             })
           );
         }
@@ -4189,6 +4267,7 @@
               awarded: !!out.item.awarded,
               canAward: onlineIsOwner,
               allowCopy: out.item.allow_copy !== false,
+              aiAssisted: !!out.item.aiAssisted,
             })
           );
         }
@@ -4219,6 +4298,461 @@
     }
   }
 
+  function canReviewAiPrompts() {
+    const me = window.__skyhopLastMe;
+    const role = me && me.role;
+    return role === 'owner' || role === 'admin' || role === 'moderator';
+  }
+
+  function showAiPrompts(id, title) {
+    api('/api/levels/ai/prompts?id=' + encodeURIComponent(id))
+      .then(function (data) {
+        const lines = (data.prompts || []).map(function (row) {
+          const when = new Date(row.at || 0).toLocaleString();
+          return when + '\n' + (row.prompt || '') + (row.explanation ? '\n' + row.explanation : '') + (row.failed ? '\n(failed)' : '');
+        });
+        window.alert((title || 'Level') + '\n\n' + (lines.length ? lines.join('\n\n') : 'No prompts yet.'));
+      })
+      .catch(function (err) {
+        window.alert(String(err.message || err));
+      });
+  }
+
+  function editorIsHost() {
+    return !editorState.collabRole || editorState.collabRole === 'host';
+  }
+
+  function editorCollabLocked() {
+    return editorState.collabRole === 'viewer' || editorState.collabRole === 'suggestor';
+  }
+
+  function collabRoleLabel(role) {
+    if (role === 'viewer') return 'Viewer';
+    if (role === 'suggestor') return 'Suggestor';
+    if (role === 'editor') return 'Editor';
+    return 'Host';
+  }
+
+  function applyCollabView(data) {
+    editorState.collab = data || { members: [], suggestions: [] };
+    if (data && data.role) editorState.collabRole = data.role;
+    renderSharePanel();
+  }
+
+  function setCollabMember(username, role) {
+    if (!editorState.id) {
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Save the level before sharing it.';
+      return;
+    }
+    api('/api/levels/collab/member', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, username: username, role: role }),
+    })
+      .then(function (data) {
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Collaborator updated.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function removeCollabMember(username) {
+    if (!editorState.id) return;
+    api('/api/levels/collab/remove', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, username: username }),
+    })
+      .then(function (data) {
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Collaborator removed.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function sendCollabSuggestion(text) {
+    if (!editorState.id) return;
+    api('/api/levels/collab/suggest', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, text: text }),
+    })
+      .then(function (data) {
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Suggestion sent. The host decides whether to use it.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function reviewCollabSuggestion(suggestionId, accept) {
+    if (!editorState.id) return;
+    api('/api/levels/collab/review', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, suggestionId: suggestionId, accept: !!accept }),
+    })
+      .then(function (data) {
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = accept ? 'Suggestion accepted. The level itself is unchanged until you edit it.' : 'Suggestion dismissed.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function renderSharePanel() {
+    const panel = document.getElementById('lvlEdShare');
+    if (!panel) return;
+    const role = editorState.collabRole || 'host';
+    const data = editorState.collab || { members: [], suggestions: [] };
+    panel.innerHTML = '';
+    const title = document.createElement('p');
+    title.className = 'font-semibold text-indigo-100';
+    title.textContent = 'Collaborative editing';
+    panel.appendChild(title);
+    const note = document.createElement('p');
+    note.className = 'mt-1 text-[11px] text-slate-500';
+    if (role === 'host') note.textContent = 'You are the host. A Viewer can look, a Suggestor can propose a change, and an Editor can save the level. Only you can enable the AI Assistant.';
+    else if (role === 'editor') note.textContent = 'You are an Editor. You can change and save this level. Only the host can publish it or enable the AI Assistant.';
+    else if (role === 'suggestor') note.textContent = 'You are a Suggestor. A suggestion does not change the level. The host decides what to do with it.';
+    else note.textContent = 'You are a Viewer. You can look at this level. The host has not allowed you to change it.';
+    panel.appendChild(note);
+    if (role === 'host') {
+      const row = document.createElement('div');
+      row.className = 'mt-2 flex flex-wrap gap-2';
+      const name = document.createElement('input');
+      name.maxLength = 40;
+      name.placeholder = 'Player name';
+      name.className = 'min-w-[8rem] flex-1 rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-xs text-white';
+      const select = document.createElement('select');
+      select.className = 'rounded-lg border border-white/15 bg-slate-900 px-2 py-1 text-xs text-white';
+      ['viewer', 'suggestor', 'editor'].forEach(function (value) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = collabRoleLabel(value);
+        select.appendChild(opt);
+      });
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'rounded-lg bg-indigo-700 px-3 py-1 text-xs font-semibold text-white';
+      add.textContent = 'Set role';
+      add.addEventListener('click', function () { setCollabMember(name.value, select.value); });
+      row.appendChild(name);
+      row.appendChild(select);
+      row.appendChild(add);
+      panel.appendChild(row);
+    }
+    const list = document.createElement('div');
+    list.className = 'mt-2 space-y-2';
+    (data.members || []).forEach(function (member) {
+      const line = document.createElement('div');
+      line.className = 'flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-slate-900/70 p-2';
+      const who = document.createElement('span');
+      who.className = 'text-xs text-white';
+      who.textContent = member.username + ' · ' + collabRoleLabel(member.role);
+      line.appendChild(who);
+      if (role === 'host') {
+        const select = document.createElement('select');
+        select.className = 'rounded-lg border border-white/15 bg-slate-950 px-2 py-1 text-[11px] text-white';
+        ['viewer', 'suggestor', 'editor'].forEach(function (value) {
+          const opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = collabRoleLabel(value);
+          if (value === member.role) opt.selected = true;
+          select.appendChild(opt);
+        });
+        select.addEventListener('change', function () { setCollabMember(member.username, select.value); });
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'rounded-lg border border-rose-500/50 px-2 py-1 text-[11px] text-rose-100';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', function () { removeCollabMember(member.username); });
+        line.appendChild(select);
+        line.appendChild(remove);
+      }
+      list.appendChild(line);
+    });
+    if (!(data.members || []).length && role === 'host') {
+      const empty = document.createElement('p');
+      empty.className = 'text-[11px] text-slate-500';
+      empty.textContent = 'No collaborators yet.';
+      list.appendChild(empty);
+    }
+    panel.appendChild(list);
+    if (role === 'suggestor') {
+      const box = document.createElement('textarea');
+      box.rows = 3;
+      box.maxLength = 1000;
+      box.placeholder = 'Describe the change you want';
+      box.className = 'mt-2 w-full rounded-lg border border-white/15 bg-slate-900 p-2 text-xs text-white';
+      const send = document.createElement('button');
+      send.type = 'button';
+      send.className = 'mt-2 rounded-lg bg-indigo-700 px-3 py-1 text-xs font-semibold text-white';
+      send.textContent = 'Send suggestion';
+      send.addEventListener('click', function () { sendCollabSuggestion(box.value); });
+      panel.appendChild(box);
+      panel.appendChild(send);
+    }
+    (data.suggestions || []).forEach(function (item) {
+      const card = document.createElement('div');
+      card.className = 'mt-2 rounded-lg border border-white/10 bg-slate-900/70 p-2';
+      const head = document.createElement('p');
+      head.className = 'text-[11px] text-slate-400';
+      head.textContent = (item.username || 'Player') + ' · ' + (item.status || 'pending');
+      const body = document.createElement('p');
+      body.className = 'mt-1 text-xs text-slate-100';
+      body.textContent = item.text || '';
+      card.appendChild(head);
+      card.appendChild(body);
+      if (role === 'host' && item.status === 'pending') {
+        const actions = document.createElement('div');
+        actions.className = 'mt-2 flex gap-2';
+        const accept = document.createElement('button');
+        accept.type = 'button';
+        accept.className = 'rounded-lg border border-emerald-500/50 px-2 py-1 text-[11px] text-emerald-100';
+        accept.textContent = 'Accept';
+        accept.addEventListener('click', function () { reviewCollabSuggestion(item.id, true); });
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'rounded-lg border border-white/15 px-2 py-1 text-[11px] text-slate-200';
+        dismiss.textContent = 'Dismiss';
+        dismiss.addEventListener('click', function () { reviewCollabSuggestion(item.id, false); });
+        actions.appendChild(accept);
+        actions.appendChild(dismiss);
+        card.appendChild(actions);
+      }
+      panel.appendChild(card);
+    });
+  }
+
+  function syncShareButton() {
+    const btn = document.getElementById('btnLvlEdShare');
+    const panel = document.getElementById('lvlEdShare');
+    if (!btn) return;
+    const show = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.collabRole;
+    btn.classList.toggle('hidden', !show);
+    if (!show && panel) panel.classList.add('hidden');
+  }
+
+  function bindShareEditor() {
+    const btn = document.getElementById('btnLvlEdShare');
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function () {
+      const panel = document.getElementById('lvlEdShare');
+      if (!panel) return;
+      const opening = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden');
+      if (opening) renderSharePanel();
+    });
+    const editorScreen = document.getElementById('screenLevelEditor');
+    if (editorScreen && !editorScreen.dataset.collabGuard) {
+      editorScreen.dataset.collabGuard = '1';
+      editorScreen.addEventListener('beforeinput', function (e) {
+        if (!editorCollabLocked()) return;
+        if (e.target && e.target.closest && e.target.closest('#lvlEdShare')) return;
+        e.preventDefault();
+      }, true);
+    }
+  }
+
+  function experimentalOn() {
+    return !!(window.__skyhopLastMe && window.__skyhopLastMe.experimentalFeatures);
+  }
+
+  function syncAiButton() {
+    const btn = document.getElementById('btnLvlEdAi');
+    const panel = document.getElementById('lvlEdAi');
+    if (!btn) return;
+    const show = experimentalOn() && !editorState.staffEdit && !ownerBuiltinArr && !editorState.published && editorIsHost();
+    btn.classList.toggle('hidden', !show);
+    const on = !!(editorState.data && editorState.data.aiAssisted);
+    btn.textContent = on ? 'AI Assistant' : 'Enable AI Assistant';
+    if (!show && panel) panel.classList.add('hidden');
+  }
+
+  function applyAiResult(result) {
+    const d = editorState.data;
+    if (!d || !result) return;
+    d.aiAssisted = true;
+    const ops = result.ops || [];
+    ops.forEach(function (op) {
+      if (op.op === 'platform' || op.op === 'spike' || op.op === 'lava') {
+        const key = op.op === 'platform' ? 'platforms' : op.op === 'spike' ? 'spikes' : 'lava';
+        if (!d[key]) d[key] = [];
+        d[key].push({ id: nextEditorId(d), x: op.x, y: op.y, w: op.w, h: op.h });
+      } else if (op.op === 'coin') {
+        if (!d.coins) d.coins = [];
+        d.coins.push({ id: nextEditorId(d), x: op.x, y: op.y });
+      } else if (op.op === 'spawn' && d.spawn) {
+        d.spawn.x = op.x;
+        d.spawn.y = op.y;
+      } else if (op.op === 'goal' && d.goal) {
+        d.goal.x = op.x;
+        d.goal.y = op.y;
+      } else if (op.op === 'monster') {
+        if (!d.editorMonsters) d.editorMonsters = [];
+        d.editorMonsters.push({
+          id: nextEditorId(d),
+          x: op.x,
+          y: op.y,
+          w: op.w,
+          h: op.h,
+          color: '#fb7185',
+          texture: '',
+          spawnAfter: 0,
+          spawnIf: '',
+          range: 120,
+          chase: !!op.chase,
+          random: false,
+          physics: true,
+          throughWalls: false,
+          pattern: op.pattern || 'patrol',
+          hp: op.hp,
+        });
+      } else if (op.op === 'boss') {
+        d.editorBoss = {
+          x: op.x,
+          y: op.y,
+          w: op.w,
+          h: op.h,
+          color: '#e11d48',
+          texture: '',
+          spawnAfter: 0,
+          spawnIf: '',
+          range: 240,
+          chase: true,
+          random: false,
+          physics: true,
+          throughWalls: false,
+          pattern: 'patrol',
+          hp: op.hp,
+          win: op.win || 'boss',
+          attacks: { touch: op.touch !== false, projectile: !!op.projectile, laser: !!op.laser },
+          touchDmg: 1,
+          projectileDmg: 1,
+          laserDmg: 1,
+          swordDmg: 10,
+          critChance: 0.1,
+          critDmg: 20,
+          shieldResist: 0,
+          shieldDuration: 3,
+          stompDmg: 1,
+          musicName: '',
+        };
+      }
+    });
+    if (typeof result.spl === 'string' && result.spl) {
+      d.spl = result.spl;
+      const splText = document.getElementById('lvlEdSplText');
+      if (splText) splText.value = result.spl;
+    }
+    noteEditorChange();
+    scheduleEditorRedraw();
+  }
+
+  function appendAiLog(prompt, explanation) {
+    const log = document.getElementById('lvlEdAiLog');
+    if (!log) return;
+    const box = document.createElement('div');
+    box.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-2';
+    const q = document.createElement('p');
+    q.className = 'text-[11px] text-slate-400';
+    q.textContent = prompt;
+    const a = document.createElement('p');
+    a.className = 'mt-1 text-[11px] text-slate-100';
+    a.textContent = explanation || '';
+    box.appendChild(q);
+    box.appendChild(a);
+    log.appendChild(box);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function enableAiForLevel() {
+    if (!editorState.id) {
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Save the level first, then enable the assistant.';
+      return;
+    }
+    if (!editorIsHost()) {
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Only the host can enable the AI Assistant for this level.';
+      return;
+    }
+    const ok = window.confirm(
+      'Enable the AI Assistant for this level?\n\nThis cannot be turned off for this level. The level stays marked AI-assisted even if you stop using the assistant.\n\nWhen you upload it, the owner, admins, and moderators can read the prompts. AI-assisted levels can still be awarded. How much of the level came from the assistant is part of that review.'
+    );
+    if (!ok) return;
+    api('/api/levels/ai/enable', { method: 'POST', body: JSON.stringify({ id: editorState.id }) })
+      .then(function () {
+        if (editorState.data) editorState.data.aiAssisted = true;
+        syncAiButton();
+        const panel = document.getElementById('lvlEdAi');
+        if (panel) panel.classList.remove('hidden');
+        if (lvlEdStatus) lvlEdStatus.textContent = 'This level is AI-assisted.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function askAi() {
+    const input = document.getElementById('lvlEdAiPrompt');
+    const err = document.getElementById('lvlEdAiErr');
+    const prompt = input ? input.value.trim() : '';
+    if (!editorState.id || !editorState.data || !editorState.data.aiAssisted) return;
+    if (!prompt) {
+      if (err) {
+        err.textContent = 'Describe what you want.';
+        err.classList.remove('hidden');
+      }
+      return;
+    }
+    if (err) err.classList.add('hidden');
+    const send = document.getElementById('lvlEdAiSend');
+    if (send) send.disabled = true;
+    api('/api/levels/ai/ask', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, prompt: prompt, data: editorState.data }),
+    })
+      .then(function (result) {
+        applyAiResult(result);
+        appendAiLog(prompt, result.explanation);
+        if (input) input.value = '';
+        if (lvlEdStatus) lvlEdStatus.textContent = result.explanation || 'Assistant finished.';
+      })
+      .catch(function (e) {
+        if (err) {
+          err.textContent = String(e.message || e);
+          err.classList.remove('hidden');
+        }
+      })
+      .then(function () {
+        if (send) send.disabled = false;
+      });
+  }
+
+  function bindAiAssistant() {
+    const btn = document.getElementById('btnLvlEdAi');
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', function () {
+        if (!editorState.data || !editorState.data.aiAssisted) {
+          enableAiForLevel();
+          return;
+        }
+        const panel = document.getElementById('lvlEdAi');
+        if (panel) panel.classList.toggle('hidden');
+      });
+    }
+    const send = document.getElementById('lvlEdAiSend');
+    if (send && !send.dataset.bound) {
+      send.dataset.bound = '1';
+      send.addEventListener('click', askAi);
+    }
+    window.addEventListener('skyhop-auth-changed', syncAiButton);
+  }
+
   function rowOnlineItem(titleLine, id, plays, extra) {
     extra = extra || {};
     const author = extra.author;
@@ -4245,6 +4779,9 @@
     } else {
       titleHtml = '<div class="text-sm ' + titleClass + '">' + escapeHtml(titleLine) + '</div>';
     }
+    if (extra.aiAssisted) {
+      titleHtml += '<p class="mt-1 text-[11px] font-semibold text-fuchsia-200">AI-assisted</p>';
+    }
     const li = document.createElement('li');
     li.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-3';
     const awardBtn =
@@ -4266,6 +4803,9 @@
         ? '<button type="button" class="lvl-copy rounded-lg border border-violet-400/50 px-3 py-1 text-xs font-semibold text-violet-100 hover:bg-violet-950/50">Copy</button>'
         : '') +
       awardBtn +
+      (extra.aiAssisted && canReviewAiPrompts()
+        ? '<button type="button" class="lvl-ai-prompts rounded-lg border border-fuchsia-400/50 px-3 py-1 text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">AI prompts</button>'
+        : '') +
       '<button type="button" class="lvl-race rounded-lg border border-amber-500/50 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-950/50">Race</button>' +
       '<button type="button" class="lvl-collab rounded-lg border border-teal-500/50 px-3 py-1 text-xs font-semibold text-teal-100 hover:bg-teal-950/50">Collab</button>' +
       '</div>';
@@ -4273,6 +4813,10 @@
     const copyBtn = li.querySelector('.lvl-copy');
     if (copyBtn) {
       copyBtn.addEventListener('click', () => void copyPublishedLevel(id, copyBtn));
+    }
+    const aiPrompts = li.querySelector('.lvl-ai-prompts');
+    if (aiPrompts) {
+      aiPrompts.addEventListener('click', () => void showAiPrompts(id, titleLine));
     }
     const award = li.querySelector('.lvl-award');
     if (award) {
@@ -4539,12 +5083,14 @@
       });
     }
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
+    bindAiAssistant();
+    bindShareEditor();
     window.SkyHopSaveLevelDraft = saveDraft;
     const allowBox = document.getElementById('lvlEdAllowCopy');
     if (allowBox) {
       allowBox.addEventListener('change', function () {
         editorState.allowCopy = !!allowBox.checked;
-        if (!editorState.id || editorState.staffEdit || ownerBuiltinArr) return;
+        if (!editorIsHost() || !editorState.id || editorState.staffEdit || ownerBuiltinArr) return;
         api('/api/levels/' + encodeURIComponent(editorState.id) + '/allow-copy', {
           method: 'POST',
           body: JSON.stringify({ allow: editorState.allowCopy }),
@@ -4600,6 +5146,10 @@
     if (btnJsonImport && jsonText) {
       btnJsonImport.addEventListener('click', () => {
         const st = document.getElementById('lvlEdStatus');
+        if (editorCollabLocked()) {
+          if (st) st.textContent = 'Only the host or an editor can change this level.';
+          return;
+        }
         let parsed;
         try {
           parsed = JSON.parse(jsonText.value || '');
@@ -4636,11 +5186,11 @@
       btnSpl.addEventListener('click', () => {
         const opening = splPanel.classList.contains('hidden');
         if (opening && editorState.data) splText.value = editorState.data.spl || '';
-        else if (editorState.data) editorState.data.spl = String(splText.value || '').slice(0, 20000);
+        else if (editorState.data && !editorCollabLocked()) editorState.data.spl = String(splText.value || '').slice(0, 20000);
         splPanel.classList.toggle('hidden', !opening);
       });
       splText.addEventListener('input', () => {
-        if (!editorState.data) return;
+        if (!editorState.data || editorCollabLocked()) return;
         editorState.data.spl = String(splText.value || '').slice(0, 20000);
       });
     }

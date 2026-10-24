@@ -602,6 +602,13 @@
             <div id="staffRosterBody" class="mt-2 space-y-2 text-[11px] text-slate-300"></div>
           </div>
           <button id="accBtnLogout" type="button" class="w-full rounded-xl border border-white/20 py-2 text-sm font-sem text-slate-300 hover:bg-white/5" data-i18n="acc.logout">Log out</button>
+          <label class="flex items-start gap-2 rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-sm text-slate-200">
+            <input id="accExperimental" type="checkbox" class="mt-1 rounded border-slate-600" />
+            <span>
+              <span class="font-semibold">Enable Experimental Features</span>
+              <span class="mt-1 block text-[11px] text-slate-500">Turns on experiments such as the level editor AI Assistant. Enabling the assistant on a level is permanent for that level. Prompts on an uploaded level can be read by the owner, admins, and moderators.</span>
+            </span>
+          </label>
           <div class="rounded-2xl border border-violet-500/30 bg-slate-950/60 p-4 text-left">
             <p class="text-xs font-sem text-violet-300" data-i18n="acc.profile">Custom profile</p>
             <p class="mt-1 text-[11px] text-slate-500">Avatar uploads go to your own folder in Supabase Storage (<span class="font-mono text-slate-400">skyhop-profiles/{your user id}/</span>). Max 512 KB · PNG, JPEG, WebP, or GIF.</p>
@@ -1883,6 +1890,7 @@ end;</pre>
         <select id="mineLevelsKind" class="mb-3 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
           <option value="levels">Levels</option>
           <option value="collections">Collections</option>
+          <option value="shared">Shared</option>
         </select>
         <ul id="levelsMineList" class="list-none space-y-2 p-0"></ul>
         <ul id="levelsMineCollections" class="hidden list-none space-y-2 p-0"></ul>
@@ -2023,10 +2031,23 @@ end;</pre>
         <button id="btnLvlEdCollab" type="button" class="rounded-lg border border-teal-500/50 px-2 py-1 text-xs font-semibold text-teal-100 hover:bg-teal-950/40">Collab</button>
         <button id="btnLvlEdUpload" type="button" class="rounded-lg border border-emerald-500/50 px-2 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-950/40">Upload</button>
         <button id="btnLvlEdCollection" type="button" class="rounded-lg border border-cyan-400/50 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-950/40">Collection</button>
+        <button id="btnLvlEdAi" type="button" class="hidden rounded-lg border border-fuchsia-400/50 px-2 py-1 text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">Enable AI Assistant</button>
+        <button id="btnLvlEdShare" type="button" class="rounded-lg border border-indigo-400/50 px-2 py-1 text-xs font-semibold text-indigo-100 hover:bg-indigo-950/40">Editors</button>
         <button id="btnLvlEdJson" type="button" class="rounded-lg border border-white/15 px-2 py-1 text-xs font-semibold hover:border-emerald-400/60">JSON</button>
         <button id="btnLvlEdSpl" type="button" class="rounded-lg border border-fuchsia-400/50 px-2 py-1 font-mono text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">&lt;/&gt;</button>
       </div>
       <p id="lvlEdStatus" class="px-3 py-1 text-center text-xs text-slate-400"></p>
+      <div id="lvlEdShare" class="hidden max-h-72 overflow-y-auto border-b border-white/10 bg-slate-950 px-3 py-3 text-xs text-slate-200"></div>
+      <div id="lvlEdAi" class="hidden border-b border-white/10 bg-slate-950 px-3 py-3 text-xs text-slate-200">
+        <p class="font-semibold text-fuchsia-100">AI Assistant</p>
+        <p id="lvlEdAiNote" class="mt-1 text-[11px] text-slate-500">This level is AI-assisted. That mark stays on even if you stop using the assistant. Prompts can be reviewed by the owner, admins, and moderators after you upload.</p>
+        <div id="lvlEdAiLog" class="mt-2 max-h-36 space-y-2 overflow-y-auto"></div>
+        <textarea id="lvlEdAiPrompt" rows="3" maxlength="2000" class="mt-2 w-full rounded-lg border border-white/15 bg-slate-900 p-2 text-xs text-white" placeholder="Describe the level change or the SPL you want"></textarea>
+        <div class="mt-2 flex gap-2">
+          <button id="lvlEdAiSend" type="button" class="rounded-lg bg-fuchsia-600 px-3 py-1 text-xs font-semibold text-white">Ask</button>
+          <p id="lvlEdAiErr" class="hidden text-[11px] text-rose-300"></p>
+        </div>
+      </div>
       <div id="lvlEdCollection" class="hidden border-b border-white/10 bg-slate-950 px-3 py-3 text-xs text-slate-200">
         <p class="font-semibold text-cyan-100">Collection</p>
         <p class="mt-1 text-[11px] text-slate-500">Add saved levels by name. Save this level first if it is not in the list yet.</p>

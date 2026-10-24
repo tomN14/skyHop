@@ -170,15 +170,17 @@ export async function levelsCreate(userId, title, data, allowCopy) {
   return { id };
 }
 
-export async function levelsUpdateDraft(userId, levelId, title, data, allowCopy) {
+export async function levelsUpdateDraft(userId, levelId, title, data, allowCopy, opts) {
   const clean = validateLevelData(data);
   const t = censoredTitle(title);
+  const asCollaborator = !!(opts && opts.asCollaborator);
+  if (asCollaborator) allowCopy = undefined;
 
   if (useSupabase()) {
     const sb = sbClient();
     const { data: rows, error: e1 } = await sb.from('skyhop_user_levels').select('author_id, published').eq('id', levelId).maybeSingle();
     if (e1) throw new Error(e1.message);
-    if (!rows || rows.author_id !== userId) throw new Error('Not found');
+    if (!rows || (!asCollaborator && rows.author_id !== userId)) throw new Error('Not found');
     if (rows.published) throw new Error('Cannot edit published level');
     const patch = {
       title: t,
@@ -201,7 +203,7 @@ export async function levelsUpdateDraft(userId, levelId, title, data, allowCopy)
 
   const db = fileLoad();
   const row = db.levels.find((L) => L.id === levelId);
-  if (!row || row.author_id !== userId) throw new Error('Not found');
+  if (!row || (!asCollaborator && row.author_id !== userId)) throw new Error('Not found');
   if (row.published) throw new Error('Cannot edit published level');
   row.title = t;
   row.title_lower = t.toLowerCase();
@@ -297,6 +299,35 @@ export async function levelsCopy(userId, levelId) {
   const title = censoredTitle('Copy of ' + row.title);
   const created = await levelsCreate(userId, title, row.data, true);
   return { id: created.id, title };
+}
+
+export async function levelsStampAi(userId, levelId) {
+  if (useSupabase()) {
+    const sb = sbClient();
+    const { data: row, error } = await sb
+      .from('skyhop_user_levels')
+      .select('author_id, published, data')
+      .eq('id', levelId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!row) throw new Error('Save the level first.');
+    if (row.author_id !== userId) throw new Error('Only the host can enable the AI Assistant for this level.');
+    if (row.published) throw new Error('Enable the assistant before the level is published.');
+    const data = row.data && typeof row.data === 'object' ? row.data : {};
+    data.aiAssisted = true;
+    const { error: writeErr } = await sb.from('skyhop_user_levels').update({ data }).eq('id', levelId);
+    if (writeErr) throw new Error(writeErr.message);
+    return { ok: true, data };
+  }
+  const db = fileLoad();
+  const row = db.levels.find((item) => item.id === levelId);
+  if (!row) throw new Error('Save the level first.');
+  if (row.author_id !== userId) throw new Error('Only the host can enable the AI Assistant for this level.');
+  if (row.published) throw new Error('Enable the assistant before the level is published.');
+  if (!row.data || typeof row.data !== 'object') row.data = {};
+  row.data.aiAssisted = true;
+  fileSave(db);
+  return { ok: true, data: row.data };
 }
 
 export async function levelsMarkBeaten(userId, levelId) {
@@ -440,14 +471,15 @@ export async function levelsPublishedMetaById(id) {
   };
 }
 
-export async function levelsGetById(id, viewerUserId) {
+export async function levelsGetById(id, viewerUserId, opts) {
+  const allowUnpublished = !!(opts && opts.allowUnpublished);
   if (useSupabase()) {
     const sb = sbClient();
     const { data: row, error } = await sb.from('skyhop_user_levels').select('*').eq('id', id).maybeSingle();
     if (error) throw new Error(error.message);
     if (!row) return null;
     const isOwner = viewerUserId != null && row.author_id === viewerUserId;
-    if (!row.published && !isOwner) return null;
+    if (!row.published && !isOwner && !allowUnpublished) return null;
     return {
       id: row.id,
       title: row.title,
@@ -463,7 +495,7 @@ export async function levelsGetById(id, viewerUserId) {
   const row = db.levels.find((L) => L.id === id);
   if (!row) return null;
   const isOwner = viewerUserId != null && row.author_id === viewerUserId;
-  if (!row.published && !isOwner) return null;
+  if (!row.published && !isOwner && !allowUnpublished) return null;
   return {
     id: row.id,
     title: row.title,

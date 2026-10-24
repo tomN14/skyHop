@@ -180,12 +180,28 @@ function withFinancialSection(html) {
     }
   }
   const musicLine = 'Account has a music player. The track you pick repeats until you choose another, volume 0 turns it off, and it starts on None';
+  const aiLine = 'The level editor has an experimental AI Assistant. Turn on Experimental Features in Account, then enable it on a saved level. That level stays marked AI-assisted, and its prompts can be reviewed by staff';
+  const shareLine = 'A saved level can be shared for editing. The host sets each person as a Viewer, a Suggestor, or an Editor. Only the host can turn on the AI Assistant for that level';
   const musicAnchor = 'Account shows your strike count and total play time. The owner can post announcements, warn one player, message anyone, and edit account stats';
   if (!htmlNext.includes(musicLine) && htmlNext.includes(musicAnchor)) {
     const musicAt = htmlNext.indexOf(musicAnchor);
     const musicEnd = htmlNext.indexOf('</li>', musicAt);
     if (musicEnd !== -1) {
       htmlNext = htmlNext.slice(0, musicEnd + 5) + '\n            <li>' + musicLine + '</li>' + htmlNext.slice(musicEnd + 5);
+    }
+  }
+  if (!htmlNext.includes(aiLine) && htmlNext.includes(musicLine)) {
+    const aiAt = htmlNext.indexOf(musicLine);
+    const aiEnd = htmlNext.indexOf('</li>', aiAt);
+    if (aiEnd !== -1) {
+      htmlNext = htmlNext.slice(0, aiEnd + 5) + '\n            <li>' + aiLine + '</li>' + htmlNext.slice(aiEnd + 5);
+    }
+  }
+  if (!htmlNext.includes(shareLine) && htmlNext.includes(aiLine)) {
+    const shareAt = htmlNext.indexOf(aiLine);
+    const shareEnd = htmlNext.indexOf('</li>', shareAt);
+    if (shareEnd !== -1) {
+      htmlNext = htmlNext.slice(0, shareEnd + 5) + '\n            <li>' + shareLine + '</li>' + htmlNext.slice(shareEnd + 5);
     }
   }
   const oldClose = 'A company under −500 coins of weekly profit is closed.';
