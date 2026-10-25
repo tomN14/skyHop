@@ -37,8 +37,8 @@ export function validateLevelData(data) {
   if (!data || typeof data !== 'object') throw new Error('Invalid level data');
   const w = Number(data.worldW);
   const h = Number(data.worldH);
-  if (!Number.isFinite(w) || w < 400 || w > 8000) throw new Error('worldW out of range');
-  if (!Number.isFinite(h) || h < 300 || h > 4000) throw new Error('worldH out of range');
+  if (!Number.isFinite(w) || w < 400 || w > 20000) throw new Error('worldW out of range');
+  if (!Number.isFinite(h) || h < 300 || h > 20000) throw new Error('worldH out of range');
   if (!data.spawn || !data.goal) throw new Error('spawn and goal required');
   const raw = JSON.stringify(data);
   if (raw.length > MAX_DATA_BYTES) throw new Error('Level too large');

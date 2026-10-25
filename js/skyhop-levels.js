@@ -3808,6 +3808,7 @@
   }
 
   function syncEditorUi() {
+    syncWorldSizeFields();
     syncAiButton();
     syncShareButton();
     syncStageFlagsUi();
@@ -3897,7 +3898,7 @@
       up.classList.add('opacity-40');
       up.disabled = true;
       if (suggestor) st.textContent = 'Suggestor — edit the level, then press Suggest. The host or an editor accepts or declines it. Only the host can publish.';
-      else st.textContent = 'Editor — you can save this level and accept suggestions. Only the host can publish it or enable the AI Assistant.';
+      else st.textContent = 'Editor — you can save this level, send prompts after the host enables the assistant, and accept suggestions. Only the host can publish or enable the assistant.';
       return;
     }
     if (!editorState.published && editorState.id && editorState.beatenOk) {
@@ -4252,6 +4253,8 @@
       if (opts && opts.undone) lvlEdStatus.textContent = 'Undone. The previous level is saved.';
       else if (opts && opts.redone) lvlEdStatus.textContent = 'Redone. That edit is saved again.';
       else lvlEdStatus.textContent = titleWasCensored ? 'Saved (profanity in title was censored).' : 'Saved.';
+      const versionsPanel = document.getElementById('lvlEdVersions');
+      if (versionsPanel && !versionsPanel.classList.contains('hidden')) refreshVersions();
       syncEditorUi();
       return editorState.id;
     } catch (e) {
@@ -4505,7 +4508,7 @@
       .then(function (data) {
         const lines = (data.prompts || []).map(function (row) {
           const when = new Date(row.at || 0).toLocaleString();
-          return when + '\n' + (row.prompt || '') + (row.explanation ? '\n' + row.explanation : '') + (row.failed ? '\n(failed)' : '');
+          return (row.username || 'Host') + ' · ' + when + '\n' + (row.prompt || '') + (row.explanation ? '\n' + row.explanation : '') + (row.failed ? '\n(failed)' : '');
         });
         window.alert((title || 'Level') + '\n\n' + (lines.length ? lines.join('\n\n') : 'No prompts yet.'));
       })
@@ -4516,6 +4519,93 @@
 
   function editorIsHost() {
     return !editorState.collabRole || editorState.collabRole === 'host';
+  }
+
+  function editorIsOwner() {
+    const me = window.__skyhopLastMe;
+    return !!(me && me.role === 'owner');
+  }
+
+  function setEveryoneEditor(on) {
+    if (!editorState.id) {
+      if (lvlEdStatus) lvlEdStatus.textContent = 'Save the level before sharing it.';
+      return;
+    }
+    const ok = window.confirm(
+      on
+        ? 'Add every other SkyHop player as an editor of this level? They can change and save it. Only you can publish.'
+        : 'Stop adding every SkyHop player as an editor? Players you added by name stay.'
+    );
+    if (!ok) return;
+    api('/api/levels/collab/everyone', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, on: !!on }),
+    })
+      .then(function (data) {
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = on ? 'Every other SkyHop player is an editor.' : 'Only the players you add by name stay on this level.';
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function resizeEditorWorld(nextW, nextH) {
+    const d = editorState.data;
+    if (!d || editorState.readOnly || editorCollabLocked()) return;
+    const w = Math.max(400, Math.min(20000, Math.round(Number(nextW))));
+    const h = Math.max(300, Math.min(20000, Math.round(Number(nextH))));
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+    const oldW = Number(d.worldW) || w;
+    const oldH = Number(d.worldH) || h;
+    const dw = w - oldW;
+    const dh = h - oldH;
+    if (!dw && !dh) return;
+    function shiftY(obj) {
+      if (obj && typeof obj.y === 'number') obj.y += dh;
+    }
+    shiftY(d.spawn);
+    shiftY(d.goal);
+    shiftY(d.editorBoss);
+    ['platforms', 'spikes', 'lava', 'coins', 'numbers', 'texts', 'movingPlatforms', 'gravityArrows', 'portals', 'switches', 'springs', 'blackouts', 'editorMonsters'].forEach(function (key) {
+      (d[key] || []).forEach(function (obj) {
+        shiftY(obj);
+        if (key === 'platforms' && obj && typeof obj.x === 'number' && typeof obj.w === 'number' && obj.x <= 1 && Math.abs(obj.x + obj.w - oldW) < 2) {
+          obj.w = Math.max(8, obj.w + dw);
+        }
+      });
+    });
+    d.worldW = w;
+    d.worldH = h;
+    noteEditorChange();
+    scheduleEditorRedraw();
+    syncWorldSizeFields();
+  }
+
+  function syncWorldSizeFields() {
+    const wIn = document.getElementById('lvlEdWorldW');
+    const hIn = document.getElementById('lvlEdWorldH');
+    const locked = !editorState.data || editorState.readOnly || editorCollabLocked();
+    if (wIn) {
+      wIn.disabled = !!locked;
+      if (document.activeElement !== wIn && editorState.data) wIn.value = String(Math.round(editorState.data.worldW || 1400));
+    }
+    if (hIn) {
+      hIn.disabled = !!locked;
+      if (document.activeElement !== hIn && editorState.data) hIn.value = String(Math.round(editorState.data.worldH || 720));
+    }
+  }
+
+  function bindWorldSizeFields() {
+    const wIn = document.getElementById('lvlEdWorldW');
+    const hIn = document.getElementById('lvlEdWorldH');
+    if (!wIn || wIn.dataset.bound) return;
+    wIn.dataset.bound = '1';
+    function apply() {
+      resizeEditorWorld(wIn.value, hIn.value);
+    }
+    wIn.addEventListener('change', apply);
+    if (hIn) hIn.addEventListener('change', apply);
   }
 
   function editorCollabLocked() {
@@ -4676,11 +4766,25 @@
     panel.appendChild(title);
     const note = document.createElement('p');
     note.className = 'mt-1 text-[11px] text-slate-500';
-    if (role === 'host') note.textContent = 'You are the host. A Viewer can look, a Suggestor can edit and send that edit for review, and an Editor can save the level. You and editors can accept a suggestion, which updates the level. Undo puts the previous level back. Anyone here can beat Test play. Only you can publish.';
+    if (role === 'host') note.textContent = 'You are the host. A Viewer can look, a Suggestor can edit and send that edit for review, and an Editor can save the level. You and editors can accept a suggestion, which updates the level. Undo puts the previous level back. Anyone here can beat Test play. Editors can send prompts after you enable the assistant. Only you can publish or revert a version.';
     else if (role === 'editor') note.textContent = 'You are an Editor. You can change and save this level, and accept or decline suggestions. Undo puts an accepted edit back. Only the host can publish it or enable the AI Assistant.';
     else if (role === 'suggestor') note.textContent = 'You are a Suggestor. Edit the level, then press Suggest. The level does not change until the host or an editor accepts it.';
     else note.textContent = 'You are a Viewer. You can look at this level. The host has not allowed you to change it.';
     panel.appendChild(note);
+    if (data.everyoneEditor) {
+      const open = document.createElement('p');
+      open.className = 'mt-1 text-[11px] text-indigo-200';
+      open.textContent = 'Every other SkyHop player is an editor.';
+      panel.appendChild(open);
+    }
+    if (role === 'host' && editorIsOwner()) {
+      const all = document.createElement('button');
+      all.type = 'button';
+      all.className = 'mt-2 rounded-lg border border-amber-400/60 bg-amber-950/40 px-3 py-1 text-xs font-semibold text-amber-100';
+      all.textContent = data.everyoneEditor ? 'Stop adding every player' : 'Add every player as Editor';
+      all.addEventListener('click', function () { setEveryoneEditor(!data.everyoneEditor); });
+      panel.appendChild(all);
+    }
     if (role === 'host') {
       const row = document.createElement('div');
       row.className = 'mt-2 flex flex-wrap gap-2';
@@ -4839,14 +4943,38 @@
     return !!(window.__skyhopLastMe && window.__skyhopLastMe.experimentalFeatures);
   }
 
+  function aiAskAllowed() {
+    if (editorState.staffEdit) return false;
+    const on = !!(editorState.data && editorState.data.aiAssisted);
+    const role = editorState.collabRole || 'host';
+    return experimentalOn() && on && !editorState.published && (editorIsHost() || role === 'editor');
+  }
+
   function syncAiButton() {
     const btn = document.getElementById('btnLvlEdAi');
     const panel = document.getElementById('lvlEdAi');
+    const ask = document.getElementById('lvlEdAiAsk');
     if (!btn) return;
-    const show = experimentalOn() && !editorState.staffEdit && !ownerBuiltinArr && !editorState.published && editorIsHost();
-    btn.classList.toggle('hidden', !show);
     const on = !!(editorState.data && editorState.data.aiAssisted);
-    btn.textContent = on ? 'AI Assistant' : 'Enable AI Assistant';
+    const role = editorState.collabRole || 'host';
+    const onLevel = role === 'host' || role === 'editor' || role === 'viewer' || role === 'suggestor';
+    const canEnable = experimentalOn() && editorIsHost() && !editorState.published && !on && !editorState.staffEdit;
+    const show = !ownerBuiltinArr && ((editorState.staffEdit && on) || (!editorState.staffEdit && (canEnable || (on && onLevel))));
+    btn.classList.toggle('hidden', !show);
+    btn.textContent = !on ? 'Enable AI Assistant' : (aiAskAllowed() ? 'AI Assistant' : 'AI prompts');
+    if (ask) ask.classList.toggle('hidden', !aiAskAllowed());
+    if (!show && panel) panel.classList.add('hidden');
+    syncVersionsButton();
+  }
+
+  function syncVersionsButton() {
+    const btn = document.getElementById('btnLvlEdVersions');
+    const panel = document.getElementById('lvlEdVersions');
+    if (!btn) return;
+    const role = editorState.collabRole || 'host';
+    const onLevel = role === 'host' || role === 'editor' || role === 'viewer' || role === 'suggestor';
+    const show = !editorState.staffEdit && !ownerBuiltinArr && !!editorState.id && onLevel;
+    btn.classList.toggle('hidden', !show);
     if (!show && panel) panel.classList.add('hidden');
   }
 
@@ -5029,21 +5157,40 @@
     scheduleEditorRedraw();
   }
 
-  function appendAiLog(prompt, explanation) {
+  function renderAiLog(prompts) {
     const log = document.getElementById('lvlEdAiLog');
     if (!log) return;
-    const box = document.createElement('div');
-    box.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-2';
-    const q = document.createElement('p');
-    q.className = 'text-[11px] text-slate-400';
-    q.textContent = prompt;
-    const a = document.createElement('p');
-    a.className = 'mt-1 text-[11px] text-slate-100';
-    a.textContent = explanation || '';
-    box.appendChild(q);
-    box.appendChild(a);
-    log.appendChild(box);
+    log.innerHTML = '';
+    (prompts || []).forEach(function (row) {
+      const box = document.createElement('div');
+      box.className = 'rounded-lg border border-white/10 bg-slate-900/70 p-2';
+      const who = document.createElement('p');
+      who.className = 'text-[11px] text-slate-400';
+      who.textContent = (row.username || 'Host') + ' · ' + new Date(row.at || 0).toLocaleString() + (row.failed ? ' · failed' : '');
+      const q = document.createElement('p');
+      q.className = 'mt-1 text-xs text-slate-100';
+      q.textContent = row.prompt || '';
+      const a = document.createElement('p');
+      a.className = 'mt-1 text-[11px] text-slate-300';
+      a.textContent = row.explanation || '';
+      box.appendChild(who);
+      box.appendChild(q);
+      if (row.explanation) box.appendChild(a);
+      log.appendChild(box);
+    });
     log.scrollTop = log.scrollHeight;
+  }
+
+  function refreshAiLog() {
+    if (!editorState.id || !(editorState.data && editorState.data.aiAssisted)) return;
+    api('/api/levels/ai/prompts?id=' + encodeURIComponent(editorState.id))
+      .then(function (data) {
+        renderAiLog(data.prompts || []);
+      })
+      .catch(function (err) {
+        const log = document.getElementById('lvlEdAiLog');
+        if (log) log.textContent = String(err.message || err);
+      });
   }
 
   function enableAiForLevel() {
@@ -5056,7 +5203,7 @@
       return;
     }
     const ok = window.confirm(
-      'Enable the AI Assistant for this level?\n\nThis cannot be turned off for this level. The level stays marked AI-assisted even if you stop using the assistant.\n\nWhen you upload it, the owner, admins, and moderators can read the prompts. AI-assisted levels can still be awarded. How much of the level came from the assistant is part of that review.'
+      'Enable the AI Assistant for this level?\n\nThis cannot be turned off for this level. The level stays marked AI-assisted even if you stop using the assistant.\n\nEditors can send prompts too. Everyone on this level can read every prompt and who sent it. The owner, admins, and moderators can read them as well. AI-assisted levels can still be awarded.'
     );
     if (!ok) return;
     api('/api/levels/ai/enable', { method: 'POST', body: JSON.stringify({ id: editorState.id }) })
@@ -5093,11 +5240,12 @@
     })
       .then(function (result) {
         applyAiResult(result);
-        appendAiLog(prompt, result.explanation);
+        refreshAiLog();
         if (input) input.value = '';
         if (lvlEdStatus) lvlEdStatus.textContent = result.explanation || 'Assistant finished.';
       })
       .catch(function (e) {
+        refreshAiLog();
         if (err) {
           err.textContent = String(e.message || e);
           err.classList.remove('hidden');
@@ -5106,6 +5254,103 @@
       .then(function () {
         if (send) send.disabled = false;
       });
+  }
+
+  function renderVersionsPanel(versions) {
+    const panel = document.getElementById('lvlEdVersions');
+    if (!panel) return;
+    panel.innerHTML = '';
+    const title = document.createElement('p');
+    title.className = 'font-semibold text-amber-100';
+    title.textContent = 'Versions';
+    panel.appendChild(title);
+    const note = document.createElement('p');
+    note.className = 'mt-1 text-[11px] text-slate-500';
+    note.textContent = 'Every save is a version. Only the host can revert to an older one.';
+    panel.appendChild(note);
+    const list = (versions || []).slice().reverse();
+    if (!list.length) {
+      const empty = document.createElement('p');
+      empty.className = 'mt-2 text-[11px] text-slate-500';
+      empty.textContent = 'No versions yet. The next save starts the history.';
+      panel.appendChild(empty);
+      return;
+    }
+    list.forEach(function (item, index) {
+      const card = document.createElement('div');
+      card.className = 'mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-slate-900/70 p-2';
+      const line = document.createElement('span');
+      line.className = 'text-xs text-slate-100';
+      line.textContent = 'Version ' + item.n + ' · ' + (item.username || 'Player') + ' · ' + new Date(item.at || 0).toLocaleString() + (item.title ? ' · ' + item.title : '');
+      card.appendChild(line);
+      if (editorIsHost() && !editorState.published && index !== 0) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rounded-lg border border-amber-400/50 px-2 py-1 text-[11px] text-amber-100';
+        btn.textContent = 'Revert';
+        btn.addEventListener('click', function () { revertLevelVersion(item.id); });
+        card.appendChild(btn);
+      }
+      panel.appendChild(card);
+    });
+  }
+
+  function refreshVersions() {
+    if (!editorState.id) return;
+    api('/api/levels/versions?id=' + encodeURIComponent(editorState.id))
+      .then(function (data) {
+        renderVersionsPanel(data.versions || []);
+      })
+      .catch(function (err) {
+        const panel = document.getElementById('lvlEdVersions');
+        if (panel) panel.textContent = String(err.message || err);
+      });
+  }
+
+  function revertLevelVersion(versionId) {
+    if (!editorState.id) return;
+    api('/api/levels/versions/revert', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id, versionId: versionId }),
+    })
+      .then(function (data) {
+        if (data && data.applied && data.applied.data) {
+          historyLock = true;
+          editorState.data = JSON.parse(JSON.stringify(data.applied.data));
+          if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
+          normalizeEditorLevelInPlace(editorState.data);
+          if (data.applied.title) {
+            editorState.title = data.applied.title;
+            const tit = document.getElementById('lvlEdTitle');
+            if (tit) tit.value = data.applied.title;
+          }
+          historyLock = false;
+          resetEditorHistory();
+          editorState.loadedSnap = editorHistoryJson();
+          editorState.beatenOk = false;
+          editorState.undoAcceptPending = false;
+          scheduleEditorRedraw();
+        }
+        renderVersionsPanel(data.versions || []);
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Reverted. This level is that version again, and the revert is saved.';
+        syncEditorUi();
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function bindVersionsEditor() {
+    const btn = document.getElementById('btnLvlEdVersions');
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function () {
+      const panel = document.getElementById('lvlEdVersions');
+      if (!panel) return;
+      const opening = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden');
+      if (opening) refreshVersions();
+    });
   }
 
   function bindAiAssistant() {
@@ -5118,7 +5363,10 @@
           return;
         }
         const panel = document.getElementById('lvlEdAi');
-        if (panel) panel.classList.toggle('hidden');
+        if (!panel) return;
+        const opening = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden');
+        if (opening) refreshAiLog();
       });
     }
     const send = document.getElementById('lvlEdAiSend');
@@ -5461,6 +5709,8 @@
     document.getElementById('btnLvlEdSave').addEventListener('click', () => saveDraft());
     bindAiAssistant();
     bindShareEditor();
+    bindVersionsEditor();
+    bindWorldSizeFields();
     window.SkyHopSaveLevelDraft = saveDraft;
     const allowBox = document.getElementById('lvlEdAllowCopy');
     if (allowBox) {

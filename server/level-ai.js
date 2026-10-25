@@ -111,21 +111,31 @@ function staffMayRead(user) {
   return role === 'owner' || role === 'admin' || role === 'mod_admin' || role === 'moderator';
 }
 
-export async function promptsForStaff(store, user, levelId) {
-  if (!staffMayRead(user)) throw new Error('Staff only.');
+function publicPrompt(item) {
+  return {
+    at: item.at,
+    prompt: item.prompt,
+    explanation: item.explanation || '',
+    opCount: item.opCount || 0,
+    failed: !!item.failed,
+    username: item.username || 'Host',
+  };
+}
+
+export function mayReadPrompts(user, role) {
+  if (staffMayRead(user)) return true;
+  return role === 'host' || role === 'editor' || role === 'viewer' || role === 'suggestor';
+}
+
+export async function promptsFor(store, user, levelId, role) {
+  if (!mayReadPrompts(user, role)) throw new Error('You cannot read prompts for this level.');
   const bag = await load(store);
   const row = bag.levels[uid(levelId)];
   if (!row || !row.enabled) return { aiAssisted: false, prompts: [] };
   return {
     aiAssisted: true,
     enabledAt: row.enabledAt || null,
-    prompts: (row.prompts || []).map((item) => ({
-      at: item.at,
-      prompt: item.prompt,
-      explanation: item.explanation || '',
-      opCount: item.opCount || 0,
-      failed: !!item.failed,
-    })),
+    prompts: (row.prompts || []).map(publicPrompt),
   };
 }
 
@@ -153,8 +163,8 @@ function sanitizeOps(raw) {
     if (op === 'platform' || op === 'spike' || op === 'lava') {
       const row = {
         op,
-        x: num(item.x, -500, 9000, 0),
-        y: num(item.y, -500, 5000, 0),
+        x: num(item.x, -500, 20000, 0),
+        y: num(item.y, -500, 20000, 0),
         w: num(item.w, 8, 2000, 80),
         h: num(item.h, 8, 800, 22),
       };
@@ -163,14 +173,14 @@ function sanitizeOps(raw) {
     } else if (op === 'coin' || op === 'spawn' || op === 'goal') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 80),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 80),
+        y: num(item.y, -500, 20000, 400),
       });
     } else if (op === 'monster') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 12, 400, 28),
         h: num(item.h, 12, 400, 28),
         hp: num(item.hp, 1, 100, 1),
@@ -180,8 +190,8 @@ function sanitizeOps(raw) {
     } else if (op === 'boss') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 600),
-        y: num(item.y, -500, 5000, 360),
+        x: num(item.x, -500, 20000, 600),
+        y: num(item.y, -500, 20000, 360),
         w: num(item.w, 24, 600, 64),
         h: num(item.h, 24, 600, 64),
         hp: num(item.hp, 1, 100000, 8),
@@ -193,8 +203,8 @@ function sanitizeOps(raw) {
     } else if (op === 'portal') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 16, 200, 48),
         h: num(item.h, 16, 200, 48),
         destOx: num(item.destOx, -400, 400, 24),
@@ -203,8 +213,8 @@ function sanitizeOps(raw) {
     } else if (op === 'switch') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 12, 200, 40),
         h: num(item.h, 8, 80, 16),
         moveX: num(item.moveX, -400, 400, 48),
@@ -213,8 +223,8 @@ function sanitizeOps(raw) {
     } else if (op === 'spring') {
       const row = {
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 8, 400, 48),
         h: num(item.h, 8, 200, 24),
       };
@@ -223,8 +233,8 @@ function sanitizeOps(raw) {
     } else if (op === 'mover' || op === 'lifter') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 16, 800, 80),
         h: num(item.h, 8, 200, 20),
         axis: op === 'lifter' || item.axis === 'y' ? 'y' : 'x',
@@ -233,8 +243,8 @@ function sanitizeOps(raw) {
     } else if (op === 'gravity') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 16, 200, 40),
         h: num(item.h, 16, 200, 64),
         targetDir: Number(item.targetDir) < 0 ? -1 : 1,
@@ -245,8 +255,8 @@ function sanitizeOps(raw) {
     } else if (op === 'blackout') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 400),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 400),
         w: num(item.w, 16, 400, 40),
         h: num(item.h, 16, 400, 40),
         blackSec: num(item.blackSec, 0.2, 30, 3),
@@ -256,8 +266,8 @@ function sanitizeOps(raw) {
     } else if (op === 'sign') {
       ops.push({
         op,
-        x: num(item.x, -500, 9000, 200),
-        y: num(item.y, -500, 5000, 300),
+        x: num(item.x, -500, 20000, 200),
+        y: num(item.y, -500, 20000, 300),
         w: num(item.w, 40, 800, 160),
         h: num(item.h, 16, 400, 48),
         text: censorProfanity(String(item.text || 'Text').slice(0, 40)).text || 'Text',
@@ -749,7 +759,7 @@ export function planLevelRequest(prompt, data) {
   const scored = scoreRequest(prompt);
   const slots = scored.slots;
   const on = (label) => scored.scores[label] >= scored.threshold;
-  const worldW = num(summary.worldW, 400, 8000, 1400);
+  const worldW = num(summary.worldW, 400, 20000, 1400);
   const floorY = floorYOf(summary);
   const action = [
     'arena', 'platform', 'spike', 'lava', 'coin', 'spawn', 'goal', 'monster', 'boss', 'shoot', 'laser',
@@ -799,10 +809,10 @@ export function planLevelRequest(prompt, data) {
 }
 
 function floorYOf(summary) {
-  const worldH = num(summary.worldH, 300, 4000, 720);
+  const worldH = num(summary.worldH, 300, 20000, 720);
   let floorY = worldH - 100;
   for (const platform of summary.platforms || []) {
-    if (Number(platform.w) > num(summary.worldW, 400, 8000, 1400) * 0.5) floorY = Number(platform.y);
+    if (Number(platform.w) > num(summary.worldW, 400, 20000, 1400) * 0.5) floorY = Number(platform.y);
   }
   return floorY;
 }
@@ -896,6 +906,8 @@ export async function ask(store, user, levelId, prompt, data) {
     explanation,
     opCount: ops.length,
     failed,
+    userId: uid(user && user.id),
+    username: String((user && user.username) || '').slice(0, 40),
   });
   if (failed) throw new Error(explanation);
   return { explanation, spl, ops };

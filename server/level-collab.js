@@ -3,6 +3,8 @@
  * Viewers can look, suggestors can send an edit for review, editors can save the draft.
  * The host or an editor can accept a suggestion, which updates the level. Only the host can publish.
  */
+import * as LevelVersions from './level-versions.js';
+
 const KEY = 'level_collab';
 const MEMBER_CAP = 12;
 const SUGGESTION_CAP = 20;
@@ -45,8 +47,11 @@ export async function memberRole(store, levelId, userId) {
   const bag = await load(store);
   const row = session(bag, levelId);
   if (!row) return null;
+  if (idOf(row.hostId) === idOf(userId)) return null;
   const member = (row.members || []).find((item) => idOf(item.userId) === idOf(userId));
-  return member ? member.role : null;
+  if (member) return member.role;
+  if (row.everyoneEditor) return 'editor';
+  return null;
 }
 
 export async function levelsForUser(store, userId) {
@@ -54,10 +59,21 @@ export async function levelsForUser(store, userId) {
   const out = [];
   for (const levelId of Object.keys(bag.levels)) {
     const row = bag.levels[levelId];
+    if (idOf(row.hostId) === idOf(userId)) continue;
     const member = (row.members || []).find((item) => idOf(item.userId) === idOf(userId));
     if (member) out.push({ levelId, role: member.role });
+    else if (row.everyoneEditor) out.push({ levelId, role: 'editor' });
   }
   return out;
+}
+
+export async function setEveryoneEditor(store, host, level, on) {
+  assertHost(level, host);
+  const bag = await load(store);
+  const row = ensureSession(bag, level, host);
+  row.everyoneEditor = !!on;
+  await save(store, bag);
+  return view(row, 'host', host.id);
 }
 
 function ensureSession(bag, level, host) {
@@ -174,6 +190,7 @@ export async function reviewSuggestion(store, user, level, suggestionId, accept,
     const previous = { title: level.title || '', data: JSON.parse(JSON.stringify(level.data)) };
     const title = item.title || level.title;
     await UserLevels.levelsUpdateDraft(user.id, level.id, title, item.data, undefined, { asCollaborator: !isHost });
+    await LevelVersions.record(store, level.id, user, title, item.data);
     row.revert = previous;
     applied = { title: String(title || ''), data: item.data };
   }
@@ -194,6 +211,7 @@ export async function undoAccepted(store, user, level, UserLevels) {
   const title = row.revert.title || level.title;
   const data = row.revert.data;
   await UserLevels.levelsUpdateDraft(user.id, level.id, title, data, undefined, { asCollaborator: !isHost });
+  await LevelVersions.record(store, level.id, user, title, data);
   delete row.revert;
   await save(store, bag);
   const out = view(row, isHost ? 'host' : 'editor', user.id);
@@ -231,6 +249,7 @@ export function view(row, role, userId) {
     members,
     suggestions,
     canUndoAccept: (role === 'host' || role === 'editor') && !!(row && row.revert && row.revert.data),
+    everyoneEditor: !!(row && row.everyoneEditor),
   };
 }
 
