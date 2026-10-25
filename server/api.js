@@ -4975,7 +4975,8 @@ export async function handleApi(req, res) {
     }
     try {
       const text = censorProfanity(String(body.text || '')).text;
-      json(res, 200, await LevelCollab.suggest(store, sess.user, String(body.id || ''), text));
+      const title = censorProfanity(String(body.title || '')).text;
+      json(res, 200, await LevelCollab.suggest(store, sess.user, String(body.id || ''), text, body.data, title, UserLevels));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -4996,8 +4997,32 @@ export async function handleApi(req, res) {
       return true;
     }
     try {
-      const level = await UserLevels.levelsGetById(String(body.id || ''), sess.userId);
-      json(res, 200, await LevelCollab.reviewSuggestion(store, sess.user, level, body.suggestionId, !!body.accept));
+      const level = await UserLevels.levelsGetById(String(body.id || ''), sess.userId, { allowUnpublished: true });
+      if (!level) throw new Error('Not found');
+      json(res, 200, await LevelCollab.reviewSuggestion(store, sess.user, level, body.suggestionId, !!body.accept, UserLevels));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/levels/collab/undo' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const level = await UserLevels.levelsGetById(String(body.id || ''), sess.userId, { allowUnpublished: true });
+      if (!level) throw new Error('Not found');
+      json(res, 200, await LevelCollab.undoAccepted(store, sess.user, level, UserLevels));
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -5091,6 +5116,7 @@ export async function handleApi(req, res) {
         await UserLevels.levelsUpdateDraft(uid, String(body.id), titleCensored, body.data, isHost ? allowCopy : undefined, {
           asCollaborator: !isHost,
         });
+        await LevelCollab.clearRevert(store, String(body.id));
         json(res, 200, { id: String(body.id), title: titleCensored.trim().slice(0, 80) });
       } else {
         const out = await UserLevels.levelsCreate(uid, titleCensored, body.data, body.allowCopy !== false);
@@ -5174,7 +5200,14 @@ export async function handleApi(req, res) {
         return true;
       }
       try {
-        await UserLevels.levelsMarkBeaten(uid, m[1]);
+        const level = await UserLevels.levelsGetById(m[1], uid, { allowUnpublished: true });
+        if (!level) throw new Error('Not found');
+        const isHost = String(level.authorId) === String(uid);
+        if (!isHost) {
+          const role = await LevelCollab.memberRole(store, m[1], uid);
+          if (!role) throw new Error('Not found');
+        }
+        await UserLevels.levelsMarkBeaten(uid, m[1], { allowMember: !isHost });
         json(res, 200, { ok: true });
       } catch (e) {
         json(res, 400, { error: String(e.message || e) });

@@ -33,7 +33,7 @@ function sbClient() {
   return _sb;
 }
 
-function validateLevelData(data) {
+export function validateLevelData(data) {
   if (!data || typeof data !== 'object') throw new Error('Invalid level data');
   const w = Number(data.worldW);
   const h = Number(data.worldH);
@@ -330,18 +330,19 @@ export async function levelsStampAi(userId, levelId) {
   return { ok: true, data: row.data };
 }
 
-export async function levelsMarkBeaten(userId, levelId) {
+export async function levelsMarkBeaten(userId, levelId, opts) {
+  const allowMember = !!(opts && opts.allowMember);
   if (useSupabase()) {
     const sb = sbClient();
     const { data: row } = await sb.from('skyhop_user_levels').select('author_id').eq('id', levelId).maybeSingle();
-    if (!row || row.author_id !== userId) throw new Error('Not found');
+    if (!row || (!allowMember && row.author_id !== userId)) throw new Error('Not found');
     const { error } = await sb.from('skyhop_user_levels').update({ beaten_verified: true }).eq('id', levelId);
     if (error) throw new Error(error.message);
     return { ok: true };
   }
   const db = fileLoad();
   const row = db.levels.find((L) => L.id === levelId);
-  if (!row || row.author_id !== userId) throw new Error('Not found');
+  if (!row || (!allowMember && row.author_id !== userId)) throw new Error('Not found');
   row.beaten_verified = true;
   fileSave(db);
   return { ok: true };

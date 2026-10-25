@@ -1513,6 +1513,7 @@
       return;
     }
     if (now === historySnap) return;
+    editorState.undoAcceptPending = false;
     undoStack.push(historySnap);
     if (undoStack.length > 80) undoStack.shift();
     historySnap = now;
@@ -1542,19 +1543,29 @@
   }
 
   function undoEditor() {
-    if (historyPause || !undoStack.length || !editorState.data) return;
+    if (historyPause || !undoStack.length || !editorState.data || editorCollabLocked()) return;
+    const pending = !!editorState.undoAcceptPending;
+    editorState.undoAcceptPending = false;
     const current = editorHistoryJson();
     const prev = undoStack.pop();
     redoStack.push(current);
     applyHistoryJson(prev);
+    if (pending && editorState.id && (editorIsHost() || editorState.collabRole === 'editor')) {
+      editorState.collabRedoSave = true;
+      void saveDraft({ quiet: true, undone: true });
+    }
   }
 
   function redoEditor() {
-    if (historyPause || !redoStack.length || !editorState.data) return;
+    if (historyPause || !redoStack.length || !editorState.data || editorCollabLocked()) return;
     const current = editorHistoryJson();
     const next = redoStack.pop();
     undoStack.push(current);
     applyHistoryJson(next);
+    if (editorState.collabRedoSave && editorState.id && (editorIsHost() || editorState.collabRole === 'editor')) {
+      editorState.collabRedoSave = false;
+      void saveDraft({ quiet: true, redone: true });
+    }
   }
 
   function editorTextTarget(el) {
@@ -2632,11 +2643,7 @@
     function onDown(e) {
       if (!editorState.data) return;
       if (editorCollabLocked()) {
-        if (lvlEdStatus) {
-          lvlEdStatus.textContent = editorState.collabRole === 'suggestor'
-            ? 'Suggestors propose a change from Editors. That does not edit the level.'
-            : 'Viewers can look at this level, not change it.';
-        }
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Viewers can look at this level, not change it.';
         return;
       }
       normalizeEditorLevelInPlace(editorState.data);
@@ -3755,7 +3762,9 @@
       editorState.title = row.title;
       editorState.published = !!row.published;
       editorState.beatenOk = !!row.beatenVerified;
-      editorState.readOnly = !!row.published || row.collabRole === 'viewer' || row.collabRole === 'suggestor';
+      editorState.readOnly = !!row.published || row.collabRole === 'viewer';
+      editorState.undoAcceptPending = false;
+      editorState.collabRedoSave = false;
       editorState.allowCopy = row.allowCopy !== false;
       editorState.collabRole = row.collabRole || 'host';
       editorState.collab = row.collab || { members: [], suggestions: [] };
@@ -3763,6 +3772,7 @@
       if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
       normalizeEditorLevelInPlace(editorState.data);
       resetEditorHistory();
+      editorState.loadedSnap = editorHistoryJson();
       document.getElementById('lvlEdTitle').value = editorState.title;
       showMine(false);
       showOnline(false);
@@ -3784,8 +3794,11 @@
     editorState.allowCopy = true;
     editorState.collabRole = 'host';
     editorState.collab = { members: [], suggestions: [] };
+    editorState.undoAcceptPending = false;
+    editorState.collabRedoSave = false;
     editorState.data = defaultLevelData();
     resetEditorHistory();
+    editorState.loadedSnap = editorHistoryJson();
     document.getElementById('lvlEdTitle').value = editorState.title;
     lvlEdStatus.textContent = '';
     showMine(false);
@@ -3863,8 +3876,12 @@
       return;
     }
     const ro = editorState.readOnly;
-    if (sv) sv.disabled = !!ro;
-    if (te) te.disabled = !!ro;
+    const suggestor = editorState.collabRole === 'suggestor';
+    if (sv) {
+      sv.disabled = !!ro;
+      sv.textContent = suggestor ? 'Suggest' : 'Save';
+    }
+    if (te) te.disabled = !!editorState.published;
     if (rt) rt.disabled = !!ro;
     if (del) del.disabled = !!ro;
     if (tit) tit.readOnly = !!ro;
@@ -3872,16 +3889,15 @@
     if (ro) {
       up.classList.add('opacity-40');
       up.disabled = true;
-      if (editorState.collabRole === 'viewer') st.textContent = 'Viewer — you can look at this level, not change it.';
-      else if (editorState.collabRole === 'suggestor') st.textContent = 'Suggestor — open Editors to propose a change. It does not edit the level.';
+      if (editorState.collabRole === 'viewer') st.textContent = 'Viewer — you can look and use Test play. You cannot change this level.';
       else st.textContent = 'Published — viewing only. Create a new level to edit.';
       return;
     }
-    if (editorState.collabRole === 'editor') {
-      if (delLvl) delLvl.classList.add('hidden');
+    if (!editorIsHost()) {
       up.classList.add('opacity-40');
       up.disabled = true;
-      st.textContent = 'Editor — you can save this level. Only the host can publish it or enable the AI Assistant.';
+      if (suggestor) st.textContent = 'Suggestor — edit the level, then press Suggest. The host or an editor accepts or declines it. Only the host can publish.';
+      else st.textContent = 'Editor — you can save this level and accept suggestions. Only the host can publish it or enable the AI Assistant.';
       return;
     }
     if (!editorState.published && editorState.id && editorState.beatenOk) {
@@ -3891,12 +3907,27 @@
     } else if (!editorState.published) {
       up.classList.add('opacity-40');
       up.disabled = true;
-      st.textContent = editorState.id ? 'Beat Test play once to enable Upload.' : 'Save, then use Test play and beat the level to enable Upload.';
+      st.textContent = editorState.id ? 'Beat Test play once to enable Upload. A collaborator can clear it for you.' : 'Save, then use Test play and beat the level to enable Upload.';
     } else {
       up.classList.add('opacity-40');
       up.disabled = true;
       st.textContent = 'Published — create a new level or duplicate by saving a new draft in the future.';
     }
+    refreshBeatFlag();
+  }
+
+  function refreshBeatFlag() {
+    if (!editorIsHost() || !editorState.id || editorState.published || editorState.beatenOk) return;
+    const now = Date.now();
+    if (editorState.beatCheckAt && now - editorState.beatCheckAt < 4000) return;
+    editorState.beatCheckAt = now;
+    api('/api/levels/' + encodeURIComponent(editorState.id))
+      .then(function (row) {
+        if (!row || !row.beatenVerified || !editorIsHost()) return;
+        editorState.beatenOk = true;
+        syncEditorUi();
+      })
+      .catch(function () {});
   }
 
   async function publishOwnerBuiltin() {
@@ -4075,7 +4106,7 @@
     return String(el.value || '').trim();
   }
 
-  async function saveDraft() {
+  async function saveDraft(opts) {
     if (editorState.readOnly && !editorState.staffEdit) {
       lvlEdStatus.textContent = 'Cannot edit a published level.';
       return;
@@ -4166,6 +4197,26 @@
     }
     const titleWasCensored = title !== titleBefore || (typeof window.SkyHopTextContainsProfanity === 'function' && window.SkyHopTextContainsProfanity(titleBefore));
     const data = stagePayloadFromEditor(editorState.data);
+    if (editorState.collabRole === 'suggestor') {
+      if (!editorState.id) {
+        lvlEdStatus.textContent = 'The host has to save this level before you can suggest an edit.';
+        return;
+      }
+      const noteEl = document.getElementById('lvlEdSuggestNote');
+      const text = noteEl ? noteEl.value : '';
+      try {
+        const view = await api('/api/levels/collab/suggest', {
+          method: 'POST',
+          body: JSON.stringify({ id: editorState.id, title: title, data: data, text: text }),
+        });
+        applyCollabView(view);
+        if (noteEl) noteEl.value = '';
+        lvlEdStatus.textContent = 'Suggestion sent. The level stays as it is until the host or an editor accepts it.';
+      } catch (e) {
+        lvlEdStatus.textContent = String(e.message || e);
+      }
+      return;
+    }
     try {
       if (editorState.id) {
         const saved = await api('/api/levels/save', {
@@ -4192,7 +4243,15 @@
       editorState.title = title;
       editorState.beatenOk = false;
       editorState.published = false;
-      lvlEdStatus.textContent = titleWasCensored ? 'Saved (profanity in title was censored).' : 'Saved.';
+      editorState.loadedSnap = editorHistoryJson();
+      editorState.undoAcceptPending = false;
+      if (opts && (opts.undone || opts.redone) && editorState.collab) {
+        editorState.collab.canUndoAccept = false;
+        renderSharePanel();
+      }
+      if (opts && opts.undone) lvlEdStatus.textContent = 'Undone. The previous level is saved.';
+      else if (opts && opts.redone) lvlEdStatus.textContent = 'Redone. That edit is saved again.';
+      else lvlEdStatus.textContent = titleWasCensored ? 'Saved (profanity in title was censored).' : 'Saved.';
       syncEditorUi();
       return editorState.id;
     } catch (e) {
@@ -4201,6 +4260,10 @@
   }
 
   async function publishLevel() {
+    if (!editorIsHost()) {
+      lvlEdStatus.textContent = 'Only the host can publish this level.';
+      return;
+    }
     if (editorState.readOnly) return;
     if (!editorState.id) {
       lvlEdStatus.textContent = 'Save first.';
@@ -4233,8 +4296,8 @@
   }
 
   function runTestPlay() {
-    if (editorState.readOnly) {
-      lvlEdStatus.textContent = 'Cannot test-edit a published level.';
+    if (editorState.published || (editorState.readOnly && editorState.collabRole !== 'viewer')) {
+      lvlEdStatus.textContent = 'Cannot test a published level.';
       return;
     }
     if (!editorState.id && ownerBuiltinArr == null) {
@@ -4267,6 +4330,7 @@
             editorState.beatenOk = true;
             return;
           }
+          if (editorState.collabRole === 'suggestor' && editorHistoryJson() !== editorState.loadedSnap) return;
           api('/api/levels/' + encodeURIComponent(editorState.id) + '/beat', { method: 'POST', body: '{}' })
             .then(function () {
               editorState.beatenOk = true;
@@ -4455,7 +4519,7 @@
   }
 
   function editorCollabLocked() {
-    return editorState.collabRole === 'viewer' || editorState.collabRole === 'suggestor';
+    return editorState.collabRole === 'viewer';
   }
 
   function collabRoleLabel(role) {
@@ -4512,11 +4576,40 @@
     })
       .then(function (data) {
         applyCollabView(data);
-        if (lvlEdStatus) lvlEdStatus.textContent = 'Suggestion sent. The host decides whether to use it.';
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Note sent. Edit the level and press Suggest to send the level itself.';
       })
       .catch(function (err) {
         if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
       });
+  }
+
+  function applyReviewedLevel(data) {
+    if (!data || !data.applied || !data.applied.data) return;
+    const prev = editorHistoryJson();
+    const nextRaw = JSON.stringify(data.applied.data);
+    if (prev !== nextRaw) {
+      undoStack.push(prev);
+      if (undoStack.length > 80) undoStack.shift();
+      redoStack = [];
+    }
+    historyLock = true;
+    editorState.data = JSON.parse(nextRaw);
+    if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
+    normalizeEditorLevelInPlace(editorState.data);
+    if (data.applied.title) {
+      editorState.title = data.applied.title;
+      const tit = document.getElementById('lvlEdTitle');
+      if (tit) tit.value = data.applied.title;
+    }
+    historySnap = editorHistoryJson();
+    historyLock = false;
+    editorState.beatenOk = false;
+    editorState.loadedSnap = historySnap;
+    editorState.undoAcceptPending = true;
+    editorSelection = null;
+    editorHover = null;
+    scheduleEditorRedraw();
+    syncHistoryButtons();
   }
 
   function reviewCollabSuggestion(suggestionId, accept) {
@@ -4526,8 +4619,45 @@
       body: JSON.stringify({ id: editorState.id, suggestionId: suggestionId, accept: !!accept }),
     })
       .then(function (data) {
+        if (accept && data && data.changedLevel) applyReviewedLevel(data);
         applyCollabView(data);
-        if (lvlEdStatus) lvlEdStatus.textContent = accept ? 'Suggestion accepted. The level itself is unchanged until you edit it.' : 'Suggestion dismissed.';
+        if (!lvlEdStatus) return;
+        if (!accept) lvlEdStatus.textContent = 'Suggestion declined.';
+        else if (data && data.changedLevel) lvlEdStatus.textContent = 'Suggestion applied. Undo puts the previous level back.';
+        else lvlEdStatus.textContent = 'Suggestion noted. It did not change the level.';
+        syncEditorUi();
+      })
+      .catch(function (err) {
+        if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
+      });
+  }
+
+  function undoAcceptedEdit() {
+    if (!editorState.id) return;
+    api('/api/levels/collab/undo', {
+      method: 'POST',
+      body: JSON.stringify({ id: editorState.id }),
+    })
+      .then(function (data) {
+        editorState.undoAcceptPending = false;
+        if (data && data.applied && data.applied.data) {
+          historyLock = true;
+          editorState.data = JSON.parse(JSON.stringify(data.applied.data));
+          if (editorState.data.underhangDisabled == null) editorState.data.underhangDisabled = true;
+          normalizeEditorLevelInPlace(editorState.data);
+          if (data.applied.title) {
+            editorState.title = data.applied.title;
+            const tit = document.getElementById('lvlEdTitle');
+            if (tit) tit.value = data.applied.title;
+          }
+          historyLock = false;
+          resetEditorHistory();
+          editorState.loadedSnap = editorHistoryJson();
+          editorState.beatenOk = false;
+        }
+        applyCollabView(data);
+        if (lvlEdStatus) lvlEdStatus.textContent = 'Undone. The previous level is saved.';
+        syncEditorUi();
       })
       .catch(function (err) {
         if (lvlEdStatus) lvlEdStatus.textContent = String(err.message || err);
@@ -4546,9 +4676,9 @@
     panel.appendChild(title);
     const note = document.createElement('p');
     note.className = 'mt-1 text-[11px] text-slate-500';
-    if (role === 'host') note.textContent = 'You are the host. A Viewer can look, a Suggestor can propose a change, and an Editor can save the level. Only you can enable the AI Assistant.';
-    else if (role === 'editor') note.textContent = 'You are an Editor. You can change and save this level. Only the host can publish it or enable the AI Assistant.';
-    else if (role === 'suggestor') note.textContent = 'You are a Suggestor. A suggestion does not change the level. The host decides what to do with it.';
+    if (role === 'host') note.textContent = 'You are the host. A Viewer can look, a Suggestor can edit and send that edit for review, and an Editor can save the level. You and editors can accept a suggestion, which updates the level. Undo puts the previous level back. Anyone here can beat Test play. Only you can publish.';
+    else if (role === 'editor') note.textContent = 'You are an Editor. You can change and save this level, and accept or decline suggestions. Undo puts an accepted edit back. Only the host can publish it or enable the AI Assistant.';
+    else if (role === 'suggestor') note.textContent = 'You are a Suggestor. Edit the level, then press Suggest. The level does not change until the host or an editor accepts it.';
     else note.textContent = 'You are a Viewer. You can look at this level. The host has not allowed you to change it.';
     panel.appendChild(note);
     if (role === 'host') {
@@ -4613,16 +4743,25 @@
       list.appendChild(empty);
     }
     panel.appendChild(list);
+    if ((role === 'host' || role === 'editor') && data.canUndoAccept) {
+      const undo = document.createElement('button');
+      undo.type = 'button';
+      undo.className = 'mt-2 rounded-lg border border-amber-400/50 px-3 py-1 text-xs font-semibold text-amber-100';
+      undo.textContent = 'Undo last accepted edit';
+      undo.addEventListener('click', undoAcceptedEdit);
+      panel.appendChild(undo);
+    }
     if (role === 'suggestor') {
       const box = document.createElement('textarea');
       box.rows = 3;
       box.maxLength = 1000;
-      box.placeholder = 'Describe the change you want';
+      box.id = 'lvlEdSuggestNote';
+      box.placeholder = 'Optional note to send with Suggest';
       box.className = 'mt-2 w-full rounded-lg border border-white/15 bg-slate-900 p-2 text-xs text-white';
       const send = document.createElement('button');
       send.type = 'button';
       send.className = 'mt-2 rounded-lg bg-indigo-700 px-3 py-1 text-xs font-semibold text-white';
-      send.textContent = 'Send suggestion';
+      send.textContent = 'Send note';
       send.addEventListener('click', function () { sendCollabSuggestion(box.value); });
       panel.appendChild(box);
       panel.appendChild(send);
@@ -4635,10 +4774,16 @@
       head.textContent = (item.username || 'Player') + ' · ' + (item.status || 'pending');
       const body = document.createElement('p');
       body.className = 'mt-1 text-xs text-slate-100';
-      body.textContent = item.text || '';
+      body.textContent = item.text || (item.hasEdit ? 'Level edit' : '');
       card.appendChild(head);
       card.appendChild(body);
-      if (role === 'host' && item.status === 'pending') {
+      if (item.hasEdit && item.text) {
+        const extra = document.createElement('p');
+        extra.className = 'mt-1 text-[11px] text-slate-400';
+        extra.textContent = 'Includes a level edit.';
+        card.appendChild(extra);
+      }
+      if ((role === 'host' || role === 'editor') && item.status === 'pending') {
         const actions = document.createElement('div');
         actions.className = 'mt-2 flex gap-2';
         const accept = document.createElement('button');
@@ -4649,7 +4794,7 @@
         const dismiss = document.createElement('button');
         dismiss.type = 'button';
         dismiss.className = 'rounded-lg border border-white/15 px-2 py-1 text-[11px] text-slate-200';
-        dismiss.textContent = 'Dismiss';
+        dismiss.textContent = 'Decline';
         dismiss.addEventListener('click', function () { reviewCollabSuggestion(item.id, false); });
         actions.appendChild(accept);
         actions.appendChild(dismiss);

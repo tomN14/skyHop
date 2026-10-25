@@ -1,11 +1,12 @@
 /**
  * Shared level editing. The level author is the host.
- * Viewers can look, suggestors can propose a note, editors can save the draft.
- * Only the host can change roles or enable the AI Assistant.
+ * Viewers can look, suggestors can send an edit for review, editors can save the draft.
+ * The host or an editor can accept a suggestion, which updates the level. Only the host can publish.
  */
 const KEY = 'level_collab';
 const MEMBER_CAP = 12;
-const SUGGESTION_CAP = 40;
+const SUGGESTION_CAP = 20;
+const PENDING_CAP = 8;
 const ROLES = ['viewer', 'suggestor', 'editor'];
 
 function empty() {
@@ -117,11 +118,20 @@ export async function removeMember(store, host, level, username) {
   return view(row, 'host', host.id);
 }
 
-export async function suggest(store, user, levelId, text) {
+function trimSuggestions(row) {
+  const pending = (row.suggestions || []).filter((item) => item.status === 'pending');
+  const older = (row.suggestions || []).filter((item) => item.status !== 'pending');
+  while (pending.length > PENDING_CAP) pending.shift();
+  row.suggestions = older.slice(-12).concat(pending).slice(-SUGGESTION_CAP);
+}
+
+export async function suggest(store, user, levelId, text, levelData, title, UserLevels) {
   const role = await memberRole(store, levelId, user.id);
   if (role !== 'suggestor') throw new Error('Only a suggestor can propose a change.');
   const note = String(text || '').trim().slice(0, 1000);
-  if (!note) throw new Error('Describe the change you want the host to consider.');
+  let data = null;
+  if (levelData && typeof levelData === 'object') data = UserLevels.validateLevelData(levelData);
+  if (!note && !data) throw new Error('Edit the level, then choose Suggest.');
   const bag = await load(store);
   const row = session(bag, levelId);
   if (!row) throw new Error('Only a suggestor can propose a change.');
@@ -132,23 +142,72 @@ export async function suggest(store, user, levelId, text) {
     username: String(user.username || ''),
     at: Date.now(),
     text: note,
+    title: String(title || '').slice(0, 80),
+    data,
     status: 'pending',
   });
-  if (row.suggestions.length > SUGGESTION_CAP) row.suggestions = row.suggestions.slice(-SUGGESTION_CAP);
+  trimSuggestions(row);
   await save(store, bag);
   return view(row, 'suggestor', user.id);
 }
 
-export async function reviewSuggestion(store, host, level, suggestionId, accept) {
-  assertHost(level, host);
+async function assertReviewer(store, user, level) {
+  const isHost = !!(level && idOf(level.authorId) === idOf(user && user.id));
+  if (!isHost) {
+    const role = await memberRole(store, level && level.id, user && user.id);
+    if (role !== 'editor') throw new Error('Only the host or an editor can review a suggestion.');
+  }
+  if (level.published) throw new Error('Published levels cannot be changed.');
+  return isHost;
+}
+
+export async function reviewSuggestion(store, user, level, suggestionId, accept, UserLevels) {
+  const isHost = await assertReviewer(store, user, level);
   const bag = await load(store);
   const row = session(bag, level.id);
   if (!row) throw new Error('That suggestion is not on this level.');
   const item = (row.suggestions || []).find((entry) => entry.id === String(suggestionId || ''));
   if (!item) throw new Error('That suggestion is not on this level.');
+  if (item.status !== 'pending') throw new Error('That suggestion was already reviewed.');
+  let applied = null;
+  if (accept && item.data) {
+    const previous = { title: level.title || '', data: JSON.parse(JSON.stringify(level.data)) };
+    const title = item.title || level.title;
+    await UserLevels.levelsUpdateDraft(user.id, level.id, title, item.data, undefined, { asCollaborator: !isHost });
+    row.revert = previous;
+    applied = { title: String(title || ''), data: item.data };
+  }
   item.status = accept ? 'accepted' : 'dismissed';
+  delete item.data;
   await save(store, bag);
-  return view(row, 'host', host.id);
+  const out = view(row, isHost ? 'host' : 'editor', user.id);
+  if (applied) out.applied = applied;
+  out.changedLevel = !!applied;
+  return out;
+}
+
+export async function undoAccepted(store, user, level, UserLevels) {
+  const isHost = await assertReviewer(store, user, level);
+  const bag = await load(store);
+  const row = session(bag, level.id);
+  if (!row || !row.revert || !row.revert.data) throw new Error('Nothing to undo.');
+  const title = row.revert.title || level.title;
+  const data = row.revert.data;
+  await UserLevels.levelsUpdateDraft(user.id, level.id, title, data, undefined, { asCollaborator: !isHost });
+  delete row.revert;
+  await save(store, bag);
+  const out = view(row, isHost ? 'host' : 'editor', user.id);
+  out.applied = { title: String(title || ''), data };
+  out.changedLevel = true;
+  return out;
+}
+
+export async function clearRevert(store, levelId) {
+  const bag = await load(store);
+  const row = session(bag, levelId);
+  if (!row || !row.revert) return;
+  delete row.revert;
+  await save(store, bag);
 }
 
 export function view(row, role, userId) {
@@ -158,15 +217,21 @@ export function view(row, role, userId) {
     return member;
   });
   const suggestions = (row && row.suggestions ? row.suggestions : [])
-    .filter((item) => role === 'host' || (role === 'suggestor' && idOf(item.userId) === idOf(userId)))
+    .filter((item) => role === 'host' || role === 'editor' || (role === 'suggestor' && idOf(item.userId) === idOf(userId)))
     .map((item) => ({
       id: item.id,
       username: item.username,
       at: item.at,
       text: item.text,
       status: item.status || 'pending',
+      hasEdit: !!item.data,
     }));
-  return { role, members, suggestions };
+  return {
+    role,
+    members,
+    suggestions,
+    canUndoAccept: (role === 'host' || role === 'editor') && !!(row && row.revert && row.revert.data),
+  };
 }
 
 export async function viewFor(store, levelId, role, userId) {
