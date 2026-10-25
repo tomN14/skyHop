@@ -5,7 +5,7 @@
  */
 import { effectiveRole } from './moderation.js';
 import { censorProfanity } from './profanity-filter.js';
-import { scoreRequest } from './level-ai-net.js';
+import { scoreRequest, tokensOf } from './level-ai-net.js';
 import * as UserLevels from './user-levels.js';
 
 const KEY = 'level_ai';
@@ -331,79 +331,417 @@ function layoutInt(rng, min, max) {
   return min + Math.floor(rng() * (max - min + 1));
 }
 
-function layoutPath(rng, worldW, floorY, style) {
-  const vertical = style.climb || (!style.wide && rng() < 0.5);
-  const steps = style.easy ? layoutInt(rng, 4, 5) : style.hard ? layoutInt(rng, 6, 8) : layoutInt(rng, 4, 7);
-  const ops = [];
+function stairSpots(rng, worldW, floorY, count, riseBias) {
+  const n = Math.max(1, count);
+  const w = layoutInt(rng, 130, 160);
+  const rise = riseBias == null ? layoutInt(rng, 68, 88) : riseBias;
+  const usable = Math.max(220, worldW - 180 - w);
+  const gap = Math.max(64, Math.min(140, Math.round(usable / n - w)));
   const spots = [];
-  for (let i = 0; i < steps; i += 1) {
-    const rise = style.hard ? layoutInt(rng, 100, 140) : style.easy ? layoutInt(rng, 60, 85) : layoutInt(rng, 70, 120);
-    let x;
-    let y;
-    let w;
-    if (vertical) {
-      w = layoutInt(rng, 100, 180);
-      x = 120 + (i % 2) * layoutInt(rng, 200, 380);
-      y = floorY - 80 - i * rise;
-    } else {
-      w = layoutInt(rng, 120, 220);
-      const span = Math.max(180, worldW - 300);
-      x = 70 + (span * i) / Math.max(1, steps - 1) + layoutInt(rng, -24, 36);
-      y = floorY - layoutInt(rng, style.easy ? 70 : 90, style.hard ? 280 : 220);
-    }
-    x = Math.max(40, Math.min(worldW - w - 40, Math.round(x)));
-    y = Math.max(70, Math.round(y));
-    ops.push({ op: 'platform', x, y, w, h: 22 });
-    spots.push({ x: x + Math.round(w / 2), y });
-  }
-  return { ops, spots, vertical };
-}
-
-function layoutArena(rng, worldW, floorY, small) {
-  const left = small ? layoutInt(rng, 200, 340) : layoutInt(rng, 70, 160);
-  const right = small ? worldW - layoutInt(rng, 260, 400) : worldW - layoutInt(rng, 110, 200);
-  const top = floorY - (small ? layoutInt(rng, 150, 240) : layoutInt(rng, 220, 340));
-  const ops = [
-    { op: 'platform', x: left, y: top, w: 22, h: Math.max(80, floorY - top) },
-    { op: 'platform', x: Math.max(left + 80, right), y: top, w: 22, h: Math.max(80, floorY - top) },
-  ];
-  const shelves = layoutInt(rng, 3, small ? 4 : 5);
-  const spots = [];
-  const span = Math.max(80, right - left - 80);
-  for (let i = 0; i < shelves; i += 1) {
-    const w = layoutInt(rng, 100, 170);
-    const x = left + 36 + Math.round(rng() * Math.max(16, span - w));
-    const y = Math.max(70, floorY - 70 - i * layoutInt(rng, 48, 96));
-    ops.push({ op: 'platform', x, y, w, h: 22 });
-    spots.push({ x: x + Math.round(w / 2), y });
-  }
-  return { ops, spots };
-}
-
-function layoutScatter(rng, worldW, floorY, count) {
-  const spots = [];
-  for (let i = 0; i < count; i += 1) {
-    spots.push({
-      x: layoutInt(rng, 80, Math.max(160, worldW - 140)),
-      y: floorY - layoutInt(rng, 36, 240),
-    });
+  for (let i = 0; i < n; i += 1) {
+    const x = Math.min(worldW - w - 40, 110 + i * (w + gap));
+    const y = Math.max(80, floorY - 72 - i * rise);
+    spots.push({ x: Math.round(x), y, w, h: 22 });
   }
   return spots;
 }
 
-const LEVEL_KIT = ['spike', 'lava', 'coin', 'spring', 'portal', 'switch', 'monster', 'mover', 'lifter', 'gravity', 'fireball', 'blackout', 'sign', 'circle', 'triangle'];
-const SIGN_LINES = ['Watch your step', 'This way', 'Keep going', 'Nice jump', 'Almost there'];
+function pushSpots(ops, spots) {
+  spots.forEach((spot) => ops.push({ op: 'platform', x: spot.x, y: spot.y, w: spot.w, h: spot.h || 22 }));
+}
 
-function layoutKit(rng, style) {
-  const n = style.hard ? layoutInt(rng, 4, 6) : style.easy ? layoutInt(rng, 2, 3) : layoutInt(rng, 3, 5);
-  const bag = LEVEL_KIT.slice();
-  const picked = [];
-  while (picked.length < n && bag.length) picked.push(bag.splice(Math.floor(rng() * bag.length), 1)[0]);
-  if (style.hard && !picked.includes('spike')) picked.push('spike');
-  if (style.easy && !picked.includes('coin')) picked.push('coin');
-  if (style.easy && !picked.includes('spring')) picked.push('spring');
-  if (rng() < (style.hard ? 0.7 : style.easy ? 0.15 : 0.35)) picked.push('boss');
-  return picked;
+const CHAT_WORDS = new Set('hello hi hey thanks thank ok okay sure hmm wow yes no nope yep lol lmao nice good great bye goodbye'.split(' '));
+const SIGN_LINES = ['Watch your step', 'This way', 'Keep going', 'Nice jump', 'Almost there'];
+const PLATFORM_WORDS = ['platform', 'platforms', 'ledge', 'ledges', 'shelf', 'shelves', 'foothold', 'footholds'];
+const SPIKE_WORDS = ['spike', 'spikes', 'thorn', 'thorns', 'trap', 'traps', 'nail', 'nails', 'hazard', 'hazards'];
+const COIN_WORDS = ['coin', 'coins', 'gem', 'gems', 'pickup', 'pickups'];
+const SPRING_WORDS = ['spring', 'springs', 'trampoline', 'trampolines', 'pad', 'pads', 'bouncer', 'bouncers'];
+const PORTAL_WORDS = ['portal', 'portals', 'doorway', 'doorways', 'teleporter', 'teleporters', 'door', 'doors'];
+const MONSTER_WORDS = ['monster', 'monsters', 'enemy', 'enemies', 'creature', 'creatures', 'guy', 'guys', 'baddie', 'baddies'];
+
+function contentWords(prompt) {
+  return tokensOf(prompt).filter((token) => !token.startsWith('#') && !token.includes(' '));
+}
+
+function isChatter(prompt, recognized) {
+  if (recognized) return false;
+  const words = contentWords(prompt);
+  if (!words.length || words.every((word) => CHAT_WORDS.has(word))) return true;
+  return /^(what|who|when|where|why|how)\b/i.test(String(prompt || '').trim());
+}
+
+function countOf(prompt, words, fallback, max, pluralFallback) {
+  const counted = countNear(prompt, words, fallback, max);
+  if (counted !== fallback) return counted;
+  const text = String(prompt || '').toLowerCase();
+  const plural = words.some((word) => word.endsWith('s') && new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(text));
+  if (!plural) return fallback;
+  return Math.max(fallback, Math.min(max, pluralFallback == null ? fallback : pluralFallback));
+}
+
+function fitX(x, w, worldW) {
+  return Math.max(40, Math.min(worldW - w - 40, Math.round(x)));
+}
+
+function secondsNear(prompt, words, fallback) {
+  const text = String(prompt || '').toLowerCase();
+  const n = '(\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)';
+  const named = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  const noun = words.join('|');
+  const patterns = [
+    new RegExp('(?:' + noun + ')[\\s\\S]{0,48}?' + n + '\\s*(?:seconds|second|secs|sec)'),
+    new RegExp(n + '\\s*(?:seconds|second|secs|sec)[\\s\\S]{0,48}?(?:' + noun + ')'),
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const value = named[match[1]] != null ? named[match[1]] : Number(match[1]);
+    if (Number.isFinite(value)) return Math.max(0.2, Math.min(120, value));
+  }
+  return fallback;
+}
+
+function pickScene(rng, on, directed) {
+  if (on('boss') || on('shoot') || on('laser')) return 'boss';
+  if (on('arena')) return 'arena';
+  if (on('portal') && !on('spring') && !on('lava')) return 'warp';
+  if (on('spring') || on('lava')) return 'gap';
+  if (on('chase') || on('monster')) return 'chase';
+  if (!directed) return ['gap', 'stairs', 'chase', 'boss', 'warp'][layoutInt(rng, 0, 4)];
+  return 'stairs';
+}
+
+function scriptBundle(summary, intent) {
+  const head = [];
+  const tail = [];
+  const notes = [];
+  if (intent.jumps != null) {
+    const jumps = Math.max(1, Math.min(20, Math.round(intent.jumps)));
+    head.push('jump_cap <- skyhop.get("jump_limit");', 'jump_cap <- ' + jumps + ';');
+    notes.push('The script sets the jump limit to ' + jumps + '.');
+  }
+  if (intent.shots) {
+    head.push.apply(head, attackLines('projectile', intent.shotGap, intent.damage));
+    notes.push('The script turns on boss shots every ' + intent.shotGap + ' seconds.');
+  }
+  if (intent.laser) {
+    head.push.apply(head, attackLines('laser', intent.shotGap, intent.damage));
+    notes.push('The script turns on the boss laser every ' + intent.shotGap + ' seconds.');
+  }
+  const existing = String(summary.spl || '');
+  if (intent.kill && !/skyhop\.kill\(/.test(existing) && !/test\.while\(1\)/.test(existing)) {
+    const wait = Math.max(0.2, Math.min(120, intent.killWait == null ? 8 : intent.killWait));
+    tail.push('test.while(1):', '    skyhop.wait(' + wait + ');', '    skyhop.kill();', '    test.break;', 'end;');
+    notes.push('The script kills the player after ' + wait + ' seconds.');
+  }
+  if (!head.length && !tail.length) return { spl: null, notes };
+  const spl = intent.replace ? 'use skyhop;\n' + head.concat(tail).join('\n') : mergeScript(existing, head, tail);
+  return { spl, notes };
+}
+
+function arrangeAsked(ctx) {
+  const { rng, worldW, floorY, on, prompt, slots, placeBoss, hp, shift } = ctx;
+  const ops = [];
+  const notes = [];
+  let cursor = 180 + shift;
+  function take(w) {
+    const x = fitX(cursor, w, worldW);
+    cursor = x + w + 32;
+    return x;
+  }
+  const specific = on('circle') || on('triangle') || on('mover') || on('lifter');
+  let spots = [];
+  if (on('platform') && !specific) {
+    const count = countOf(prompt, PLATFORM_WORDS, 4, 6, 4);
+    spots = stairSpots(rng, worldW, floorY, count);
+    pushSpots(ops, spots);
+    notes.push('The platforms step up so each one is a jump from the last.');
+  }
+  if (on('circle')) {
+    const host = spots[0];
+    ops.push({ op: 'platform', x: host ? host.x + 16 : take(48), y: host ? host.y : floorY - 140, w: 48, h: 48, shape: 'circle' });
+    notes.push('A round platform comes first.');
+  }
+  if (on('triangle')) {
+    const host = spots.length > 1 ? spots[spots.length - 1] : null;
+    ops.push({ op: 'platform', x: host ? host.x + 16 : take(48), y: host ? host.y : floorY - 220, w: 48, h: 48, shape: 'triangle' });
+    notes.push('A triangle sits one jump higher.');
+  }
+  if (on('spring')) {
+    const count = countOf(prompt, SPRING_WORDS, 1, 6, 3);
+    const vy = -layoutInt(rng, 1080, 1400);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'spring', x: take(48), y: floorY - 24, w: 48, h: 24, vy });
+    notes.push(count === 1 ? 'A spring sits on the floor.' : count + ' springs sit in a row on the floor.');
+  }
+  if (on('spike')) {
+    const count = countOf(prompt, SPIKE_WORDS, 1, 6, 3);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'spike', x: take(64), y: floorY - 28, w: 64, h: 28 });
+    notes.push('Spikes run along the floor.');
+  }
+  if (on('lava')) {
+    const width = layoutInt(rng, 140, 200);
+    ops.push({ op: 'lava', x: take(width), y: floorY - 24, w: width, h: 24 });
+    notes.push('A lava pool sits on the floor.');
+  }
+  if (on('coin')) {
+    const count = countOf(prompt, COIN_WORDS, 4, 8, 4);
+    if (spots.length) {
+      for (let i = 0; i < count; i += 1) {
+        const host = spots[i % spots.length];
+        ops.push({ op: 'coin', x: host.x + 28 + (Math.floor(i / spots.length) * 36), y: host.y - 52 });
+      }
+    } else {
+      for (let i = 0; i < count; i += 1) ops.push({ op: 'coin', x: 200 + shift + i * 56, y: floorY - 96 });
+    }
+    notes.push('Coins follow the path.');
+  }
+  if (on('portal')) {
+    const count = countOf(prompt, PORTAL_WORDS, 1, 4, 2);
+    const destOy = spots.length ? Math.max(-400, spots[spots.length - 1].y - (floorY - 48)) : -72;
+    for (let i = 0; i < count; i += 1) {
+      ops.push({ op: 'portal', x: take(48), y: floorY - 48, w: 48, h: 48, destOx: Math.min(360, 180 + i * 80), destOy });
+    }
+    notes.push(count === 1 ? 'A portal on the floor warps ahead.' : count + ' portals sit on the floor and warp ahead.');
+  }
+  if (on('monster') || on('chase')) {
+    const count = countOf(prompt, MONSTER_WORDS, 1, 6, 2);
+    for (let i = 0; i < count; i += 1) {
+      ops.push({ op: 'monster', x: take(28), y: floorY - 48, w: 28, h: 28, hp: 1, chase: on('chase'), pattern: 'patrol' });
+    }
+    notes.push(on('chase') ? 'Enemies on the floor chase the player.' : 'Enemies patrol the floor.');
+  }
+  if (placeBoss) {
+    const host = spots.length ? spots[spots.length - 1] : null;
+    ops.push({
+      op: 'boss',
+      x: host ? host.x + 40 : take(64),
+      y: host ? host.y - 96 : floorY - 96,
+      w: 64,
+      h: 64,
+      hp,
+      touch: true,
+      projectile: on('shoot') && !on('laser'),
+      laser: on('laser'),
+      win: 'boss',
+    });
+    notes.push('The boss stands at the end of the route.');
+  }
+  if (on('switch')) {
+    const host = spots[0];
+    ops.push({ op: 'switch', x: host ? host.x + 24 : take(40), y: floorY - 16, w: 40, h: 16, moveX: host ? 0 : 64, moveY: host ? -76 : 0 });
+    notes.push(host ? 'A switch on the floor lifts the first platform.' : 'A switch on the floor slides a platform.');
+  }
+  if (on('mover')) {
+    ops.push({ op: 'mover', x: take(120), y: floorY - 150, w: 120, h: 20, axis: 'x', amp: 100 });
+    notes.push('A platform slides across a gap.');
+  }
+  if (on('lifter')) {
+    ops.push({ op: 'lifter', x: take(80), y: floorY - 24, w: 80, h: 20, axis: 'y', amp: 120 });
+    notes.push('An elevator rises off the floor.');
+  }
+  if (on('gravity')) {
+    ops.push({ op: 'gravity', x: take(40), y: floorY - 80, w: 40, h: 64, targetDir: slots.down ? 1 : -1 });
+    notes.push(slots.down ? 'A gravity arrow points down.' : 'A gravity arrow flips you upward.');
+  }
+  if (on('fireball')) {
+    ops.push({ op: 'fireball', from: 'left', pos: Math.max(64, floorY - 140) });
+    notes.push('Flames come in from the left at jump height.');
+  }
+  if (on('blackout')) {
+    ops.push({ op: 'blackout', x: take(40), y: floorY - 56, w: 40, h: 40, blackSec: 3, afterSec: 2, onTouch: true });
+    notes.push('A blackout sits on the route.');
+  }
+  if (on('sign')) {
+    const text = slots.sign ? signText(slots) : SIGN_LINES[layoutInt(rng, 0, SIGN_LINES.length - 1)];
+    ops.push({ op: 'sign', x: 120 + shift, y: floorY - 140, w: 160, h: 48, text, size: 22 });
+    notes.push('A sign marks the start.');
+  }
+  if (on('spawn')) {
+    const host = spots[0];
+    ops.push({ op: 'spawn', x: host ? host.x + 16 : 80, y: host ? host.y - 70 : floorY - 80 });
+    notes.push('Spawn is at the start of the route.');
+  }
+  if (on('goal')) {
+    const host = spots.length ? spots[spots.length - 1] : null;
+    ops.push({ op: 'goal', x: host ? host.x + 40 : fitX(cursor, 40, worldW), y: host ? host.y - 80 : floorY - 120 });
+    notes.push('The goal is at the end.');
+  }
+  return { ops, notes, jumps: null, shots: false, laser: false, shotGap: 3 };
+}
+
+function buildCourse(kind, ctx) {
+  const { rng, worldW, floorY, on, prompt, slots, placeBoss, hp, directed, open, invent, hard, easy, shift } = ctx;
+  const ops = [];
+  const notes = [];
+  const placed = new Set();
+  let jumps = null;
+  let shots = false;
+  let shotGap = layoutInt(rng, 2, 4);
+  const rise = hard ? 92 : easy ? 60 : 76;
+  const steps = hard ? 6 : easy ? 4 : 5;
+  function markSpawnGoal(spots) {
+    if (open || on('spawn')) {
+      const host = spots[0];
+      ops.push({ op: 'spawn', x: host.x + 12, y: host.y - 72 });
+      placed.add('spawn');
+    }
+    if (open || on('goal')) {
+      const host = spots[spots.length - 1];
+      ops.push({ op: 'goal', x: host.x + Math.max(16, host.w - 70), y: host.y - 80 });
+      placed.add('goal');
+    }
+  }
+  let spots = [];
+  if (kind === 'gap') {
+    const vy = -layoutInt(rng, 1200, 1460);
+    const springN = on('spring') ? countOf(prompt, SPRING_WORDS, 1, 4, 2) : 1;
+    for (let i = 0; i < springN; i += 1) ops.push({ op: 'spring', x: fitX(220 + shift + i * 56, 48, worldW), y: floorY - 24, w: 48, h: 24, vy });
+    placed.add('spring');
+    if (on('lava') || (!on('spike') && !directed && rng() < 0.5) || (directed && on('lava'))) {
+      ops.push({ op: 'lava', x: fitX(400 + shift, 180, worldW), y: floorY - 24, w: layoutInt(rng, 150, 210), h: 24 });
+      placed.add('lava');
+    } else {
+      const spikeN = on('spike') ? countOf(prompt, SPIKE_WORDS, 3, 6, 3) : 3;
+      for (let i = 0; i < spikeN; i += 1) ops.push({ op: 'spike', x: fitX(410 + shift + i * 68, 64, worldW), y: floorY - 28, w: 64, h: 28 });
+      placed.add('spike');
+    }
+    const landing = { x: fitX(680 + shift, 170, worldW), y: floorY - layoutInt(rng, 130, 168), w: 170, h: 22 };
+    const top = { x: fitX(landing.x + layoutInt(rng, 200, 250), 150, worldW), y: Math.max(96, landing.y - rise), w: 150, h: 22 };
+    spots = [landing, top];
+    pushSpots(ops, spots);
+    const coinN = on('coin') ? countOf(prompt, COIN_WORDS, 4, 8, 4) : 4;
+    for (let i = 0; i < coinN; i += 1) {
+      const host = i % 2 ? top : landing;
+      ops.push({ op: 'coin', x: host.x + 24 + (i % 3) * 40, y: host.y - 52 });
+    }
+    placed.add('coin');
+    markSpawnGoal(spots);
+    if (invent) jumps = easy ? 3 : 2;
+    notes.push(placed.has('lava') ? 'A spring throws you over a lava gap, then coins lead up to the goal.' : 'A spring throws you over the spikes, then coins lead up to the goal.');
+  } else if (kind === 'chase') {
+    spots = stairSpots(rng, worldW, floorY, steps, hard ? 28 : 16);
+    pushSpots(ops, spots);
+    const monsterN = on('monster') || on('chase') ? countOf(prompt, MONSTER_WORDS, 2, 4, 2) : 2;
+    for (let i = 0; i < monsterN; i += 1) {
+      const host = spots[Math.min(spots.length - 1, i + 1)];
+      ops.push({ op: 'monster', x: host.x + 20, y: floorY - 48, w: 28, h: 28, hp: 1, chase: true, pattern: 'patrol' });
+    }
+    placed.add('monster');
+    const spikeN = hard ? 3 : 2;
+    for (let i = 0; i < spikeN; i += 1) ops.push({ op: 'spike', x: fitX(48 + i * 68, 64, worldW), y: floorY - 28, w: 64, h: 28 });
+    placed.add('spike');
+    markSpawnGoal(spots);
+    notes.push('A low run with spikes behind the start and enemies chasing along the floor.');
+  } else if (kind === 'boss' || kind === 'arena') {
+    const left = fitX((kind === 'arena' ? 180 : 120) + shift, 22, worldW);
+    const right = fitX(worldW - (kind === 'arena' ? 280 : 180) - shift, 22, worldW);
+    const top = floorY - (hard ? 320 : 250);
+    ops.push({ op: 'platform', x: left, y: top, w: 22, h: Math.max(120, floorY - top) });
+    ops.push({ op: 'platform', x: right, y: top, w: 22, h: Math.max(120, floorY - top) });
+    const span = Math.max(140, right - left - 80);
+    const shelfW = Math.min(160, Math.round(span * 0.46));
+    const rows = kind === 'arena' ? 3 : hard ? 4 : 3;
+    for (let i = 0; i < rows; i += 1) {
+      const x = fitX(left + 46 + (i % 2) * Math.max(40, span - shelfW), shelfW, worldW);
+      const y = Math.max(90, floorY - 96 - i * (hard ? 84 : 74));
+      spots.push({ x, y, w: shelfW, h: 22 });
+    }
+    pushSpots(ops, spots);
+    if (kind === 'boss' && (placeBoss || invent)) {
+      ops.push({
+        op: 'boss',
+        x: Math.round((left + right) / 2),
+        y: floorY - 96,
+        w: 72,
+        h: 72,
+        hp: slots.hp == null ? layoutInt(rng, 8, 16) : hp,
+        touch: true,
+        projectile: !on('laser') && (on('shoot') || invent),
+        laser: on('laser'),
+        win: 'boss',
+      });
+      placed.add('boss');
+      if (invent || on('shoot')) shots = !on('laser');
+    }
+    if (invent || on('coin')) {
+      spots.forEach((spot) => ops.push({ op: 'coin', x: spot.x + 28, y: spot.y - 52 }));
+      placed.add('coin');
+    }
+    if (open || kind === 'boss') markSpawnGoal(spots.length ? spots : [{ x: left + 40, y: floorY, w: 80 }]);
+    if (invent && kind === 'boss') jumps = 3;
+    notes.push(kind === 'boss' ? 'A boss waits on the floor of an arena, with shelves to dodge from.' : 'An arena with shelves at even heights.');
+  } else if (kind === 'warp') {
+    const left = { x: fitX(140 + shift, 200, worldW), y: floorY - 48, w: 200, h: 22 };
+    const right = { x: fitX(left.x + 460, 180, worldW), y: floorY - layoutInt(rng, 120, 170), w: 180, h: 22 };
+    spots = [left, right];
+    pushSpots(ops, spots);
+    ops.push({ op: 'lava', x: fitX(left.x + left.w + 24, 140, worldW), y: floorY - 24, w: Math.max(80, Math.min(180, right.x - left.x - left.w - 48)), h: 24 });
+    placed.add('lava');
+    const destOx = Math.max(-400, Math.min(400, right.x - left.x - 20));
+    const destOy = Math.max(-400, Math.min(400, right.y - left.y));
+    const portalN = on('portal') ? countOf(prompt, PORTAL_WORDS, 1, 2, 1) : 1;
+    for (let i = 0; i < portalN; i += 1) ops.push({ op: 'portal', x: left.x + 24 + i * 56, y: left.y - 48, w: 48, h: 48, destOx, destOy });
+    placed.add('portal');
+    markSpawnGoal(spots);
+    notes.push('Two islands are split by lava, and a portal on the first one lands on the second.');
+  } else {
+    spots = stairSpots(rng, worldW, floorY, steps, rise);
+    pushSpots(ops, spots);
+    ops.push({ op: 'spring', x: fitX(spots[0].x - 70, 48, worldW), y: floorY - 24, w: 48, h: 24, vy: -layoutInt(rng, 1000, 1280) });
+    placed.add('spring');
+    const coinN = on('coin') ? countOf(prompt, COIN_WORDS, steps, 8, steps) : steps;
+    for (let i = 0; i < coinN; i += 1) {
+      const host = spots[i % spots.length];
+      ops.push({ op: 'coin', x: host.x + 36, y: host.y - 52 });
+    }
+    placed.add('coin');
+    if (hard) {
+      for (let i = 0; i < spots.length - 1; i += 1) ops.push({ op: 'spike', x: fitX(spots[i].x + spots[i].w + 8, 56, worldW), y: floorY - 28, w: 56, h: 28 });
+      placed.add('spike');
+    }
+    markSpawnGoal([{ x: Math.max(40, spots[0].x - 90), y: floorY, w: 40 }].concat(spots));
+    if (invent) jumps = easy ? 3 : 2;
+    notes.push(hard ? 'A steep stair of platforms, with a spring at the bottom and spikes in the gaps.' : 'A stair of platforms with a coin on each step and a spring at the bottom.');
+  }
+  if (on('portal') && !placed.has('portal') && spots.length) {
+    const count = countOf(prompt, PORTAL_WORDS, 1, 3, 1);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'portal', x: spots[0].x + 16, y: spots[0].y - 48, w: 48, h: 48, destOx: 240, destOy: Math.max(-400, spots[spots.length - 1].y - spots[0].y) });
+    notes.push('A portal on the first platform warps toward the goal.');
+  }
+  if ((on('spring') && !placed.has('spring'))) {
+    const count = countOf(prompt, SPRING_WORDS, 1, 4, 2);
+    const vy = -layoutInt(rng, 1100, 1400);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'spring', x: fitX(200 + shift + i * 56, 48, worldW), y: floorY - 24, w: 48, h: 24, vy });
+  }
+  if (on('spike') && !placed.has('spike')) {
+    const count = countOf(prompt, SPIKE_WORDS, 3, 6, 3);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'spike', x: fitX(360 + i * 68, 64, worldW), y: floorY - 28, w: 64, h: 28 });
+  }
+  if (on('lava') && !placed.has('lava')) ops.push({ op: 'lava', x: fitX(480, 160, worldW), y: floorY - 24, w: 160, h: 24 });
+  if ((on('monster') || on('chase')) && !placed.has('monster')) {
+    const count = countOf(prompt, MONSTER_WORDS, 1, 4, 2);
+    for (let i = 0; i < count; i += 1) ops.push({ op: 'monster', x: fitX(300 + i * 80, 28, worldW), y: floorY - 48, w: 28, h: 28, hp: 1, chase: on('chase') || kind === 'chase', pattern: 'patrol' });
+  }
+  if (placeBoss && !placed.has('boss')) {
+    const host = spots.length ? spots[spots.length - 1] : { x: 700, y: floorY };
+    ops.push({ op: 'boss', x: host.x + 20, y: host.y - 96, w: 64, h: 64, hp, touch: true, projectile: on('shoot') && !on('laser'), laser: on('laser'), win: 'boss' });
+  }
+  if (on('switch') && spots[0]) ops.push({ op: 'switch', x: spots[0].x + 20, y: floorY - 16, w: 40, h: 16, moveX: 0, moveY: -76 });
+  if (on('mover') && spots.length > 1) ops.push({ op: 'mover', x: Math.round((spots[0].x + spots[1].x) / 2), y: spots[1].y, w: 110, h: 20, axis: 'x', amp: 90 });
+  if (on('lifter') && spots.length) ops.push({ op: 'lifter', x: spots[0].x, y: floorY - 24, w: 80, h: 20, axis: 'y', amp: Math.max(48, floorY - spots[spots.length - 1].y - 40) });
+  if (on('gravity') && spots.length) ops.push({ op: 'gravity', x: spots[0].x + 8, y: spots[0].y - 70, w: 40, h: 64, targetDir: slots.down ? 1 : -1 });
+  if (on('fireball')) ops.push({ op: 'fireball', from: 'left', pos: Math.max(64, floorY - 130) });
+  if (on('blackout') && spots.length) ops.push({ op: 'blackout', x: spots[0].x + 8, y: spots[0].y - 48, w: 40, h: 40, blackSec: 3, afterSec: 2, onTouch: true });
+  if (on('sign')) {
+    const text = slots.sign ? signText(slots) : SIGN_LINES[layoutInt(rng, 0, SIGN_LINES.length - 1)];
+    ops.push({ op: 'sign', x: fitX(80 + shift, 160, worldW), y: floorY - 150, w: 160, h: 48, text, size: 22 });
+  }
+  if (on('circle') && spots[0]) ops.push({ op: 'platform', x: spots[0].x + 8, y: spots[0].y - 8, w: 48, h: 48, shape: 'circle' });
+  if (on('triangle') && spots.length) {
+    const host = spots[spots.length - 1];
+    ops.push({ op: 'platform', x: host.x + 8, y: host.y - 8, w: 48, h: 48, shape: 'triangle' });
+  }
+  return { ops, notes, jumps, shots, laser: false, shotGap };
 }
 
 export function planLevelRequest(prompt, data) {
@@ -416,223 +754,50 @@ export function planLevelRequest(prompt, data) {
   const action = [
     'arena', 'platform', 'spike', 'lava', 'coin', 'spawn', 'goal', 'monster', 'boss', 'shoot', 'laser',
     'portal', 'switch', 'spring', 'mover', 'lifter', 'gravity', 'fireball', 'blackout', 'sign', 'circle', 'triangle',
-    'chase', 'jump', 'whole', 'hard', 'easy', 'climb', 'wide', 'replace',
+    'chase', 'jump', 'kill', 'whole', 'hard', 'easy', 'climb', 'wide', 'replace',
   ];
   if (on('explain') && !action.some((label) => label !== 'explain' && label !== 'replace' && on(label))) {
     return { explanation: describeScript(summary.spl), spl: null, ops: [] };
   }
+  const recognized = action.some((label) => label !== 'explain' && label !== 'replace' && on(label));
+  if (isChatter(prompt, recognized)) {
+    return { explanation: 'Tell me what to build and I will make it.', spl: null, ops: [] };
+  }
 
   const rng = layoutRng(prompt);
   const full = on('whole') || on('hard') || on('easy') || on('climb') || on('wide');
-  const arena = on('arena');
-  const style = { hard: on('hard'), easy: on('easy'), climb: on('climb'), wide: on('wide') };
-  const seconds = Math.max(0.2, Math.min(120, slots.seconds == null ? 3 : slots.seconds));
-  const damage = slots.damage == null ? null : Math.max(1, Math.min(100, Math.round(slots.damage)));
+  const askedObject = ['spike', 'lava', 'coin', 'spring', 'portal', 'switch', 'monster', 'chase', 'mover', 'lifter', 'gravity', 'fireball', 'blackout', 'sign', 'circle', 'triangle', 'boss', 'spawn', 'goal', 'platform', 'arena', 'jump', 'kill', 'shoot', 'laser'].some(on);
+  const open = full || !askedObject;
+  const directed = open && askedObject;
+  const invent = open && !directed;
   const bossAttack = (on('shoot') || on('laser')) && !(on('fireball') && !on('boss') && !on('laser'));
-  const asked = ['spike', 'lava', 'coin', 'spring', 'portal', 'switch', 'monster', 'chase', 'mover', 'lifter', 'gravity', 'fireball', 'blackout', 'sign', 'circle', 'triangle', 'boss', 'shoot', 'laser', 'spawn', 'goal', 'platform', 'jump'];
-  const openBrief = full && !arena && !asked.some(on);
-  const kit = openBrief ? layoutKit(rng, style) : [];
-  const want = (label) => on(label) || kit.includes(label);
-  const explicitBoss = on('boss') || bossAttack;
-  const placeBoss = (on('boss') && !bossAttack) || (bossAttack && !summary.hasBoss) || (on('boss') && !summary.hasBoss) || (kit.includes('boss') && !summary.hasBoss);
-  const randomBoss = kit.includes('boss') && !explicitBoss;
-  let shotGap = seconds;
-  let randomShots = false;
-  if (randomBoss && rng() < 0.5) {
-    randomShots = true;
-    shotGap = layoutInt(rng, 2, 5);
+  const placeBoss = (on('boss') && !bossAttack) || ((on('boss') || bossAttack) && !summary.hasBoss);
+  const hp = slots.hp == null ? 8 : Math.max(1, Math.min(100000, Math.round(slots.hp)));
+  const hard = on('hard');
+  const easy = on('easy');
+  const shift = layoutInt(rng, 0, 36);
+  const ctx = { rng, worldW, floorY, on, prompt, slots, placeBoss, hp, directed, open, invent, hard, easy, shift, summary };
+  const built = !open && !on('arena') ? arrangeAsked(ctx) : buildCourse(pickScene(rng, on, directed), ctx);
+  const shotGap = on('shoot') || on('laser') ? secondsNear(prompt, ['shoot', 'shot', 'shots', 'fire', 'fires', 'laser', 'beam'], slots.seconds == null ? built.shotGap || 3 : slots.seconds) : built.shotGap || 3;
+  const killWait = on('kill') ? secondsNear(prompt, ['kill', 'kills', 'killing', 'die', 'dies'], slots.seconds == null ? 8 : slots.seconds) : null;
+  const script = scriptBundle(summary, {
+    jumps: on('jump') ? (slots.jumps == null ? 3 : slots.jumps) : built.jumps,
+    shots: (bossAttack && !on('laser')) || !!built.shots,
+    laser: on('laser') || !!built.laser,
+    kill: on('kill'),
+    killWait,
+    shotGap,
+    damage: slots.damage == null ? null : Math.max(1, Math.min(100, Math.round(slots.damage))),
+    replace: on('replace'),
+  });
+  const notes = built.notes.concat(script.notes);
+  const ops = built.ops.slice(0, 36);
+  if (!ops.length && !script.spl) {
+    return { explanation: 'Tell me what to build and I will make it.', spl: null, ops: [] };
   }
-  const hp = slots.hp == null ? (placeBoss ? 8 : 1) : Math.max(1, Math.min(100000, Math.round(slots.hp)));
-  const notes = [];
-  const ops = [];
-  let spots = [];
-
-  const specificPlatform = on('circle') || on('triangle') || on('mover') || on('lifter');
-  if (arena) {
-    const laid = layoutArena(rng, worldW, floorY, !full);
-    laid.ops.forEach((op) => ops.push(op));
-    spots = laid.spots;
-    notes.push('Added an arena with platforms at different heights.');
-  } else if (full || (on('platform') && !specificPlatform)) {
-    if (full) {
-      const laid = layoutPath(rng, worldW, floorY, style);
-      laid.ops.forEach((op) => ops.push(op));
-      spots = laid.spots;
-      notes.push(laid.vertical ? 'Built a climb.' : 'Built a path across the stage.');
-    } else {
-      const count = countNear(prompt, ['platform', 'platforms', 'ledge', 'ledges', 'shelf', 'shelves', 'foothold', 'footholds'], 3, 6);
-      spots = layoutScatter(rng, worldW, floorY, count);
-      for (let i = 0; i < count; i += 1) {
-        const w = layoutInt(rng, 120, 200);
-        ops.push({ op: 'platform', x: Math.max(40, spots[i].x - Math.round(w / 2)), y: spots[i].y, w, h: 22 });
-      }
-      notes.push('Added ' + count + ' platforms at different heights.');
-    }
-  } else {
-    spots = layoutScatter(rng, worldW, floorY, 6);
-  }
-  let cursor = 0;
-  function nextSpot() {
-    const spot = spots[cursor % spots.length];
-    cursor += 1;
-    return {
-      x: Math.max(36, Math.round(spot.x + (rng() - 0.5) * 70)),
-      y: Math.max(48, Math.round(spot.y + (rng() - 0.5) * 30)),
-    };
-  }
-  if (want('circle')) {
-    const spot = nextSpot();
-    ops.push({ op: 'platform', x: spot.x, y: spot.y, w: 48, h: 48, shape: 'circle' });
-    notes.push('Added a round platform.');
-  }
-  if (want('triangle')) {
-    const spot = nextSpot();
-    ops.push({ op: 'platform', x: spot.x, y: spot.y, w: 48, h: 48, shape: 'triangle' });
-    notes.push('Added a triangle.');
-  }
-  if (want('spike')) {
-    const count = on('spike') ? countNear(prompt, ['spike', 'spikes', 'thorn', 'thorns', 'trap', 'traps', 'nail', 'nails', 'hazard', 'hazards'], 1, 6) : layoutInt(rng, style.hard ? 2 : 1, 4);
-    for (let i = 0; i < count; i += 1) {
-      const spot = nextSpot();
-      ops.push({ op: 'spike', x: spot.x, y: spot.y - 28, w: layoutInt(rng, 56, 96), h: 28 });
-    }
-    notes.push('Added spikes.');
-  }
-  if (want('lava')) {
-    const spot = nextSpot();
-    ops.push({ op: 'lava', x: spot.x, y: spot.y - 24, w: layoutInt(rng, 100, 180), h: 24 });
-    notes.push('Added lava.');
-  }
-  if (want('coin')) {
-    const count = on('coin') ? countNear(prompt, ['coin', 'coins', 'gem', 'gems', 'pickup', 'pickups'], 4, 8) : layoutInt(rng, 3, 6);
-    for (let i = 0; i < count; i += 1) {
-      const spot = nextSpot();
-      ops.push({ op: 'coin', x: spot.x, y: spot.y - layoutInt(rng, 40, 90) });
-    }
-    notes.push('Added ' + count + ' coins.');
-  }
-  if (on('spawn') || full) {
-    const start = spots[0];
-    ops.push({ op: 'spawn', x: Math.max(40, start.x - 36), y: start.y - 70 });
-    notes.push('Moved the spawn.');
-  }
-  if (on('goal') || full) {
-    const end = spots[spots.length - 1];
-    ops.push({ op: 'goal', x: end.x, y: end.y - 110 });
-    notes.push('Moved the goal.');
-  }
-  if (want('monster') || want('chase')) {
-    const count = on('monster') || on('chase') ? countNear(prompt, ['monster', 'monsters', 'enemy', 'enemies', 'creature', 'creatures', 'guy', 'guys', 'baddie', 'baddies'], 1, 6) : layoutInt(rng, 1, style.hard ? 3 : 2);
-    for (let i = 0; i < count; i += 1) {
-      const spot = nextSpot();
-      ops.push({
-        op: 'monster',
-        x: spot.x,
-        y: spot.y - 48,
-        w: 28,
-        h: 28,
-        hp: hp > 1 && !placeBoss ? hp : 1,
-        chase: on('chase') || (kit.includes('monster') && rng() < 0.5),
-        pattern: 'patrol',
-      });
-    }
-    notes.push('Added ' + count + ' monster' + (count === 1 ? '' : 's') + '.');
-  }
-  if (placeBoss) {
-    const spot = spots[spots.length - 1];
-    ops.push({
-      op: 'boss',
-      x: spot.x,
-      y: spot.y - 96,
-      w: randomBoss ? layoutInt(rng, 56, 84) : 64,
-      h: randomBoss ? layoutInt(rng, 56, 84) : 64,
-      hp: randomBoss && slots.hp == null ? layoutInt(rng, 6, 18) : hp,
-      touch: true,
-      projectile: randomBoss ? randomShots : bossAttack || !on('laser'),
-      laser: on('laser'),
-      win: 'boss',
-    });
-    notes.push('Added a boss.');
-  }
-  if (want('portal')) {
-    const count = on('portal') ? countNear(prompt, ['portal', 'portals', 'doorway', 'doorways', 'teleporter', 'teleporters', 'door', 'doors'], 1, 4) : 1;
-    for (let i = 0; i < count; i += 1) {
-      const spot = nextSpot();
-      ops.push({ op: 'portal', x: spot.x, y: spot.y - 48, w: 48, h: 48, destOx: 24, destOy: -layoutInt(rng, 48, 120) });
-    }
-    notes.push('Added a portal.');
-  }
-  if (want('switch')) {
-    const spot = nextSpot();
-    ops.push({ op: 'switch', x: spot.x, y: spot.y - 16, w: 40, h: 16, moveX: layoutInt(rng, 32, 96), moveY: 0 });
-    notes.push('Added a switch.');
-  }
-  if (want('spring')) {
-    const count = on('spring') ? countNear(prompt, ['spring', 'springs', 'trampoline', 'trampolines', 'pad', 'pads', 'bouncer', 'bouncers'], 1, 6) : layoutInt(rng, 1, 3);
-    for (let i = 0; i < count; i += 1) {
-      const spot = nextSpot();
-      ops.push({ op: 'spring', x: spot.x, y: spot.y - 24, w: 48, h: 24, vy: -layoutInt(rng, 800, 1500) });
-    }
-    notes.push(count === 1 ? 'Added a spring.' : 'Added ' + count + ' springs.');
-  }
-  if (want('mover')) {
-    const spot = nextSpot();
-    ops.push({ op: 'mover', x: spot.x, y: spot.y, w: layoutInt(rng, 72, 140), h: 20, axis: 'x', amp: layoutInt(rng, 48, 140) });
-    notes.push('Added a moving platform.');
-  }
-  if (want('lifter')) {
-    const spot = nextSpot();
-    ops.push({ op: 'lifter', x: spot.x, y: spot.y, w: 80, h: 20, axis: 'y', amp: layoutInt(rng, 48, 140) });
-    notes.push('Added an elevator.');
-  }
-  if (want('gravity')) {
-    const spot = nextSpot();
-    const down = on('gravity') ? !!slots.down : rng() < 0.5;
-    ops.push({ op: 'gravity', x: spot.x, y: spot.y - 64, w: 40, h: 64, targetDir: down ? 1 : -1 });
-    notes.push(down ? 'Added a gravity arrow pointing down.' : 'Added a gravity arrow pointing up.');
-  }
-  if (want('fireball')) {
-    const sides = ['left', 'right', 'top', 'bottom'];
-    ops.push({ op: 'fireball', from: sides[layoutInt(rng, 0, sides.length - 1)], pos: Math.max(64, floorY - layoutInt(rng, 80, 220)) });
-    notes.push('Added a fireball shooter.');
-  }
-  if (want('blackout')) {
-    const spot = nextSpot();
-    const blackSec = on('shoot') || on('laser') || slots.seconds == null ? layoutInt(rng, 2, 5) : Math.max(0.2, Math.min(30, slots.seconds));
-    ops.push({ op: 'blackout', x: spot.x, y: spot.y - 40, w: 40, h: 40, blackSec, afterSec: 2, onTouch: true });
-    notes.push('Added a blackout.');
-  }
-  if (want('sign')) {
-    const spot = nextSpot();
-    const text = slots.sign ? signText(slots) : SIGN_LINES[layoutInt(rng, 0, SIGN_LINES.length - 1)];
-    ops.push({ op: 'sign', x: spot.x, y: spot.y - 80, w: 160, h: 48, text, size: 22 });
-    notes.push('Added a sign.');
-  }
-
-  const lines = [];
-  const shotOn = (bossAttack && !on('laser')) || (placeBoss && explicitBoss && !on('laser')) || randomShots;
-  if (shotOn) lines.push.apply(lines, attackLines('projectile', randomShots && !bossAttack ? shotGap : seconds, damage));
-  if (on('laser')) lines.push.apply(lines, attackLines('laser', seconds, damage));
-  if (on('jump')) {
-    const jumps = Math.max(1, Math.min(20, Math.round(slots.jumps == null ? 3 : slots.jumps)));
-    lines.push('jump_cap <- skyhop.get("jump_limit");', 'jump_cap <- ' + jumps + ';');
-    notes.push('Set the jump limit to ' + jumps + '.');
-  }
-  let spl = null;
-  if (lines.length) {
-    spl = on('replace') ? 'use skyhop;\n' + lines.join('\n') : mergeScript(summary.spl, lines);
-    if (shotOn) notes.push('Boss shots are on, with ' + (randomShots && !bossAttack ? shotGap : seconds) + ' seconds between them.');
-    if (on('laser')) notes.push('The boss laser is on, with ' + seconds + ' seconds between shots.');
-  }
-  if (!ops.length && !spl) {
-    return {
-      explanation: 'Describe the platforms, enemies, portals, switches, or other objects you want in the level.',
-      spl: null,
-      ops: [],
-    };
-  }
-  return { explanation: notes.join(' '), spl, ops };
+  return { explanation: notes.join(' '), spl: script.spl, ops };
 }
+
 function floorYOf(summary) {
   const worldH = num(summary.worldH, 300, 4000, 720);
   let floorY = worldH - 100;
@@ -660,18 +825,22 @@ function attackLines(kind, seconds, damage) {
   return lines;
 }
 
-function mergeScript(existing, lines) {
-  const fresh = lines.filter((line) => {
+function mergeScript(existing, head, tail) {
+  const fresh = (head || []).filter((line) => {
     const key = line.match(/skyhop\.get\("([^"]+)"\)/);
     return !key || !String(existing || '').includes(key[1]);
   });
-  if (!fresh.length) return String(existing || '').trim() || null;
+  const extra = tail || [];
+  if (!fresh.length && !extra.length) return String(existing || '').trim() || null;
   let base = String(existing || '').trim();
-  if (!base) return 'use skyhop;\n' + fresh.join('\n');
+  if (!base) return 'use skyhop;\n' + fresh.concat(extra).join('\n');
   if (!/^use\s+skyhop\s*;/i.test(base)) base = 'use skyhop;\n' + base;
-  const breakAt = base.indexOf('\n');
-  if (breakAt === -1) return base + '\n' + fresh.join('\n');
-  return base.slice(0, breakAt) + '\n' + fresh.join('\n') + base.slice(breakAt);
+  if (fresh.length) {
+    const breakAt = base.indexOf('\n');
+    base = breakAt === -1 ? base + '\n' + fresh.join('\n') : base.slice(0, breakAt) + '\n' + fresh.join('\n') + base.slice(breakAt);
+  }
+  if (extra.length) base += '\n' + extra.join('\n');
+  return base;
 }
 
 function describeScript(spl) {

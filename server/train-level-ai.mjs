@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { LABELS, tokensOf, charGrams, forward, scoreRequest } from './level-ai-net.js';
 
 const NOUNS = {
-  arena: ['arena', 'pit', 'coliseum', 'battlefield', 'fighting pit', 'stadium', 'boss room'],
+  arena: ['arena', 'coliseum', 'battlefield', 'fighting pit', 'stadium', 'boss room'],
   platform: ['platform', 'platforms', 'ledge', 'ledges', 'shelf', 'shelves', 'foothold', 'footholds'],
   spike: ['spike', 'spikes', 'thorns', 'nails', 'spike strip', 'spike pit', 'trap', 'traps', 'hazard', 'hazards'],
   lava: ['lava', 'magma', 'lava pool', 'lava pit', 'molten'],
@@ -32,7 +32,8 @@ const NOUNS = {
   triangle: ['triangle', 'triangular block', 'triangle platform'],
   chase: ['chasing monster', 'enemy that follows', 'monster that hunts', 'chasing enemy', 'hunt', 'hunts', 'follow', 'follows', 'chase'],
   jump: ['jump limit', 'limited jumps', 'jump cap'],
-  explain: ['explanation of the script', 'description of this script', 'what this script does', 'explain'],
+  kill: ['kill', 'kills', 'killing', 'die', 'dies'],
+  explain: ['explanation of the script', 'description of this script', 'what this script does', 'explain', 'script work', 'script doing'],
   whole: ['entire level', 'whole level', 'full level', 'complete level', 'course', 'from scratch', 'playable course', 'brand new course'],
   hard: ['hard', 'difficult', 'tough', 'brutal', 'challenging'],
   easy: ['easy', 'simple', 'beginner', 'forgiving'],
@@ -174,14 +175,14 @@ function teachingTokens() {
     if (!map.has(token)) map.set(token, new Set());
     map.get(token).add(label);
   }
-  const skipFragment = new Set(['player', 'starts', 'something', 'back', 'forth', 'wall', 'screen', 'touch', 'left', 'right', 'point', 'higher', 'level', 'across', 'long']);
+  const skipFragment = new Set(['player', 'starts', 'something', 'back', 'forth', 'wall', 'screen', 'touch', 'left', 'right', 'point', 'higher', 'level', 'across', 'long', 'what', 'script']);
   for (const label of LABELS) {
     for (const noun of NOUNS[label] || []) {
       const words = tokensOf(noun).filter((part) => !part.startsWith('#') && !part.includes(' '));
       const kept = words.filter((word) => !skipFragment.has(word));
       if (words.length === 1 && kept.length === 1) add(exactOwners, kept[0], label);
       kept.forEach((word) => add(phraseOwners, word, label));
-      for (let i = 0; i < kept.length - 1; i += 1) add(phraseOwners, kept[i] + ' ' + kept[i + 1], label);
+      for (let i = 0; i < words.length - 1; i += 1) add(phraseOwners, words[i] + ' ' + words[i + 1], label);
       kept.forEach((word) => {
         charGrams(word).forEach((gram) => add(phraseOwners, gram, label));
       });

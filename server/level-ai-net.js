@@ -31,6 +31,7 @@ export const LABELS = [
   'triangle',
   'chase',
   'jump',
+  'kill',
   'explain',
   'whole',
   'hard',
@@ -78,7 +79,7 @@ export function slotsOf(text) {
   const seconds = readUnit(lower, /(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:seconds|second|secs|sec)/);
   const hp = readUnit(lower, /(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:hp|health)/);
   const damage = readUnit(lower, /(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:damage|dmg)/);
-  const jumps = readUnit(lower, /(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*jumps?/);
+  const jumps = readJumps(lower);
   const quoted = raw.match(/["“]([^"”]{1,40})["”]/);
   const says = raw.match(/\b(?:says|reads|saying)\s+([a-z0-9][a-z0-9 '!?.-]{0,40})/i);
   const sign = quoted ? quoted[1].trim() : says ? says[1].trim() : '';
@@ -92,6 +93,21 @@ export function slotsOf(text) {
     sign,
     down: /\bdown\b/i.test(lower),
   };
+}
+
+function readJumps(lower) {
+  const n = '(\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)';
+  const patterns = [
+    new RegExp(n + '\\s*jumps?\\b'),
+    new RegExp('jumps?\\s+to\\s+' + n),
+    new RegExp('jump\\s+limit\\s+(?:to\\s+)?' + n),
+    new RegExp('limit\\s+(?:the\\s+)?jumps?\\s+to\\s+' + n),
+  ];
+  for (const pattern of patterns) {
+    const value = readUnit(lower, pattern);
+    if (value != null) return value;
+  }
+  return null;
 }
 
 function readUnit(text, pattern) {
