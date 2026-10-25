@@ -3234,6 +3234,7 @@
   function showEditorScreen(on) {
     if (!editorScreen) return;
     editorScreen.classList.toggle('hidden', !on);
+    if (document.body) document.body.classList.toggle('skyhop-editor-open', !!on);
     if (on) {
       syncEditorCanvasLayout();
       scheduleEditorRedraw();

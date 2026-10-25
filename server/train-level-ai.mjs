@@ -5,35 +5,39 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LABELS, tokensOf, forward } from './level-ai-net.js';
+import { LABELS, tokensOf, charGrams, forward, scoreRequest } from './level-ai-net.js';
 
 const NOUNS = {
   arena: ['arena', 'pit', 'coliseum', 'battlefield', 'fighting pit', 'stadium', 'boss room'],
   platform: ['platform', 'platforms', 'ledge', 'ledges', 'shelf', 'shelves', 'foothold', 'footholds'],
-  spike: ['spike', 'spikes', 'thorns', 'nails', 'spike strip', 'spike pit'],
-  lava: ['lava', 'magma', 'lava pool', 'lava pit'],
-  coin: ['coin', 'coins', 'money', 'pickups', 'coin trail'],
-  spawn: ['spawn', 'start', 'starting point', 'place the player starts'],
-  goal: ['goal', 'finish', 'exit', 'finish line', 'end of the level'],
-  monster: ['monster', 'monsters', 'enemy', 'enemies', 'creature', 'creatures'],
-  boss: ['boss', 'big enemy', 'boss fight'],
+  spike: ['spike', 'spikes', 'thorns', 'nails', 'spike strip', 'spike pit', 'trap', 'traps', 'hazard', 'hazards'],
+  lava: ['lava', 'magma', 'lava pool', 'lava pit', 'molten'],
+  coin: ['coin', 'coins', 'money', 'pickups', 'coin trail', 'gem', 'gems', 'loot'],
+  spawn: ['spawn', 'start', 'starting point', 'place the player starts', 'respawn'],
+  goal: ['goal', 'finish', 'exit', 'finish line', 'end of the level', 'flag', 'ending'],
+  monster: ['monster', 'monsters', 'enemy', 'enemies', 'creature', 'creatures', 'bad guy', 'bad guys', 'baddie', 'baddies', 'foe', 'foes'],
+  boss: ['boss', 'big enemy', 'boss fight', 'final boss', 'miniboss'],
   shoot: ['shooting boss', 'boss that shoots', 'projectile attack', 'boss bullets', 'boss that fires', 'shoot', 'projectile', 'projectiles'],
   laser: ['laser', 'lasers', 'laser beam', 'boss laser', 'beam attack'],
-  portal: ['portal', 'portals', 'doorway', 'doorways', 'teleporter', 'teleporters', 'warp', 'gateway', 'wormhole', 'door'],
-  switch: ['switch', 'switches', 'lever', 'levers', 'button', 'buttons'],
-  spring: ['spring', 'springs', 'bounce pad', 'jump pad', 'bouncer', 'trampoline', 'booster pad'],
-  mover: ['moving platform', 'sliding platform', 'sideways platform', 'horizontal mover', 'platform that slides'],
+  portal: ['portal', 'portals', 'doorway', 'doorways', 'teleporter', 'teleporters', 'warp', 'gateway', 'wormhole', 'door', 'teleport', 'warp gate', 'warp point'],
+  switch: ['switch', 'switches', 'lever', 'levers', 'button', 'buttons', 'pressure plate'],
+  spring: ['spring', 'springs', 'bounce pad', 'jump pad', 'bouncer', 'trampoline', 'booster pad', 'bouncy pad', 'launch pad'],
+  mover: ['moving platform', 'sliding platform', 'sideways platform', 'horizontal mover', 'platform that slides', 'slider', 'conveyor'],
   lifter: ['elevator', 'lift', 'vertical mover', 'rising platform', 'platform that goes up and down'],
   gravity: ['gravity flip', 'gravity arrow', 'upside down gravity', 'gravity change'],
   fireball: ['fireball', 'fireballs', 'flame shooter', 'fire shooter', 'flamethrower', 'flames'],
   blackout: ['blackout', 'darkness', 'dark zone', 'lights out', 'blind spot', 'go dark', 'make it dark'],
-  sign: ['sign', 'text sign', 'label', 'message', 'writing on the wall'],
+  sign: ['sign', 'text sign', 'label', 'message', 'writing on the wall', 'signpost', 'billboard'],
   circle: ['circle', 'round platform', 'disc', 'circular block'],
   triangle: ['triangle', 'triangular block', 'triangle platform'],
   chase: ['chasing monster', 'enemy that follows', 'monster that hunts', 'chasing enemy', 'hunt', 'hunts', 'follow', 'follows', 'chase'],
   jump: ['jump limit', 'limited jumps', 'jump cap'],
   explain: ['explanation of the script', 'description of this script', 'what this script does', 'explain'],
-  whole: ['entire level', 'whole level', 'full level', 'complete level'],
+  whole: ['entire level', 'whole level', 'full level', 'complete level', 'course', 'from scratch', 'playable course', 'brand new course'],
+  hard: ['hard', 'difficult', 'tough', 'brutal', 'challenging'],
+  easy: ['easy', 'simple', 'beginner', 'forgiving'],
+  climb: ['climb', 'vertical climb', 'tower'],
+  wide: ['long path', 'across the map', 'wide course'],
   replace: ['script rewrite', 'replacement script'],
 };
 
@@ -50,6 +54,10 @@ const FRAMES = [
   (noun) => 'drop a ' + noun + ' somewhere',
   (noun) => 'lets have a ' + noun,
   (noun) => 'stick a ' + noun + ' in',
+  (noun) => 'i need a ' + noun,
+  (noun) => 'how about a ' + noun,
+  (noun) => 'gimme a ' + noun,
+  (noun) => 'the stage should have a ' + noun,
 ];
 
 const EXTRA = [
@@ -83,6 +91,22 @@ const EXTRA = [
   ['how does the script work', ['explain']],
   ['build me a level', ['whole']],
   ['make the entire stage', ['whole']],
+  ['design a tough course', ['hard', 'whole']],
+  ['make me a full level', ['whole']],
+  ['build a course from scratch', ['whole']],
+  ['an easy beginner course', ['easy', 'whole']],
+  ['a tall tower to climb', ['climb']],
+  ['a long path across the map', ['wide']],
+  ['i want a bouncy pad', ['spring']],
+  ['teleport across the gap', ['portal']],
+  ['some traps on the ground', ['spike']],
+  ['bad guys chasing me', ['monster', 'chase']],
+  ['a warp gate', ['portal']],
+  ['give me a bounce pad', ['spring']],
+  ['make a challenging course', ['hard', 'whole']],
+  ['something simple for a beginner', ['easy']],
+  ['traps and a trampoline', ['spike', 'spring']],
+  ['a tower climb with springs', ['climb', 'spring']],
   ['rewrite the script so the boss shoots', ['replace', 'shoot', 'boss']],
   ['arena with a portal and a switch', ['arena', 'portal', 'switch']],
   ['boss room with lava and a moving platform', ['arena', 'boss', 'lava', 'mover']],
@@ -150,15 +174,17 @@ function teachingTokens() {
     if (!map.has(token)) map.set(token, new Set());
     map.get(token).add(label);
   }
-  const skipFragment = new Set(['player', 'starts', 'something', 'back', 'forth', 'wall', 'screen', 'touch', 'left', 'right', 'point', 'higher']);
+  const skipFragment = new Set(['player', 'starts', 'something', 'back', 'forth', 'wall', 'screen', 'touch', 'left', 'right', 'point', 'higher', 'level', 'across', 'long']);
   for (const label of LABELS) {
-    for (const noun of NOUNS[label]) {
-      const parts = tokensOf(noun);
-      if (parts.length === 1) add(exactOwners, parts[0], label);
-      parts.forEach((part) => {
-        if (!skipFragment.has(part)) add(phraseOwners, part, label);
+    for (const noun of NOUNS[label] || []) {
+      const words = tokensOf(noun).filter((part) => !part.startsWith('#') && !part.includes(' '));
+      const kept = words.filter((word) => !skipFragment.has(word));
+      if (words.length === 1 && kept.length === 1) add(exactOwners, kept[0], label);
+      kept.forEach((word) => add(phraseOwners, word, label));
+      for (let i = 0; i < kept.length - 1; i += 1) add(phraseOwners, kept[i] + ' ' + kept[i + 1], label);
+      kept.forEach((word) => {
+        charGrams(word).forEach((gram) => add(phraseOwners, gram, label));
       });
-      for (let i = 0; i < parts.length - 1; i += 1) add(phraseOwners, parts[i] + ' ' + parts[i + 1], label);
     }
   }
   const teach = new Map();
@@ -203,10 +229,13 @@ function train(rows) {
             const bin = index.get(token);
             if (bin == null) continue;
             const at = bin * out + k;
+            const gram = token.startsWith('#');
+            const goal = gram ? 0.16 : 1;
             const y = 1 / (1 + Math.exp(-(b[k] + w[at])));
-            const diff = y - 1;
-            loss += -Math.log(y + 1e-8);
+            const diff = y - goal;
+            if (!gram) loss += -Math.log(y + 1e-8);
             w[at] -= lr * diff;
+            if (w[at] < 0) w[at] = 0;
           }
           continue;
         }
@@ -266,18 +295,25 @@ const checks = [
   ['a round platform and a triangle', ['platform', 'circle', 'triangle']],
   ['enemies that hunt the player', ['monster', 'chase']],
   ['we need a trampoline to reach the top', ['spring']],
+  ['design a tough course', ['hard', 'whole']],
+  ['make me a full level', ['whole']],
+  ['i want a bouncy pad', ['spring']],
+  ['teleport across the gap', ['portal']],
+  ['bad guys chasing me', ['monster', 'chase']],
+  ['a tall tower to climb', ['climb']],
+  ['trmpoline', ['spring']],
 ];
 let missed = 0;
 for (const [text, want] of checks) {
-  const result = forward(tokensOf(text), saved);
-  const got = LABELS.filter((label, index) => result.scores[index] >= saved.threshold);
+  const scored = scoreRequest(text);
+  const got = LABELS.filter((label) => scored.scores[label] >= saved.threshold);
   const ok = want.length === got.length && want.every((label) => got.includes(label));
   if (!ok) {
     missed += 1;
     console.log('MISS', text);
     console.log('  got', got.join(', ') || '(none)');
     console.log('  want', want.join(', ') || '(none)');
-    const ranked = LABELS.map((label, index) => [label, result.scores[index]]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const ranked = LABELS.map((label) => [label, scored.scores[label]]).sort((a, b) => b[1] - a[1]).slice(0, 5);
     console.log('  top', ranked.map((pair) => pair[0] + ' ' + pair[1].toFixed(2)).join(', '));
   }
 }

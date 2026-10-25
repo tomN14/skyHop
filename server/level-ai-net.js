@@ -33,6 +33,10 @@ export const LABELS = [
   'jump',
   'explain',
   'whole',
+  'hard',
+  'easy',
+  'climb',
+  'wide',
   'replace',
 ];
 
@@ -104,10 +108,21 @@ const STOP = new Set(
   )
 );
 
+export function charGrams(word) {
+  if (word.length < 6) return [];
+  const grams = [];
+  const padded = '^' + word + '$';
+  for (let i = 0; i < padded.length - 2; i += 1) grams.push('#' + padded.slice(i, i + 3));
+  return grams;
+}
+
 export function tokensOf(text) {
   const words = wordsOf(text).filter((word) => !STOP.has(word));
   const tokens = words.slice();
   for (let i = 0; i < words.length - 1; i += 1) tokens.push(words[i] + ' ' + words[i + 1]);
+  words.forEach((word) => {
+    charGrams(word).forEach((gram) => tokens.push(gram));
+  });
   return tokens;
 }
 
@@ -129,9 +144,37 @@ export function forward(tokens, model) {
   };
 }
 
+function tokensForRequest(text, model) {
+  const tokens = tokensOf(text);
+  const known = model.words || [];
+  if (!known.length) return tokens;
+  const words = wordsOf(text).filter((word) => !STOP.has(word));
+  words.forEach((word) => {
+    if (word.length < 6 || known.includes(word)) return;
+    const grams = charGrams(word);
+    if (grams.length < 4) return;
+    let best = null;
+    let bestScore = 0;
+    for (const candidate of known) {
+      if (Math.abs(candidate.length - word.length) > 2) continue;
+      const theirs = charGrams(candidate);
+      if (!theirs.length) continue;
+      let hit = 0;
+      for (const gram of theirs) if (grams.includes(gram)) hit += 1;
+      const score = hit / theirs.length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    if (best && bestScore >= 0.6) tokens.push(best);
+  });
+  return tokens;
+}
+
 export function scoreRequest(text) {
   const model = loadWeights();
-  const result = forward(tokensOf(text), model);
+  const result = forward(tokensForRequest(text, model), model);
   const named = {};
   LABELS.forEach((label, index) => {
     named[label] = result.scores[index];
@@ -149,5 +192,6 @@ function loadWeights() {
   const file = join(dirname(fileURLToPath(import.meta.url)), 'level-ai-weights.json');
   const model = JSON.parse(readFileSync(file, 'utf8'));
   model.index = new Map(model.vocab.map((token, index) => [token, index]));
+  model.words = model.vocab.filter((token) => token.length >= 6 && !token.startsWith('#') && !token.includes(' '));
   return model;
 }
