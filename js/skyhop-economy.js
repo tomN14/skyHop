@@ -386,6 +386,10 @@
             (mine.organizationName ? ' · ' + mine.organizationName : '')
         )
       );
+      card.appendChild(el('p', 'mt-1 font-mono text-[11px] text-sky-200/90', 'Company id: ' + (mine.id || '')));
+      card.appendChild(
+        el('p', 'mt-0.5 text-[11px] text-slate-500', 'Use this id for website builds, partnerships, contracts, and lawsuits.')
+      );
       var quoteLocked = mine.quoteLocked !== false;
       var price = field(quoteLocked ? 'Share price in dollars' : 'Opening price in dollars', mine.shareExact);
       var listed = field('Shares listed for sale', mine.listed);
