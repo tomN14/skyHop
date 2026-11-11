@@ -3088,6 +3088,8 @@
   const awardedList = document.getElementById('awardedLevelsList');
   const awardedPager = document.getElementById('awardedLevelsPager');
   let onlineIsOwner = false;
+  let onlineIsLevelMod = false;
+  let onlineIsAdmin = false;
   let awardedPage = 1;
   const editorScreen = document.getElementById('screenLevelEditor');
   const mineList = document.getElementById('levelsMineList');
@@ -3162,14 +3164,177 @@
 
   function refreshOnlineOwner() {
     onlineIsOwner = false;
-    if (!hasAuth()) return Promise.resolve();
+    onlineIsLevelMod = false;
+    onlineIsAdmin = false;
+    if (!hasAuth()) {
+      syncNomsPanel();
+      return Promise.resolve();
+    }
     return api('/api/me')
       .then(function (me) {
         onlineIsOwner = !!(me && me.role === 'owner');
+        onlineIsLevelMod = !!(me && (me.levelMod || me.role === 'owner'));
+        onlineIsAdmin = !!(me && (me.adminPowers || me.role === 'admin' || me.role === 'owner'));
+        syncNomsPanel();
         if (onlineCtx && (onlineCtx.username || onlineCtx.titleQ || onlineCtx.idQ)) fetchOnlineList();
       })
       .catch(function () {
         onlineIsOwner = false;
+        onlineIsLevelMod = false;
+        onlineIsAdmin = false;
+        syncNomsPanel();
+      });
+  }
+
+  function aiOnlyChecked() {
+    var el = document.getElementById('lvlOnlineAiOnly');
+    return !!(el && el.checked);
+  }
+
+  function syncNomsPanel() {
+    var panel = document.getElementById('lvlNomsPanel');
+    if (!panel) return;
+    var show = onlineIsLevelMod || onlineIsAdmin || onlineIsOwner;
+    panel.classList.toggle('hidden', !show);
+    if (show) void loadNominations();
+  }
+
+  function loadNominations() {
+    var list = document.getElementById('lvlNomsList');
+    if (!list || !hasAuth()) return Promise.resolve();
+    list.innerHTML = '<li class="text-[11px] text-slate-500">Loading…</li>';
+    return api('/api/levels/nominations')
+      .then(function (out) {
+        list.innerHTML = '';
+        var items = out.items || [];
+        if (!items.length) {
+          list.innerHTML = '<li class="text-[11px] text-slate-500">No nominations yet.</li>';
+          return;
+        }
+        items.forEach(function (item) {
+          var li = document.createElement('li');
+          li.className = 'rounded-lg border border-white/10 bg-slate-950/70 p-2';
+          var kindLabel =
+            item.kind === 'stage'
+              ? 'Stage W' + item.world + ' #' + item.stage
+              : 'Award';
+          li.innerHTML =
+            '<p class="text-[11px] text-violet-100">' +
+            escapeHtml(item.title || 'Level') +
+            ' · ' +
+            escapeHtml(kindLabel) +
+            ' · ' +
+            escapeHtml(item.status || '') +
+            '</p>' +
+            '<p class="mt-0.5 font-mono text-[10px] text-slate-500">' +
+            escapeHtml(item.levelId || '') +
+            ' · by ' +
+            escapeHtml(item.fromUsername || '') +
+            '</p>' +
+            (item.note
+              ? '<p class="mt-1 text-[11px] text-slate-400">' + escapeHtml(item.note) + '</p>'
+              : '');
+          var actions = document.createElement('div');
+          actions.className = 'mt-2 flex flex-wrap gap-2';
+          if (onlineIsAdmin && item.status === 'pending_admin') {
+            var fwd = document.createElement('button');
+            fwd.type = 'button';
+            fwd.className = 'rounded-lg border border-amber-400/40 px-2 py-1 text-[11px] font-semibold text-amber-100 hover:bg-amber-950/40';
+            fwd.textContent = 'Send to owner';
+            fwd.addEventListener('click', function () {
+              fwd.disabled = true;
+              api('/api/levels/nominations/forward', {
+                method: 'POST',
+                body: JSON.stringify({ id: item.id }),
+              })
+                .then(function () {
+                  return loadNominations();
+                })
+                .catch(function (err) {
+                  fwd.disabled = false;
+                  window.alert(String(err.message || err));
+                });
+            });
+            actions.appendChild(fwd);
+          }
+          if (onlineIsOwner && (item.status === 'pending_owner' || item.status === 'pending_admin')) {
+            var accept = document.createElement('button');
+            accept.type = 'button';
+            accept.className = 'rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white';
+            accept.textContent = 'Approve';
+            accept.addEventListener('click', function () {
+              accept.disabled = true;
+              api('/api/levels/nominations/decide', {
+                method: 'POST',
+                body: JSON.stringify({ id: item.id, accept: true }),
+              })
+                .then(function () {
+                  return loadNominations();
+                })
+                .catch(function (err) {
+                  accept.disabled = false;
+                  window.alert(String(err.message || err));
+                });
+            });
+            var decline = document.createElement('button');
+            decline.type = 'button';
+            decline.className = 'rounded-lg border border-white/20 px-2 py-1 text-[11px] font-semibold text-slate-200';
+            decline.textContent = 'Decline';
+            decline.addEventListener('click', function () {
+              decline.disabled = true;
+              api('/api/levels/nominations/decide', {
+                method: 'POST',
+                body: JSON.stringify({ id: item.id, accept: false }),
+              })
+                .then(function () {
+                  return loadNominations();
+                })
+                .catch(function (err) {
+                  decline.disabled = false;
+                  window.alert(String(err.message || err));
+                });
+            });
+            actions.appendChild(accept);
+            actions.appendChild(decline);
+          }
+          if (actions.childNodes.length) li.appendChild(actions);
+          list.appendChild(li);
+        });
+      })
+      .catch(function (err) {
+        list.innerHTML = '<li class="text-[11px] text-rose-300">' + escapeHtml(String(err.message || err)) + '</li>';
+      });
+  }
+
+  function nominateLevel(id, titleLine) {
+    if (!onlineIsLevelMod) {
+      window.alert('Only a Level Mod can nominate.');
+      return;
+    }
+    var kind = window.prompt('Nominate for "award" or "stage"?', 'award');
+    if (kind == null) return;
+    kind = String(kind).trim().toLowerCase();
+    if (kind !== 'award' && kind !== 'stage') {
+      window.alert('Enter award or stage.');
+      return;
+    }
+    var body = { levelId: id, kind: kind };
+    if (kind === 'stage') {
+      var world = window.prompt('World number (1–50)', '1');
+      var stage = window.prompt('Stage number', '1');
+      if (world == null || stage == null) return;
+      body.world = Number(world);
+      body.stage = Number(stage);
+    }
+    var note = window.prompt('Optional note for admins/owner', '') || '';
+    body.note = note;
+    api('/api/levels/nominate', { method: 'POST', body: JSON.stringify(body) })
+      .then(function () {
+        window.alert('Nomination sent for "' + (titleLine || id) + '".');
+        void loadNominations();
+      })
+      .catch(function (err) {
+        window.alert(String(err.message || err));
       });
   }
 
@@ -3223,6 +3388,7 @@
               authorRole: items[i].author_role || 'player',
               awarded: true,
               canAward: onlineIsOwner,
+              canNominate: onlineIsLevelMod,
               returnTo: 'awarded',
               allowCopy: items[i].allow_copy !== false,
               aiAssisted: !!items[i].aiAssisted,
@@ -4397,6 +4563,7 @@
 
   async function fetchOnlineList() {
     onlineList.innerHTML = '';
+    const aiOnly = aiOnlyChecked();
     try {
       if (onlineCtx.mode === 'user' && onlineCtx.username) {
         const q =
@@ -4415,8 +4582,10 @@
                 ? 'font-sem text-rose-400'
                 : 'font-sem text-cyan-200';
         }
-        renderOnlinePager(out.total || 0, out.page || 1);
-        for (const it of out.items || []) {
+        let items = out.items || [];
+        if (aiOnly) items = items.filter(function (it) { return !!it.aiAssisted; });
+        renderOnlinePager(aiOnly ? items.length : out.total || 0, out.page || 1);
+        for (const it of items) {
           onlineList.appendChild(
             rowOnlineItem(it.title, it.id, it.play_count, {
               author: onlineCtx.username,
@@ -4424,6 +4593,7 @@
               authorRole: out.author_role || (out.author_is_moderator ? 'moderator' : 'player'),
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
+              canNominate: onlineIsLevelMod,
               allowCopy: it.allow_copy !== false,
               aiAssisted: !!it.aiAssisted,
             })
@@ -4436,7 +4606,8 @@
           '/api/levels/search?q=' +
           encodeURIComponent(onlineCtx.titleQ) +
           '&page=' +
-          encodeURIComponent(String(onlineCtx.page));
+          encodeURIComponent(String(onlineCtx.page)) +
+          (aiOnly ? '&ai=1' : '');
         const out = await api(q, { noAuth: true });
         renderOnlinePager(out.total || 0, out.page || 1);
         for (const it of out.items || []) {
@@ -4447,6 +4618,7 @@
               authorRole: it.author_role || (it.author_is_moderator ? 'moderator' : 'player'),
               awarded: !!it.awarded,
               canAward: onlineIsOwner,
+              canNominate: onlineIsLevelMod,
               allowCopy: it.allow_copy !== false,
               aiAssisted: !!it.aiAssisted,
             })
@@ -4456,17 +4628,20 @@
       }
       if (onlineCtx.mode === 'id' && onlineCtx.idQ) {
         const out = await api('/api/levels/lookup?id=' + encodeURIComponent(onlineCtx.idQ.trim()), { noAuth: true });
-        renderOnlinePager(out.item ? 1 : 0, 1);
-        if (out.item) {
+        let item = out.item;
+        if (item && aiOnly && !item.aiAssisted) item = null;
+        renderOnlinePager(item ? 1 : 0, 1);
+        if (item) {
           onlineList.appendChild(
-            rowOnlineItem(out.item.title, out.item.id, out.item.play_count, {
-              author: out.item.author_username || '—',
-              authorIsModerator: !!out.item.author_is_moderator,
-              authorRole: out.item.author_role || (out.item.author_is_moderator ? 'moderator' : 'player'),
-              awarded: !!out.item.awarded,
+            rowOnlineItem(item.title, item.id, item.play_count, {
+              author: item.author_username || '—',
+              authorIsModerator: !!item.author_is_moderator,
+              authorRole: item.author_role || (item.author_is_moderator ? 'moderator' : 'player'),
+              awarded: !!item.awarded,
               canAward: onlineIsOwner,
-              allowCopy: out.item.allow_copy !== false,
-              aiAssisted: !!out.item.aiAssisted,
+              canNominate: onlineIsLevelMod,
+              allowCopy: item.allow_copy !== false,
+              aiAssisted: !!item.aiAssisted,
             })
           );
         }
@@ -5414,6 +5589,9 @@
         : extra.canAward && extra.awarded
           ? '<button type="button" class="lvl-unaward rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500">Remove</button>'
           : '';
+    const nominateBtn = extra.canNominate
+      ? '<button type="button" class="lvl-nominate rounded-lg border border-violet-400/50 px-3 py-1 text-xs font-semibold text-violet-100 hover:bg-violet-950/50">Nominate</button>'
+      : '';
     li.innerHTML =
       titleHtml +
       '<div class="mt-1 font-mono text-[10px] text-slate-500">' +
@@ -5427,6 +5605,7 @@
         ? '<button type="button" class="lvl-copy rounded-lg border border-violet-400/50 px-3 py-1 text-xs font-semibold text-violet-100 hover:bg-violet-950/50">Copy</button>'
         : '') +
       awardBtn +
+      nominateBtn +
       (extra.aiAssisted && canReviewAiPrompts()
         ? '<button type="button" class="lvl-ai-prompts rounded-lg border border-fuchsia-400/50 px-3 py-1 text-xs font-semibold text-fuchsia-100 hover:bg-fuchsia-950/40">AI prompts</button>'
         : '') +
@@ -5441,6 +5620,10 @@
     const aiPrompts = li.querySelector('.lvl-ai-prompts');
     if (aiPrompts) {
       aiPrompts.addEventListener('click', () => void showAiPrompts(id, titleLine));
+    }
+    const nominate = li.querySelector('.lvl-nominate');
+    if (nominate) {
+      nominate.addEventListener('click', () => nominateLevel(id, titleLine));
     }
     const award = li.querySelector('.lvl-award');
     if (award) {
@@ -5676,6 +5859,18 @@
       onlineCtx.page = 1;
       fetchOnlineList();
     });
+
+    const aiOnlyEl = document.getElementById('lvlOnlineAiOnly');
+    if (aiOnlyEl) {
+      aiOnlyEl.addEventListener('change', () => {
+        onlineCtx.page = 1;
+        if (onlineCtx.username || onlineCtx.titleQ || onlineCtx.idQ) fetchOnlineList();
+      });
+    }
+    const nomsRefresh = document.getElementById('btnLvlNomsRefresh');
+    if (nomsRefresh) {
+      nomsRefresh.addEventListener('click', () => void loadNominations());
+    }
 
     document.querySelectorAll('.lvl-tool').forEach((b) => {
       b.addEventListener('click', () => {

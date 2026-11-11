@@ -271,33 +271,41 @@ export async function listSites(store, user, hostType, hostId) {
   return { sites: full, maxSites: MAX_SITES, maxBytes: MAX_BYTES };
 }
 
-export async function deploySite(store, user, { name, hostType, hostId, files }) {
+async function writeSiteRow(store, user, host, name, files) {
   const clean = cleanName(name);
   const nextFiles = prepareFiles(files);
+  const bag = await readBag(store);
+  const existing = bag.sites.find((site) => site.name === clean);
+  if (existing && (existing.hostType !== host.hostType || existing.hostId !== host.hostId)) {
+    throw new Error('That website name is taken.');
+  }
+  const owned = bag.sites.filter((site) => site.hostType === host.hostType && site.hostId === host.hostId);
+  if (!existing && owned.length >= MAX_SITES) throw new Error('That company or organization already has 3 sites.');
+  await writeFiles(clean, nextFiles, existing ? (existing.files || []).map((file) => file.path) : []);
+  const row = {
+    name: clean,
+    hostType: host.hostType,
+    hostId: host.hostId,
+    hostName: host.hostName,
+    updatedAt: Date.now(),
+    updatedBy: String(user.id),
+    files: nextFiles.map((file) => ({ path: file.path })),
+  };
+  bag.sites = bag.sites.filter((site) => site.name !== clean);
+  bag.sites.push(row);
+  await writeBag(store, bag);
+  return { site: publicSite({ ...row, files: nextFiles }, true), maxSites: MAX_SITES, maxBytes: MAX_BYTES };
+}
+
+export async function deploySite(store, user, { name, hostType, hostId, files }) {
   const host = await Economy.describeSiteHost(store, user, hostType, hostId);
-  return locked(async () => {
-    const bag = await readBag(store);
-    const existing = bag.sites.find((site) => site.name === clean);
-    if (existing && (existing.hostType !== host.hostType || existing.hostId !== host.hostId)) {
-      throw new Error('That website name is taken.');
-    }
-    const owned = bag.sites.filter((site) => site.hostType === host.hostType && site.hostId === host.hostId);
-    if (!existing && owned.length >= MAX_SITES) throw new Error('That company or organization already has 3 sites.');
-    await writeFiles(clean, nextFiles, existing ? (existing.files || []).map((file) => file.path) : []);
-    const row = {
-      name: clean,
-      hostType: host.hostType,
-      hostId: host.hostId,
-      hostName: host.hostName,
-      updatedAt: Date.now(),
-      updatedBy: String(user.id),
-      files: nextFiles.map((file) => ({ path: file.path })),
-    };
-    bag.sites = bag.sites.filter((site) => site.name !== clean);
-    bag.sites.push(row);
-    await writeBag(store, bag);
-    return { site: publicSite({ ...row, files: nextFiles }, true), maxSites: MAX_SITES, maxBytes: MAX_BYTES };
-  });
+  return locked(async () => writeSiteRow(store, user, host, name, files));
+}
+
+/** Used by a website development company after a one-time client auth code is checked. */
+export async function deploySiteForHost(store, user, host, { name, files }) {
+  if (!host || !host.hostType || !host.hostId) throw new Error('Host required.');
+  return locked(async () => writeSiteRow(store, user, host, name, files));
 }
 
 export async function deleteSite(store, user, { name, hostType, hostId }) {

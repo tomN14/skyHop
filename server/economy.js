@@ -50,6 +50,10 @@ function emptyState() {
   };
 }
 
+function newAuthCode() {
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+}
+
 function uid(id) {
   return String(id);
 }
@@ -72,7 +76,7 @@ function nameOf(list, id) {
   return row ? row.username : 'player';
 }
 
-async function loadState(store) {
+export async function loadState(store) {
   if (typeof store.getSiteContentPayload !== 'function') return emptyState();
   const row = await store.getSiteContentPayload(KEY);
   if (!row || typeof row !== 'object') return emptyState();
@@ -378,11 +382,12 @@ function isOrgMember(org, userId) {
   return !!(org && (org.members || []).some((member) => uid(member.id) === uid(userId)));
 }
 
-function controlsCompany(state, company, userId) {
+export function controlsCompany(state, company, userId) {
   if (!company || !company.alive || company.sovereign) return false;
-  if (uid(company.ownerId) === uid(userId)) return true;
+  const id = userId && typeof userId === 'object' ? userId.id : userId;
+  if (uid(company.ownerId) === uid(id)) return true;
   if (!company.organizationId) return false;
-  return isOrgMember(orgById(state, company.organizationId), userId);
+  return isOrgMember(orgById(state, company.organizationId), id);
 }
 
 function myCompanies(state, userId) {
@@ -918,6 +923,10 @@ function detailCompany(c, user, people, ownerView) {
     accountLimit: c.kind === 'bank' ? bankRules(c).limit : undefined,
     insured: c.kind === 'insurance' ? !!(c.policies || {})[me] : undefined,
     tournaments: c.kind === 'racing' ? tournamentsOf(c).map((t) => publicTournament(t, me, ownerView)) : [],
+    webdevFee: c.kind === 'webdev' ? Number(c.webdevFee) || 0 : undefined,
+    webdevQuality: c.kind === 'webdev' ? Number(c.webdevQuality) || 1 : undefined,
+    lawFee: c.kind === 'law' ? Number(c.lawFee) || 0 : undefined,
+    websiteAuthCode: ownerView && c.kind !== 'webdev' ? String(c.websiteAuthCode || '') : undefined,
   };
   if (ownerView && c.kind === 'bank') {
     row.deposits = Object.keys(c.deposits || {}).map((id) => ({
@@ -954,7 +963,9 @@ export async function receiveBankCoins(store, amount) {
 export async function registerCompany(store, user, { name, kind, organizationId }) {
   const clean = String(name || '').trim().slice(0, 24);
   if (clean.length < 2) throw new Error('Company name must be 2–24 characters.');
-  if (!['racing', 'bank', 'insurance'].includes(kind)) throw new Error('Pick a racing, bank, or insurance company.');
+  if (!['racing', 'bank', 'insurance', 'webdev', 'law'].includes(kind)) {
+    throw new Error('Pick a racing, bank, insurance, website development, or law company.');
+  }
   return withState(store, async (state) => {
     if (state.companies.some((c) => c.alive && c.name.toLowerCase() === clean.toLowerCase())) {
       throw new Error('That company name is taken.');
@@ -1001,6 +1012,10 @@ export async function registerCompany(store, user, { name, kind, organizationId 
       beta: 0,
       noiseSeed: 0,
       history: [],
+      websiteAuthCode: kind === 'webdev' ? '' : newAuthCode(),
+      webdevFee: kind === 'webdev' ? 500 : 0,
+      webdevQuality: kind === 'webdev' ? 2 : 0,
+      lawFee: kind === 'law' ? 200 : 0,
     };
     ensureMarket(company);
     pushHistory(company, Date.now(), company.shareExact);
@@ -1387,7 +1402,72 @@ export async function updateCompany(store, user, body) {
       if (!list.some((t) => t.id === id)) throw new Error('That tournament is not open.');
       c.tournaments = list.filter((t) => t.id !== id);
     }
+    if (c.kind === 'webdev') {
+      if (body.webdevFee != null) c.webdevFee = clampMoney(body.webdevFee, 0, 10_000_000);
+      if (body.webdevQuality != null) {
+        const q = Math.floor(Number(body.webdevQuality));
+        if (!Number.isFinite(q) || q < 1 || q > 5) throw new Error('Website quality must be from 1 to 5.');
+        c.webdevQuality = q;
+      }
+    }
+    if (c.kind === 'law' && body.lawFee != null) c.lawFee = clampMoney(body.lawFee, 0, 10_000_000);
+    if (body.refreshWebsiteAuth) {
+      c.websiteAuthCode = newAuthCode();
+    }
+    if (!c.websiteAuthCode && c.kind !== 'webdev') c.websiteAuthCode = newAuthCode();
     return present(state, user, await holders(store));
+  });
+}
+
+export async function transferCompanyCash(store, fromCompanyId, toCompanyId, amount) {
+  const n = Math.floor(Number(amount) || 0);
+  if (n <= 0) return;
+  return withState(store, async (state) => {
+    const from = companyById(state, fromCompanyId);
+    const to = companyById(state, toCompanyId);
+    if (!from || !to) throw new Error('Company not found.');
+    if (from.cash < n) throw new Error('The defendant does not have enough company cash.');
+    from.cash -= n;
+    to.cash += n;
+  });
+}
+
+/** Website development company builds a site for another company using a one-time auth code. */
+export async function buildWebsiteForClient(store, user, body) {
+  const Sites = await import('./sites.js');
+  return withState(store, async (state) => {
+    const builder = ownedCompany(state, user.id, body.companyId);
+    if (!builder || builder.kind !== 'webdev') throw new Error('Only a website development company can build for a client.');
+    const client = companyById(state, body.clientCompanyId);
+    if (!client || client.sovereign) throw new Error('Client company not found.');
+    const code = String(body.authCode || '').trim().toUpperCase();
+    if (!client.websiteAuthCode) client.websiteAuthCode = newAuthCode();
+    if (!code || code !== String(client.websiteAuthCode).toUpperCase()) {
+      throw new Error('That authorization code is wrong or already used.');
+    }
+    const fee = Math.max(0, Math.floor(Number(builder.webdevFee) || 0));
+    if (fee > 0) {
+      if (client.cash < fee) throw new Error('The client company does not have enough cash for the fee.');
+      client.cash -= fee;
+      builder.cash += fee;
+    }
+    client.websiteAuthCode = newAuthCode();
+    const siteName = String(body.siteName || '').trim();
+    const files = Array.isArray(body.files) ? body.files : [];
+    const deployed = await Sites.deploySiteForHost(
+      store,
+      user,
+      { hostType: 'company', hostId: client.id, hostName: client.name },
+      { name: siteName, files }
+    );
+    return {
+      ok: true,
+      fee,
+      quality: builder.webdevQuality || 1,
+      site: deployed.site,
+      clientAuthCode: client.websiteAuthCode,
+      view: present(state, user, await holders(store)),
+    };
   });
 }
 

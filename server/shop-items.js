@@ -128,9 +128,14 @@ export function isShopItemCreator(item, user) {
 function shopFlags(item, actor) {
   if (!actor) return {};
   const creator = isShopItemCreator(item, actor);
+  const curator = !!(actor.skinCurator && actor.graphicDesigner);
   return {
-    canEdit: !!(actor.owner || (actor.graphicDesigner && creator)),
-    canDelete: !!(item.source === 'owner' && creator && (actor.graphicDesigner || actor.owner)),
+    canEdit: !!(actor.owner || curator || (actor.graphicDesigner && creator)),
+    canDelete: !!(
+      actor.owner ||
+      (curator && item.source === 'owner') ||
+      (item.source === 'owner' && creator && actor.graphicDesigner)
+    ),
     unsellable: !!creator,
   };
 }

@@ -25,6 +25,9 @@ import * as UserLevels from './user-levels.js';
 import * as LevelAi from './level-ai.js';
 import * as LevelCollab from './level-collab.js';
 import * as LevelVersions from './level-versions.js';
+import * as StaffFlags from './staff-flags.js';
+import * as LevelNoms from './level-noms.js';
+import * as Legal from './legal.js';
 import * as Recordings from './recordings.js';
 import * as InputLogs from './input-logs.js';
 import * as SubmittedRuns from './submitted-runs.js';
@@ -229,13 +232,14 @@ async function enrichReports(rows) {
   return out;
 }
 
-function shopActorFromSession(sess) {
+function shopActorFromSession(sess, flags) {
   if (!sess || !sess.user) return null;
   return {
     id: sess.user.id,
     username: sess.user.username,
     owner: effectiveRole(sess.user) === 'owner',
     graphicDesigner: isGraphicDesigner(sess.user),
+    skinCurator: !!(flags && flags.skinCurator),
   };
 }
 
@@ -334,6 +338,7 @@ async function buildMePayload(userId, req = null) {
     role: displayRole(role),
     adminPowers: hasAdminPowers(role),
     graphicDesigner: isGraphicDesigner(user),
+    ...(await StaffFlags.flagsFor(store, userId)),
     experimentalFeatures: await LevelAi.experimentalOn(store, userId),
     disabled: isAccountDisabled(user),
     coinsInfinite,
@@ -1471,7 +1476,8 @@ export async function handleApi(req, res) {
     try {
       const sess = await getActiveSessionUser(req);
       const disk = await listTextureFilenames();
-      const out = await ShopItems.listShopItems(disk, shopActorFromSession(sess));
+      const flags = sess ? await StaffFlags.flagsFor(store, sess.userId) : null;
+      const out = await ShopItems.listShopItems(disk, shopActorFromSession(sess, flags));
       json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
@@ -1654,7 +1660,8 @@ export async function handleApi(req, res) {
     }
     try {
       const disk = await listTextureFilenames();
-      json(res, 200, await ShopItems.listShopItemsForOwner(disk, shopActorFromSession(sess)));
+      const flags = await StaffFlags.flagsFor(store, sess.userId);
+      json(res, 200, await ShopItems.listShopItemsForOwner(disk, shopActorFromSession(sess, flags)));
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
     }
@@ -1681,9 +1688,11 @@ export async function handleApi(req, res) {
     try {
       const existing = await ShopItems.getShopItemById(body.id);
       if (!existing) throw new Error('Unknown shop item.');
+      const flags = await StaffFlags.flagsFor(store, sess.userId);
       const ownerEdit = effectiveRole(sess.user) === 'owner';
       const ownSkin = isGraphicDesigner(sess.user) && ShopItems.isShopItemCreator(existing, sess.user);
-      if (!ownerEdit && !ownSkin) {
+      const curator = !!(flags.skinCurator && isGraphicDesigner(sess.user));
+      if (!ownerEdit && !ownSkin && !curator) {
         json(res, 403, { error: 'You can only edit skins you made.' });
         return true;
       }
@@ -1723,8 +1732,13 @@ export async function handleApi(req, res) {
     try {
       const existing = await ShopItems.getShopItemById(body.id);
       if (!existing) throw new Error('Unknown shop item.');
+      const flags = await StaffFlags.flagsFor(store, sess.userId);
       const maker = ShopItems.isShopItemCreator(existing, sess.user);
-      const allowed = maker && existing.source === 'owner' && (isGraphicDesigner(sess.user) || effectiveRole(sess.user) === 'owner');
+      const curator = !!(flags.skinCurator && isGraphicDesigner(sess.user) && existing.source === 'owner');
+      const allowed =
+        effectiveRole(sess.user) === 'owner' ||
+        curator ||
+        (maker && existing.source === 'owner' && isGraphicDesigner(sess.user));
       if (!allowed) {
         json(res, 403, { error: 'You can only delete skins you made.' });
         return true;
@@ -3090,6 +3104,57 @@ export async function handleApi(req, res) {
       }
       await store.setGraphicDesigner(u.id, promote);
       json(res, 200, { ok: true, username: u.username, graphicDesigner: promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-level-mod' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(String(body.username || '').trim());
+      if (!u) throw new Error('User not found');
+      await StaffFlags.setLevelMod(store, u.id, !!body.promote);
+      json(res, 200, { ok: true, username: u.username, levelMod: !!body.promote });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/owner/set-skin-curator' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess || effectiveRole(sess.user) !== 'owner') {
+      json(res, 403, { error: 'Owner only' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const u = await store.findUserByUsername(String(body.username || '').trim());
+      if (!u) throw new Error('User not found');
+      if (body.promote && !isGraphicDesigner(u)) {
+        throw new Error('That player must already be a Graphic Designer.');
+      }
+      await StaffFlags.setSkinCurator(store, u.id, !!body.promote);
+      json(res, 200, { ok: true, username: u.username, skinCurator: !!body.promote });
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }
@@ -5386,6 +5451,90 @@ export async function handleApi(req, res) {
     }
   }
 
+  if (pathname === '/api/levels/nominate' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const flags = await StaffFlags.flagsFor(store, sess.userId);
+      json(res, 200, await LevelNoms.nominate(store, sess.user, flags, body));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/levels/nominations' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      json(res, 200, { items: await LevelNoms.listFor(store, sess.user) });
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/levels/nominations/forward' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(res, 200, await LevelNoms.forwardToOwner(store, sess.user, body.id || body.nominationId));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/levels/nominations/decide' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(
+        res,
+        200,
+        await LevelNoms.decide(store, sess.user, body.id || body.nominationId, !!body.accept, body.reason, (item) =>
+          LevelNoms.placeAsStage(store, item)
+        )
+      );
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
   {
     const m = /^\/api\/levels\/([^/]+)\/clear-reward$/.exec(pathname);
     if (m && req.method === 'POST') {
@@ -5423,9 +5572,11 @@ export async function handleApi(req, res) {
   if (pathname === '/api/levels/search' && req.method === 'GET') {
     const q = u.searchParams.get('q') || '';
     const page = Number(u.searchParams.get('page') || '1') || 1;
+    const aiAssisted = u.searchParams.get('ai') === '1' || u.searchParams.get('aiAssisted') === '1';
     try {
-      const out = await UserLevels.levelsSearchName(q, page);
+      const out = await UserLevels.levelsSearchName(q, page, { aiAssisted });
       out.items = await LevelAi.annotateRows(store, out.items);
+      if (aiAssisted) out.items = (out.items || []).filter((row) => !!row.aiAssisted);
       json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });
@@ -5738,6 +5889,74 @@ export async function handleApi(req, res) {
     try {
       const name = censorProfanity(String(body.name || '')).text;
       json(res, 200, await Economy.registerCompany(store, sess.user, { name, kind: body.kind, organizationId: body.organizationId || '' }));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/economy/webdev/build' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      json(res, 200, await Economy.buildWebsiteForClient(store, sess.user, body));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/legal' && req.method === 'GET') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    try {
+      json(res, 200, await Legal.overview(store, sess.user));
+    } catch (e) {
+      json(res, 400, { error: String(e.message || e) });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/legal' && req.method === 'POST') {
+    const sess = await getActiveSessionUser(req);
+    if (!sess) {
+      json(res, 401, { error: 'Not logged in' });
+      return true;
+    }
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      json(res, 400, { error: 'Invalid JSON' });
+      return true;
+    }
+    try {
+      const action = String(body.action || '');
+      if (action === 'proposePartnership') json(res, 200, await Legal.proposePartnership(store, sess.user, body));
+      else if (action === 'respondPartnership') json(res, 200, await Legal.respondPartnership(store, sess.user, body));
+      else if (action === 'createContract') json(res, 200, await Legal.createContract(store, sess.user, body));
+      else if (action === 'respondContract') json(res, 200, await Legal.respondContract(store, sess.user, body));
+      else if (action === 'fileSuit') json(res, 200, await Legal.fileSuit(store, sess.user, body));
+      else if (action === 'addEvidence') json(res, 200, await Legal.addEvidence(store, sess.user, body));
+      else if (action === 'addArgument') json(res, 200, await Legal.addArgument(store, sess.user, body));
+      else if (action === 'hireFirm') json(res, 200, await Legal.hireFirm(store, sess.user, body));
+      else if (action === 'claimJudge') json(res, 200, await Legal.claimJudge(store, sess.user, body.suitId || body.id));
+      else if (action === 'verdict') json(res, 200, await Legal.issueVerdict(store, sess.user, body));
+      else if (action === 'appeal') json(res, 200, await Legal.appeal(store, sess.user, body));
+      else throw new Error('Unknown legal action.');
     } catch (e) {
       json(res, 400, { error: String(e.message || e) });
     }

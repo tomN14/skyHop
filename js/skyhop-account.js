@@ -2544,6 +2544,104 @@
       });
     }
 
+    var ownerLevelModUsername = document.getElementById('ownerLevelModUsername');
+    var ownerLevelModMsg = document.getElementById('ownerLevelModMsg');
+    function setOwnerLevelModMsg(t, isErr) {
+      if (!ownerLevelModMsg) return;
+      ownerLevelModMsg.textContent = t || '';
+      ownerLevelModMsg.classList.toggle('hidden', !t);
+      ownerLevelModMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerLevelModMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function ownerSetLevelMod(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerLevelModUsername ? String(ownerLevelModUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerLevelModMsg('Enter a username.', true);
+        return;
+      }
+      setOwnerLevelModMsg('', false);
+      try {
+        var data = await api('/api/owner/set-level-mod', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, promote: !!promote }),
+        });
+        setOwnerLevelModMsg(
+          promote
+            ? (data.username || un) + ' is now a Level Mod.'
+            : 'Level Mod removed from ' + (data.username || un) + '.',
+          false
+        );
+        await refreshPanel();
+      } catch (e) {
+        setOwnerLevelModMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnLevelModOn = document.getElementById('ownerBtnLevelModOn');
+    var ownerBtnLevelModOff = document.getElementById('ownerBtnLevelModOff');
+    if (ownerBtnLevelModOn) {
+      ownerBtnLevelModOn.addEventListener('click', function () {
+        void ownerSetLevelMod(true);
+      });
+    }
+    if (ownerBtnLevelModOff) {
+      ownerBtnLevelModOff.addEventListener('click', function () {
+        void ownerSetLevelMod(false);
+      });
+    }
+
+    var ownerSkinCuratorUsername = document.getElementById('ownerSkinCuratorUsername');
+    var ownerSkinCuratorMsg = document.getElementById('ownerSkinCuratorMsg');
+    function setOwnerSkinCuratorMsg(t, isErr) {
+      if (!ownerSkinCuratorMsg) return;
+      ownerSkinCuratorMsg.textContent = t || '';
+      ownerSkinCuratorMsg.classList.toggle('hidden', !t);
+      ownerSkinCuratorMsg.classList.toggle('text-rose-300', !!isErr);
+      ownerSkinCuratorMsg.classList.toggle('text-emerald-200', !isErr && !!t);
+    }
+    async function ownerSetSkinCurator(promote) {
+      var tok = getToken();
+      var me = window.__skyhopLastMe;
+      if (!tok || !me || me.role !== 'owner') return;
+      var un = ownerSkinCuratorUsername ? String(ownerSkinCuratorUsername.value || '').trim() : '';
+      if (!un) {
+        setOwnerSkinCuratorMsg('Enter a username.', true);
+        return;
+      }
+      setOwnerSkinCuratorMsg('', false);
+      try {
+        var data = await api('/api/owner/set-skin-curator', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: un, promote: !!promote }),
+        });
+        setOwnerSkinCuratorMsg(
+          promote
+            ? (data.username || un) + ' is now a Skin Curator.'
+            : 'Skin Curator removed from ' + (data.username || un) + '.',
+          false
+        );
+        await refreshPanel();
+      } catch (e) {
+        setOwnerSkinCuratorMsg(String(e.message || e), true);
+      }
+    }
+    var ownerBtnSkinCuratorOn = document.getElementById('ownerBtnSkinCuratorOn');
+    var ownerBtnSkinCuratorOff = document.getElementById('ownerBtnSkinCuratorOff');
+    if (ownerBtnSkinCuratorOn) {
+      ownerBtnSkinCuratorOn.addEventListener('click', function () {
+        void ownerSetSkinCurator(true);
+      });
+    }
+    if (ownerBtnSkinCuratorOff) {
+      ownerBtnSkinCuratorOff.addEventListener('click', function () {
+        void ownerSetSkinCurator(false);
+      });
+    }
+
     async function refreshStaffRoster() {
       var box = document.getElementById('staffRoster');
       var body = document.getElementById('staffRosterBody');

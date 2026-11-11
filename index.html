@@ -1167,6 +1167,26 @@
           <p id="ownerGraphicMsg" class="mt-2 hidden text-xs text-slate-300"></p>
         </div>
         <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-violet-200/90">Level Mod</p>
+          <p class="mt-1 text-[11px] text-slate-500">They can nominate a published level for an award or for a campaign stage. Admins only forward nominations to you. Only you award or place a stage.</p>
+          <input id="ownerLevelModUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnLevelModOn" type="button" class="flex-1 rounded-xl border border-violet-500/45 bg-violet-950/50 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-900/40">Make Level Mod</button>
+            <button id="ownerBtnLevelModOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Level Mod</button>
+          </div>
+          <p id="ownerLevelModMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
+          <p class="text-[11px] font-sem text-rose-200/90">Skin Curator</p>
+          <p class="mt-1 text-[11px] text-slate-500">Must already be a Graphic Designer. They can edit or remove other people’s shop skins.</p>
+          <input id="ownerSkinCuratorUsername" type="text" maxlength="24" autocomplete="off" class="mt-2 w-full rounded-xl border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white" placeholder="username" />
+          <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+            <button id="ownerBtnSkinCuratorOn" type="button" class="flex-1 rounded-xl border border-rose-500/45 bg-rose-950/50 px-3 py-2 text-xs font-semibold text-rose-100 hover:bg-rose-900/40">Make Skin Curator</button>
+            <button id="ownerBtnSkinCuratorOff" type="button" class="flex-1 rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5">Remove Skin Curator</button>
+          </div>
+          <p id="ownerSkinCuratorMsg" class="mt-2 hidden text-xs text-slate-300"></p>
+        </div>
+        <div class="mt-6 border-t border-white/10 pt-4">
           <p class="text-[11px] font-sem text-emerald-200/90">Admin requests</p>
           <p class="mt-1 text-[11px] text-slate-500">Demote-moderator and longer-ban requests. Accept or decline; you make the final call.</p>
           <button id="ownerBtnRefreshStaffRequests" type="button" class="mt-2 w-full rounded-xl border border-emerald-500/45 px-3 py-2 text-xs font-semibold text-emerald-100 hover:bg-emerald-950/40">Refresh requests</button>
@@ -1965,9 +1985,21 @@ end;</pre>
         <div id="lvlOnlineUserPanel" class="hidden rounded-xl border border-white/10 bg-slate-900/60 p-3">
           <p class="text-xs text-slate-400">Browsing <span id="lvlOnlineUserLabel" class="font-sem text-cyan-200"></span></p>
           <input id="lvlOnlineTitleSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter level name..." autocomplete="off" />
+          <label class="mt-2 flex items-center gap-2 text-[11px] text-slate-300">
+            <input id="lvlOnlineAiOnly" type="checkbox" class="rounded border-slate-600" />
+            AI-assisted only
+          </label>
           <input id="lvlOnlineIdSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter ID..." autocomplete="off" />
           <ul id="lvlOnlineList" class="mt-3 max-h-[40vh] list-none space-y-2 overflow-y-auto p-0 md:max-h-[50vh]"></ul>
           <div id="lvlOnlinePager" class="mt-3 flex items-center justify-center gap-3 text-sm text-slate-300"></div>
+          <div id="lvlNomsPanel" class="mt-4 hidden rounded-xl border border-violet-500/30 bg-violet-950/20 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs font-semibold text-violet-200">Level nominations</p>
+              <button id="btnLvlNomsRefresh" type="button" class="rounded-lg border border-violet-400/40 px-2 py-1 text-[11px] font-semibold text-violet-100 hover:bg-violet-950/50">Refresh</button>
+            </div>
+            <p class="mt-1 text-[11px] text-slate-500">Level mods nominate. Admins forward to the owner. Only the owner awards or places a stage.</p>
+            <ul id="lvlNomsList" class="mt-2 max-h-48 list-none space-y-2 overflow-y-auto p-0"></ul>
+          </div>
         </div>
         <p id="lvlOnlineHint" class="text-center text-xs text-slate-500">Search a username to see their published levels (12 per page). Use the fields under their name to search by level title (most played first) or exact published level ID.</p>
       </div>
@@ -2530,6 +2562,17 @@ end;</pre>
     <div id="economyBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
   </div>
 
+  <div id="screenLegal" class="pointer-events-auto fixed inset-0 z-[42] hidden flex-col overflow-hidden bg-slate-950/98 backdrop-blur-md">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-amber-500/25 bg-slate-900/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))] md:px-8">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-widest text-amber-300">Legal</p>
+        <h2 class="text-lg font-bold text-white">Partnerships &amp; courts</h2>
+      </div>
+      <button id="btnLegalClose" type="button" class="shrink-0 rounded-xl border border-white/15 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-700">Close</button>
+    </div>
+    <div id="legalBody" class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4 md:p-6"></div>
+  </div>
+
   <!-- Edge FABs live on body so position:fixed is always viewport-relative (avoid relative+fixed Tailwind clash). -->
   <button id="btnAdminBanFab" type="button" title="Admin: bans &amp; mods" class="skyhop-edge-fab hidden border border-emerald-500/50 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🚫</span>
@@ -2537,6 +2580,9 @@ end;</pre>
   <button id="btnOrgFab" type="button" title="Organizations" class="skyhop-edge-fab border border-sky-400/55 bg-slate-900/95 hover:bg-sky-950/80">
     <span aria-hidden="true">🤝</span>
     <span id="orgInviteBadge" class="absolute -right-1 -top-1 hidden min-w-4 rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white"></span>
+  </button>
+  <button id="btnLegalFab" type="button" title="Partnerships and courts" class="skyhop-edge-fab border border-amber-400/55 bg-slate-900/95 hover:bg-amber-950/80">
+    <span aria-hidden="true">⚖️</span>
   </button>
   <button id="btnNationalFab" type="button" title="Sky Hop National Bank" class="skyhop-edge-fab border border-emerald-400/55 bg-slate-900/95 hover:bg-emerald-950/80">
     <span aria-hidden="true">🏛️</span>
@@ -2660,6 +2706,7 @@ end;</pre>
   <script src="js/skyhop-leaderboards-panel.js"></script>
   <script src="js/skyhop-coin-shop.js"></script>
   <script src="js/skyhop-economy.js"></script>
+  <script src="js/skyhop-legal.js"></script>
   <script src="js/skyhop-features.js"></script>
   <script src="js/skyhop-mod-dashboard.js"></script>
   <script src="js/skyhop-role-powers.js"></script>

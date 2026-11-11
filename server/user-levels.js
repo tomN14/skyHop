@@ -556,27 +556,34 @@ export async function levelsListByUsername(usernameLower, page) {
   return { items, total, page: p, author_is_moderator, author_role };
 }
 
-export async function levelsSearchName(q, page) {
+export async function levelsSearchName(q, page, opts) {
   const p = Math.max(1, Math.floor(Number(page) || 1));
   const off = (p - 1) * PAGE_SIZE;
   const term = String(q || '').trim().toLowerCase();
   if (term.length < 1) return { items: [], total: 0, page: p };
+  const aiOnly = !!(opts && opts.aiAssisted);
 
   if (useSupabase()) {
     const sb = sbClient();
     const like = `%${term.replace(/%/g, '')}%`;
-    const { count } = await sb.from('skyhop_user_levels').select('id', { count: 'exact', head: true }).eq('published', true).ilike('title_lower', like);
-    const res = await selectLevelRows(sb, 'id, title, play_count, author_id, awarded', null, (q) =>
-      q.eq('published', true).ilike('title_lower', like).order('play_count', { ascending: false }).range(off, off + PAGE_SIZE - 1)
+    const res = await selectLevelRows(sb, 'id, title, play_count, author_id, awarded, data', null, (q) =>
+      q.eq('published', true).ilike('title_lower', like).order('play_count', { ascending: false }).limit(500)
     );
-    const enriched = await enrichAuthorMeta(
-      (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }))
-    );
-    return { items: enriched, total: count || 0, page: p };
+    let rows = (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }));
+    if (aiOnly) rows = rows.filter((row) => !!(row.data && row.data.aiAssisted));
+    const total = rows.length;
+    const slice = rows.slice(off, off + PAGE_SIZE).map((row) => {
+      const out = Object.assign({}, row);
+      delete out.data;
+      return out;
+    });
+    const enriched = await enrichAuthorMeta(slice);
+    return { items: enriched, total, page: p };
   }
 
   const db = fileLoad();
-  const all = db.levels.filter((L) => L.published && L.title_lower.includes(term));
+  let all = db.levels.filter((L) => L.published && L.title_lower.includes(term));
+  if (aiOnly) all = all.filter((L) => !!(L.data && L.data.aiAssisted));
   all.sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
   const total = all.length;
   const slice = all

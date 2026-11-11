@@ -164,10 +164,16 @@
     var kind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
     var select = document.createElement('select');
     select.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-    ['racing', 'bank', 'insurance'].forEach(function (k) {
+    [
+      ['racing', 'Racing company'],
+      ['bank', 'Bank'],
+      ['insurance', 'Insurance company'],
+      ['webdev', 'Website development'],
+      ['law', 'Law firm'],
+    ].forEach(function (pair) {
       var opt = document.createElement('option');
-      opt.value = k;
-      opt.textContent = k === 'racing' ? 'Racing company' : k === 'bank' ? 'Bank' : 'Insurance company';
+      opt.value = pair[0];
+      opt.textContent = pair[1];
       select.appendChild(opt);
     });
     kind.appendChild(select);
@@ -211,10 +217,16 @@
       var orgKind = el('label', 'mt-2 block text-[11px] text-slate-500', 'Type');
       var orgKindSelect = document.createElement('select');
       orgKindSelect.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white';
-      ['racing', 'bank', 'insurance'].forEach(function (k) {
+      [
+        ['racing', 'Racing company'],
+        ['bank', 'Bank'],
+        ['insurance', 'Insurance company'],
+        ['webdev', 'Website development'],
+        ['law', 'Law firm'],
+      ].forEach(function (pair) {
         var opt = document.createElement('option');
-        opt.value = k;
-        opt.textContent = k === 'racing' ? 'Racing company' : k === 'bank' ? 'Bank' : 'Insurance company';
+        opt.value = pair[0];
+        opt.textContent = pair[1];
         orgKindSelect.appendChild(opt);
       });
       orgKind.appendChild(orgKindSelect);
@@ -271,6 +283,19 @@
         })
       );
       body.appendChild(orgCard);
+      if (window.__skyhopPrefillOrgId) {
+        var want = String(window.__skyhopPrefillOrgId);
+        window.__skyhopPrefillOrgId = '';
+        var match = orgs.filter(function (org) { return org.id === want; })[0];
+        if (match && orgSearch) {
+          pickedOrgId = match.id;
+          orgSearch.input.value = match.name;
+          orgSearch.input.dispatchEvent(new Event('input'));
+        } else if (match && orgSelect) {
+          orgSelect.value = match.id;
+        }
+        if (match) setMsg('Organization selected. Name the company and register.', false);
+      }
     }
     var buyCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     buyCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Buy a company'));
@@ -555,6 +580,65 @@
           card.appendChild(race);
         });
       }
+      if (mine.kind === 'webdev') {
+        var fee = field('Development fee', mine.webdevFee || 500);
+        var quality = field('Quality (1–5)', mine.webdevQuality || 2);
+        var clientId = field('Client company id', '', 'text');
+        var auth = field('Client authorization code', '', 'text');
+        var siteName = field('Website name', '', 'text');
+        var html = field('index.html', '<!doctype html><html><body><h1>Hello</h1></body></html>', 'text');
+        card.appendChild(el('p', 'mt-3 text-[11px] text-slate-500', 'Enter the client company id and their one-time code. The fee is paid from their company cash.'));
+        card.appendChild(fee.wrap);
+        card.appendChild(quality.wrap);
+        card.appendChild(
+          button('Save website rates', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            post('/api/economy/company', {
+              companyId: mine.id,
+              webdevFee: Number(fee.input.value),
+              webdevQuality: Number(quality.input.value),
+            });
+          })
+        );
+        card.appendChild(clientId.wrap);
+        card.appendChild(auth.wrap);
+        card.appendChild(siteName.wrap);
+        card.appendChild(html.wrap);
+        card.appendChild(
+          button('Build website for client', 'mt-2 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            post('/api/economy/webdev/build', {
+              companyId: mine.id,
+              clientCompanyId: clientId.input.value,
+              authCode: auth.input.value,
+              siteName: siteName.input.value,
+              files: [{ path: 'index.html', content: html.input.value }],
+            });
+          })
+        );
+      }
+      if (mine.kind === 'law') {
+        var lawFee = field('Consultation fee', mine.lawFee || 200);
+        card.appendChild(lawFee.wrap);
+        card.appendChild(
+          button('Save law firm fee', 'mt-2 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            post('/api/economy/company', { companyId: mine.id, lawFee: Number(lawFee.input.value) });
+          })
+        );
+        card.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Clients hire your firm from Partnerships & courts.'));
+      }
+      if (mine.kind !== 'webdev') {
+        card.appendChild(
+          el(
+            'p',
+            'mt-3 text-[11px] text-slate-400',
+            'Website auth code: ' + (mine.websiteAuthCode || '(save the company once to create one)')
+          )
+        );
+        card.appendChild(
+          button('New website auth code', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
+            post('/api/economy/company', { companyId: mine.id, refreshWebsiteAuth: true });
+          })
+        );
+      }
       var fundAmt = field('Add your own coins', 1000);
       card.appendChild(fundAmt.wrap);
       card.appendChild(
@@ -647,6 +731,8 @@
       if (chosen) paintMine(chosen);
     }
   }
+
+  window.SkyHopOpenEconomy = openEconomy;
 
   function openEconomy() {
     if (!getToken()) {
@@ -1552,6 +1638,13 @@
           })
         );
       }
+      card.appendChild(
+        button('Register a company for this organization', 'mt-3 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white', function () {
+          window.__skyhopPrefillOrgId = org.id;
+          closePanel('screenOrganizations');
+          openEconomy();
+        })
+      );
       mountSiteEditor(card, 'organization', org.id);
       return card;
     }

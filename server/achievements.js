@@ -14,6 +14,9 @@ export const ACHIEVEMENT_DEFS = [
   { id: 'deaths_1000', title: 'Pin cushion', desc: '1,000 total deaths across all runs.' },
   { id: 'bloodbath', title: 'One brutal run', desc: 'A single run with at least 80 deaths.' },
   { id: 'marathon_slow', title: 'Slow and steady', desc: 'A run longer than 3 hours.' },
+  { id: 'cheater', title: 'Cheater', desc: 'Complete a run in less than 8 minutes.' },
+  { id: 'unluckiness', title: 'Unluckiness', desc: 'Complete a run with over 500 deaths.' },
+  { id: 'addicted', title: 'Addicted', desc: 'Submit 100 completed runs.' },
 ];
 
 /**
@@ -43,6 +46,12 @@ function condition(id, agg, runs) {
       return runs.some((r) => r.deaths >= 80);
     case 'marathon_slow':
       return runs.some((r) => r.timeMs >= 3 * 60 * 60 * 1000);
+    case 'cheater':
+      return runs.some((r) => r.timeMs > 0 && r.timeMs < 8 * 60 * 1000);
+    case 'unluckiness':
+      return runs.some((r) => r.deaths > 500);
+    case 'addicted':
+      return agg.runCount >= 100;
     default:
       return false;
   }
