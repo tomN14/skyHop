@@ -1985,9 +1985,13 @@ end;</pre>
         <div id="lvlOnlineUserPanel" class="hidden rounded-xl border border-white/10 bg-slate-900/60 p-3">
           <p class="text-xs text-slate-400">Browsing <span id="lvlOnlineUserLabel" class="font-sem text-cyan-200"></span></p>
           <input id="lvlOnlineTitleSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter level name..." autocomplete="off" />
-          <label class="mt-2 flex items-center gap-2 text-[11px] text-slate-300">
-            <input id="lvlOnlineAiOnly" type="checkbox" class="rounded border-slate-600" />
-            AI-assisted only
+          <label class="mt-2 block text-[11px] text-slate-400">
+            AI filter
+            <select id="lvlOnlineAiFilter" class="mt-0.5 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white">
+              <option value="all">All levels</option>
+              <option value="only">AI-assisted only</option>
+              <option value="exclude">Exclude AI-assisted</option>
+            </select>
           </label>
           <input id="lvlOnlineIdSearch" type="search" class="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-white placeholder:text-slate-500" placeholder="Enter ID..." autocomplete="off" />
           <ul id="lvlOnlineList" class="mt-3 max-h-[40vh] list-none space-y-2 overflow-y-auto p-0 md:max-h-[50vh]"></ul>

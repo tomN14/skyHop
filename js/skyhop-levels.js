@@ -3186,9 +3186,11 @@
       });
   }
 
-  function aiOnlyChecked() {
-    var el = document.getElementById('lvlOnlineAiOnly');
-    return !!(el && el.checked);
+  function aiFilterMode() {
+    var el = document.getElementById('lvlOnlineAiFilter');
+    var v = el ? String(el.value || 'all') : 'all';
+    if (v === 'only' || v === 'exclude') return v;
+    return 'all';
   }
 
   function syncNomsPanel() {
@@ -4563,7 +4565,7 @@
 
   async function fetchOnlineList() {
     onlineList.innerHTML = '';
-    const aiOnly = aiOnlyChecked();
+    const aiMode = aiFilterMode();
     try {
       if (onlineCtx.mode === 'user' && onlineCtx.username) {
         const q =
@@ -4583,8 +4585,9 @@
                 : 'font-sem text-cyan-200';
         }
         let items = out.items || [];
-        if (aiOnly) items = items.filter(function (it) { return !!it.aiAssisted; });
-        renderOnlinePager(aiOnly ? items.length : out.total || 0, out.page || 1);
+        if (aiMode === 'only') items = items.filter(function (it) { return !!it.aiAssisted; });
+        if (aiMode === 'exclude') items = items.filter(function (it) { return !it.aiAssisted; });
+        renderOnlinePager(aiMode === 'all' ? out.total || 0 : items.length, out.page || 1);
         for (const it of items) {
           onlineList.appendChild(
             rowOnlineItem(it.title, it.id, it.play_count, {
@@ -4607,7 +4610,7 @@
           encodeURIComponent(onlineCtx.titleQ) +
           '&page=' +
           encodeURIComponent(String(onlineCtx.page)) +
-          (aiOnly ? '&ai=1' : '');
+          (aiMode === 'only' ? '&ai=1' : aiMode === 'exclude' ? '&ai=0' : '');
         const out = await api(q, { noAuth: true });
         renderOnlinePager(out.total || 0, out.page || 1);
         for (const it of out.items || []) {
@@ -4629,7 +4632,8 @@
       if (onlineCtx.mode === 'id' && onlineCtx.idQ) {
         const out = await api('/api/levels/lookup?id=' + encodeURIComponent(onlineCtx.idQ.trim()), { noAuth: true });
         let item = out.item;
-        if (item && aiOnly && !item.aiAssisted) item = null;
+        if (item && aiMode === 'only' && !item.aiAssisted) item = null;
+        if (item && aiMode === 'exclude' && item.aiAssisted) item = null;
         renderOnlinePager(item ? 1 : 0, 1);
         if (item) {
           onlineList.appendChild(
@@ -5860,9 +5864,9 @@
       fetchOnlineList();
     });
 
-    const aiOnlyEl = document.getElementById('lvlOnlineAiOnly');
-    if (aiOnlyEl) {
-      aiOnlyEl.addEventListener('change', () => {
+    const aiFilterEl = document.getElementById('lvlOnlineAiFilter');
+    if (aiFilterEl) {
+      aiFilterEl.addEventListener('change', () => {
         onlineCtx.page = 1;
         if (onlineCtx.username || onlineCtx.titleQ || onlineCtx.idQ) fetchOnlineList();
       });

@@ -562,6 +562,7 @@ export async function levelsSearchName(q, page, opts) {
   const term = String(q || '').trim().toLowerCase();
   if (term.length < 1) return { items: [], total: 0, page: p };
   const aiOnly = !!(opts && opts.aiAssisted);
+  const aiExclude = !!(opts && opts.aiExclude);
 
   if (useSupabase()) {
     const sb = sbClient();
@@ -571,6 +572,7 @@ export async function levelsSearchName(q, page, opts) {
     );
     let rows = (res.data || []).map((row) => Object.assign({}, row, { allow_copy: copyAllowed(row) }));
     if (aiOnly) rows = rows.filter((row) => !!(row.data && row.data.aiAssisted));
+    if (aiExclude) rows = rows.filter((row) => !(row.data && row.data.aiAssisted));
     const total = rows.length;
     const slice = rows.slice(off, off + PAGE_SIZE).map((row) => {
       const out = Object.assign({}, row);
@@ -584,6 +586,7 @@ export async function levelsSearchName(q, page, opts) {
   const db = fileLoad();
   let all = db.levels.filter((L) => L.published && L.title_lower.includes(term));
   if (aiOnly) all = all.filter((L) => !!(L.data && L.data.aiAssisted));
+  if (aiExclude) all = all.filter((L) => !(L.data && L.data.aiAssisted));
   all.sort((a, b) => (b.play_count || 0) - (a.play_count || 0));
   const total = all.length;
   const slice = all

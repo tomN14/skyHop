@@ -5572,11 +5572,14 @@ export async function handleApi(req, res) {
   if (pathname === '/api/levels/search' && req.method === 'GET') {
     const q = u.searchParams.get('q') || '';
     const page = Number(u.searchParams.get('page') || '1') || 1;
-    const aiAssisted = u.searchParams.get('ai') === '1' || u.searchParams.get('aiAssisted') === '1';
+    const aiParam = String(u.searchParams.get('ai') || u.searchParams.get('aiAssisted') || '').trim().toLowerCase();
+    const aiAssisted = aiParam === '1' || aiParam === 'only' || aiParam === 'true';
+    const aiExclude = aiParam === '0' || aiParam === 'exclude' || aiParam === 'no';
     try {
-      const out = await UserLevels.levelsSearchName(q, page, { aiAssisted });
+      const out = await UserLevels.levelsSearchName(q, page, { aiAssisted, aiExclude });
       out.items = await LevelAi.annotateRows(store, out.items);
       if (aiAssisted) out.items = (out.items || []).filter((row) => !!row.aiAssisted);
+      if (aiExclude) out.items = (out.items || []).filter((row) => !row.aiAssisted);
       json(res, 200, out);
     } catch (e) {
       json(res, 500, { error: String(e.message || e) });

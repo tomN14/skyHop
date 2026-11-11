@@ -586,8 +586,13 @@
         var clientId = field('Client company id', '', 'text');
         var auth = field('Client authorization code', '', 'text');
         var siteName = field('Website name', '', 'text');
-        var html = field('index.html', '<!doctype html><html><body><h1>Hello</h1></body></html>', 'text');
-        card.appendChild(el('p', 'mt-3 text-[11px] text-slate-500', 'Enter the client company id and their one-time code. The fee is paid from their company cash.'));
+        card.appendChild(
+          el(
+            'p',
+            'mt-3 text-[11px] text-slate-500',
+            'Static sites only: HTML, CSS, JS (and .mjs/.svg/.txt/.json). Up to 40 files / 300 KB. Link CSS/JS from index.html. Pictures must be https or data: URLs.'
+          )
+        );
         card.appendChild(fee.wrap);
         card.appendChild(quality.wrap);
         card.appendChild(
@@ -602,15 +607,64 @@
         card.appendChild(clientId.wrap);
         card.appendChild(auth.wrap);
         card.appendChild(siteName.wrap);
-        card.appendChild(html.wrap);
+        card.appendChild(el('p', 'mt-3 text-[11px] font-semibold text-sky-200', 'Site files'));
+        var filesBox = el('div', 'mt-2 space-y-3');
+        var fileRows = [];
+        function addFileRow(pathVal, contentVal) {
+          var row = el('div', 'rounded-xl border border-white/10 bg-slate-950/70 p-3');
+          var pathField = field('Path (e.g. index.html, css/style.css, js/app.js)', pathVal || '', 'text');
+          var contentLab = el('label', 'mt-2 block text-[11px] text-slate-500', 'Content');
+          var area = document.createElement('textarea');
+          area.className = 'mt-0.5 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 font-mono text-xs text-white';
+          area.rows = 8;
+          area.value = contentVal != null ? String(contentVal) : '';
+          contentLab.appendChild(area);
+          row.appendChild(pathField.wrap);
+          row.appendChild(contentLab);
+          row.appendChild(
+            button('Remove file', 'mt-2 rounded-lg border border-white/15 px-2 py-1 text-[11px] text-slate-300', function () {
+              if (fileRows.length <= 1) {
+                setMsg('Keep at least one file (index.html).', true);
+                return;
+              }
+              filesBox.removeChild(row);
+              fileRows = fileRows.filter(function (entry) { return entry.row !== row; });
+            })
+          );
+          filesBox.appendChild(row);
+          fileRows.push({ row: row, pathInput: pathField.input, area: area });
+        }
+        addFileRow(
+          'index.html',
+          '<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1" />\n  <title>Client site</title>\n  <link rel="stylesheet" href="css/style.css" />\n</head>\n<body>\n  <main class="wrap">\n    <h1>Hello from SkyHop</h1>\n    <p id="msg">Static HTML + CSS + JS.</p>\n    <button id="btn" type="button">Click me</button>\n  </main>\n  <script src="js/app.js"></script>\n</body>\n</html>\n'
+        );
+        addFileRow(
+          'css/style.css',
+          'body {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n  background: #0f172a;\n  color: #e2e8f0;\n}\n.wrap {\n  max-width: 40rem;\n  margin: 3rem auto;\n  padding: 1.5rem;\n  border: 1px solid #334155;\n  border-radius: 1rem;\n}\nbutton {\n  margin-top: 1rem;\n  padding: 0.5rem 1rem;\n  border: 0;\n  border-radius: 0.5rem;\n  background: #0284c7;\n  color: white;\n  cursor: pointer;\n}\n'
+        );
+        addFileRow(
+          'js/app.js',
+          'var btn = document.getElementById("btn");\nvar msg = document.getElementById("msg");\nif (btn && msg) {\n  btn.addEventListener("click", function () {\n    msg.textContent = "JS is working at " + new Date().toLocaleTimeString();\n  });\n}\n'
+        );
+        card.appendChild(filesBox);
+        card.appendChild(
+          button('Add another file', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
+            addFileRow('css/extra.css', '/* more styles */\n');
+          })
+        );
         card.appendChild(
           button('Build website for client', 'mt-2 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white', function () {
+            var files = fileRows
+              .map(function (entry) {
+                return { path: String(entry.pathInput.value || '').trim(), content: entry.area.value };
+              })
+              .filter(function (file) { return file.path; });
             post('/api/economy/webdev/build', {
               companyId: mine.id,
               clientCompanyId: clientId.input.value,
               authCode: auth.input.value,
               siteName: siteName.input.value,
-              files: [{ path: 'index.html', content: html.input.value }],
+              files: files,
             });
           })
         );
