@@ -5952,6 +5952,8 @@ export async function handleApi(req, res) {
       else if (action === 'respondPartnership') json(res, 200, await Legal.respondPartnership(store, sess.user, body));
       else if (action === 'createContract') json(res, 200, await Legal.createContract(store, sess.user, body));
       else if (action === 'respondContract') json(res, 200, await Legal.respondContract(store, sess.user, body));
+      else if (action === 'sendDealMessage') json(res, 200, await Legal.sendDealMessage(store, sess.user, body));
+      else if (action === 'sendDealPayment') json(res, 200, await Legal.sendDealPayment(store, sess.user, body));
       else if (action === 'fileSuit') json(res, 200, await Legal.fileSuit(store, sess.user, body));
       else if (action === 'addEvidence') json(res, 200, await Legal.addEvidence(store, sess.user, body));
       else if (action === 'addArgument') json(res, 200, await Legal.addArgument(store, sess.user, body));

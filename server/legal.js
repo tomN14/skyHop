@@ -10,9 +10,30 @@ const KEY = 'legal';
 const PARTNER_CAP = 40;
 const CONTRACT_CAP = 80;
 const SUIT_CAP = 60;
+const DEAL_MSG_CAP = 80;
 
 function empty() {
   return { partnerships: [], contracts: [], suits: [], nextId: 1 };
+}
+
+function dayMs(days) {
+  return Math.max(1, Math.round(Number(days) || 30)) * 24 * 60 * 60 * 1000;
+}
+
+/** Active deals past endsAt become expired. Existing accepted contracts without a lasting schedule get 30 days. */
+function normalizeDeal(row) {
+  if (!row || typeof row !== 'object') return row;
+  if (row.status === 'active') {
+    const days = Math.round(Number(row.durationDays));
+    if (!Number.isFinite(days) || days < 1) row.durationDays = 30;
+    const ends = Number(row.endsAt);
+    if (!Number.isFinite(ends) || ends <= 0) {
+      const start = Number(row.acceptedAt) || Number(row.at) || Date.now();
+      row.endsAt = start + dayMs(row.durationDays);
+    }
+    if (Date.now() >= Number(row.endsAt)) row.status = 'expired';
+  }
+  return row;
 }
 
 async function load(store) {
@@ -20,8 +41,8 @@ async function load(store) {
   if (typeof store.getSiteContentPayload !== 'function') return bag;
   const row = await store.getSiteContentPayload(KEY);
   if (!row || typeof row !== 'object') return bag;
-  bag.partnerships = Array.isArray(row.partnerships) ? row.partnerships : [];
-  bag.contracts = Array.isArray(row.contracts) ? row.contracts : [];
+  bag.partnerships = (Array.isArray(row.partnerships) ? row.partnerships : []).map(normalizeDeal);
+  bag.contracts = (Array.isArray(row.contracts) ? row.contracts : []).map(normalizeDeal);
   bag.suits = Array.isArray(row.suits) ? row.suits : [];
   bag.nextId = Number(row.nextId) >= 1 ? Number(row.nextId) : 1;
   return bag;
@@ -78,6 +99,7 @@ export async function proposePartnership(store, user, body) {
     at: Date.now(),
     byUserId: idOf(user.id),
     byUsername: String(user.username || ''),
+    messages: [],
   };
   bag.partnerships.push(row);
   if (bag.partnerships.length > PARTNER_CAP) bag.partnerships = bag.partnerships.slice(-PARTNER_CAP);
@@ -95,6 +117,7 @@ export async function respondPartnership(store, user, body) {
     row.status = 'active';
     row.acceptedAt = Date.now();
     row.endsAt = Date.now() + row.durationDays * 24 * 60 * 60 * 1000;
+    if (!Array.isArray(row.messages)) row.messages = [];
   } else if (action === 'reject') {
     row.status = 'rejected';
   } else if (action === 'counter') {
@@ -135,6 +158,7 @@ export async function createContract(store, user, body) {
     at: Date.now(),
     byUserId: idOf(user.id),
     byUsername: String(user.username || ''),
+    messages: [],
   };
   bag.contracts.push(row);
   if (bag.contracts.length > CONTRACT_CAP) bag.contracts = bag.contracts.slice(-CONTRACT_CAP);
@@ -151,11 +175,104 @@ export async function respondContract(store, user, body) {
     row.status = 'active';
     row.acceptedAt = Date.now();
     row.endsAt = Date.now() + row.durationDays * 24 * 60 * 60 * 1000;
+    if (!Array.isArray(row.messages)) row.messages = [];
   } else {
     row.status = 'rejected';
   }
   await save(store, bag);
   return row;
+}
+
+function dealList(bag, kind) {
+  return kind === 'contract' ? bag.contracts : bag.partnerships;
+}
+
+function publicDealMessage(entry) {
+  return {
+    at: entry.at,
+    kind: entry.kind || 'chat',
+    companyId: entry.companyId,
+    companyName: entry.companyName || '',
+    username: entry.username || '',
+    text: entry.text || '',
+    amount: entry.amount || 0,
+  };
+}
+
+function ensureDealMessages(row) {
+  if (!Array.isArray(row.messages)) row.messages = [];
+  return row.messages;
+}
+
+async function assertActiveDealParty(store, user, row, companyId) {
+  normalizeDeal(row);
+  if (!row || row.status === 'expired') {
+    throw new Error('That agreement has expired. Messaging and payments are closed.');
+  }
+  if (!row || row.status !== 'active') throw new Error('That agreement is not active.');
+  const id = idOf(companyId);
+  if (id !== idOf(row.fromCompanyId) && id !== idOf(row.toCompanyId)) {
+    throw new Error('Only a company on this agreement can do that.');
+  }
+  return assertControls(store, user, id);
+}
+
+export async function sendDealMessage(store, user, body) {
+  const kind = String(body.kind || body.dealKind || '').toLowerCase() === 'contract' ? 'contract' : 'partnership';
+  const bag = await load(store);
+  const row = dealList(bag, kind).find((item) => item.id === String(body.id || body.dealId || ''));
+  const company = await assertActiveDealParty(store, user, row, body.companyId);
+  if (row.status !== 'active') {
+    await save(store, bag);
+    throw new Error('That agreement has expired. Messaging and payments are closed.');
+  }
+  const text = cleanText(body.text || body.message, 1000);
+  if (!text) throw new Error('Write a message.');
+  const messages = ensureDealMessages(row);
+  messages.push({
+    at: Date.now(),
+    kind: 'chat',
+    companyId: company.id,
+    companyName: company.name,
+    username: String(user.username || ''),
+    text,
+    amount: 0,
+  });
+  if (messages.length > DEAL_MSG_CAP) row.messages = messages.slice(-DEAL_MSG_CAP);
+  await save(store, bag);
+  return { ok: true, kind, id: row.id, messages: (row.messages || []).map(publicDealMessage) };
+}
+
+export async function sendDealPayment(store, user, body) {
+  const kind = String(body.kind || body.dealKind || '').toLowerCase() === 'contract' ? 'contract' : 'partnership';
+  const bag = await load(store);
+  const row = dealList(bag, kind).find((item) => item.id === String(body.id || body.dealId || ''));
+  const from = await assertActiveDealParty(store, user, row, body.companyId);
+  if (row.status !== 'active') {
+    await save(store, bag);
+    throw new Error('That agreement has expired. Messaging and payments are closed.');
+  }
+  const amount = Math.floor(Number(body.amount) || 0);
+  if (amount < 1) throw new Error('Enter a payment of at least 1 coin.');
+  if (amount > 10_000_000) throw new Error('That payment is too large.');
+  const toId = idOf(from.id) === idOf(row.fromCompanyId) ? row.toCompanyId : row.fromCompanyId;
+  const toName = idOf(toId) === idOf(row.toCompanyId) ? row.toName : row.fromName;
+  await Economy.consumeCompanyAuthCode(store, user, from.id, body.authCode);
+  await Economy.transferCompanyCash(store, from.id, toId, amount);
+  const note = cleanText(body.note || body.text, 300);
+  const messages = ensureDealMessages(row);
+  messages.push({
+    at: Date.now(),
+    kind: 'payment',
+    companyId: from.id,
+    companyName: from.name,
+    username: String(user.username || ''),
+    text: note || 'Paid ' + amount + ' coins to ' + toName + '.',
+    amount,
+  });
+  if (messages.length > DEAL_MSG_CAP) row.messages = messages.slice(-DEAL_MSG_CAP);
+  await save(store, bag);
+  return { ok: true, kind, id: row.id, amount, toCompanyId: toId, messages: (row.messages || []).map(publicDealMessage) };
 }
 
 export async function fileSuit(store, user, body) {
@@ -369,6 +486,13 @@ export async function appeal(store, user, body) {
 
 export async function overview(store, user) {
   const bag = await load(store);
+  let dirty = false;
+  for (const row of bag.partnerships.concat(bag.contracts)) {
+    const before = row.status;
+    normalizeDeal(row);
+    if (row.status !== before) dirty = true;
+  }
+  if (dirty) await save(store, bag);
   const role = effectiveRole(user);
   const mine = [];
   const state = await Economy.loadState(store);
@@ -392,9 +516,14 @@ export async function overview(store, user) {
   const lawFirms = (state.companies || [])
     .filter((c) => c.alive !== false && c.kind === 'law')
     .map((c) => ({ id: c.id, name: c.name, ownerName: c.ownerName }));
+  function withDealExtras(row) {
+    return Object.assign({}, row, {
+      messages: Array.isArray(row.messages) ? row.messages.map(publicDealMessage) : [],
+    });
+  }
   return {
-    partnerships: partnerships.slice(-40).reverse(),
-    contracts: contracts.slice(-40).reverse(),
+    partnerships: partnerships.slice(-40).reverse().map(withDealExtras),
+    contracts: contracts.slice(-40).reverse().map(withDealExtras),
     suits: suits.slice(-40).reverse().map(publicSuit),
     lawFirms,
     companies: (state.companies || [])

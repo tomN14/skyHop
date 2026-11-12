@@ -1468,7 +1468,7 @@ export async function transferCompanyCash(store, fromCompanyId, toCompanyId, amo
     const from = companyById(state, fromCompanyId);
     const to = companyById(state, toCompanyId);
     if (!from || !to) throw new Error('Company not found.');
-    if (from.cash < n) throw new Error('The defendant does not have enough company cash.');
+    if (from.cash < n) throw new Error('That company does not have enough company cash.');
     from.cash -= n;
     to.cash += n;
   });

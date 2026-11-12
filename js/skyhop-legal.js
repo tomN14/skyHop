@@ -62,6 +62,95 @@
     });
   }
 
+  function partyCompanyId(row, yours) {
+    var yoursIds = {};
+    (yours || []).forEach(function (c) {
+      yoursIds[String(c.id)] = true;
+    });
+    if (yoursIds[String(row.fromCompanyId)]) return row.fromCompanyId;
+    if (yoursIds[String(row.toCompanyId)]) return row.toCompanyId;
+    return yours[0] ? yours[0].id : '';
+  }
+
+  function dealTimingLine(row) {
+    var days = Number(row.durationDays);
+    var ends = Number(row.endsAt);
+    var parts = [];
+    if (Number.isFinite(days) && days > 0) parts.push(days + ' day' + (days === 1 ? '' : 's'));
+    if (Number.isFinite(ends) && ends > 0) {
+      parts.push((row.status === 'expired' || Date.now() >= ends ? 'ended' : 'ends') + ' ' + new Date(ends).toLocaleString());
+    }
+    return parts.length ? parts.join(' · ') : '';
+  }
+
+  function mountActiveDealTools(card, dealKind, row, yours) {
+    var timing = dealTimingLine(row);
+    if (timing) card.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', timing));
+    if (!row || row.status === 'expired') {
+      card.appendChild(
+        el('p', 'mt-2 text-[11px] text-rose-300', 'Expired — messaging and payments are closed.')
+      );
+      return;
+    }
+    if (row.status !== 'active') return;
+    var thread = el('div', 'mt-3 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-white/10 bg-slate-950/80 p-2');
+    var messages = row.messages || [];
+    if (!messages.length) {
+      thread.appendChild(el('p', 'text-[11px] text-slate-500', 'No messages yet.'));
+    } else {
+      messages.forEach(function (m) {
+        var line =
+          (m.kind === 'payment' ? '💳 ' : '') +
+          (m.companyName || 'Company') +
+          (m.username ? ' · ' + m.username : '') +
+          (m.kind === 'payment' && m.amount ? ' · ' + m.amount + ' coins' : '') +
+          ': ' +
+          (m.text || '');
+        thread.appendChild(el('p', 'text-[11px] ' + (m.kind === 'payment' ? 'text-emerald-200' : 'text-slate-300'), line));
+      });
+    }
+    card.appendChild(el('p', 'mt-3 text-[11px] font-semibold text-amber-200/90', 'Messages & payments'));
+    card.appendChild(thread);
+
+    var companyId = partyCompanyId(row, yours);
+    var msg = field('Message the other company', '', 'textarea');
+    card.appendChild(msg.wrap);
+    card.appendChild(
+      button('Send message', 'mt-2 rounded-lg border border-amber-400/40 px-2 py-1 text-[11px] font-semibold text-amber-100', function () {
+        post({
+          action: 'sendDealMessage',
+          kind: dealKind,
+          id: row.id,
+          companyId: companyId,
+          text: msg.input.value,
+        });
+      })
+    );
+
+    var amount = field('Pay from your company cash', '100', 'number');
+    var auth = field('Your auth code', '', 'text');
+    var note = field('Payment note (optional)', '', 'text');
+    card.appendChild(amount.wrap);
+    card.appendChild(auth.wrap);
+    card.appendChild(note.wrap);
+    card.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'Payment uses your company cash and burns your one-time auth code.')
+    );
+    card.appendChild(
+      button('Send payment', 'mt-2 rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white', function () {
+        post({
+          action: 'sendDealPayment',
+          kind: dealKind,
+          id: row.id,
+          companyId: companyId,
+          amount: Number(amount.input.value),
+          authCode: auth.input.value,
+          note: note.input.value,
+        });
+      })
+    );
+  }
+
   function mountCompanySearch(parent, companies, targetInput, label) {
     parent.appendChild(el('p', 'mt-2 text-[11px] font-semibold text-slate-300', label || 'Find a company'));
     var search = field('Name or ticker', '', 'text');
@@ -183,6 +272,7 @@
         );
         card.appendChild(rowBtns);
       }
+      mountActiveDealTools(card, 'partnership', row, yours);
       body.appendChild(card);
     });
 
@@ -193,12 +283,17 @@
     var titleC = field('Title', 'Service contract', 'text');
     var termsC = field('Terms', '', 'textarea');
     var payC = field('Payment', '0', 'number');
+    var daysC = field('Duration in days', '30', 'number');
     contract.appendChild(fromC.wrap);
     mountCompanySearch(contract, data.companies, toC.input, 'Find other company');
     contract.appendChild(toC.wrap);
     contract.appendChild(titleC.wrap);
     contract.appendChild(termsC.wrap);
     contract.appendChild(payC.wrap);
+    contract.appendChild(daysC.wrap);
+    contract.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'After accept, messaging and payments stay open until this duration ends.')
+    );
     contract.appendChild(
       button('Send contract', 'mt-3 rounded-xl bg-amber-700 px-3 py-2 text-sm font-semibold text-white', function () {
         post({
@@ -208,6 +303,7 @@
           title: titleC.input.value,
           terms: termsC.input.value,
           payment: Number(payC.input.value),
+          durationDays: Number(daysC.input.value),
         });
       })
     );
@@ -231,6 +327,7 @@
         );
         card.appendChild(rowBtns);
       }
+      mountActiveDealTools(card, 'contract', row, yours);
       body.appendChild(card);
     });
 
