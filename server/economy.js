@@ -413,6 +413,37 @@ function isOrgMember(org, userId) {
   return !!(org && (org.members || []).some((member) => uid(member.id) === uid(userId)));
 }
 
+function isOrgFounder(org, userId) {
+  return !!(org && uid(org.founderId) === uid(userId));
+}
+
+function orgMemberRow(org, userId) {
+  return (org && org.members ? org.members : []).find((member) => uid(member.id) === uid(userId)) || null;
+}
+
+/** Founder always has both. Other org members need founder-granted flags. Solo companies: controller has both. */
+export function companyOrgPowers(state, company, userId) {
+  const id = userId && typeof userId === 'object' ? userId.id : userId;
+  if (!company || !company.alive || company.sovereign) return { legal: false, auth: false };
+  if (!company.organizationId) {
+    const ok = uid(company.ownerId) === uid(id);
+    return { legal: ok, auth: ok };
+  }
+  const org = orgById(state, company.organizationId);
+  if (!org || !isOrgMember(org, id)) return { legal: false, auth: false };
+  if (isOrgFounder(org, id)) return { legal: true, auth: true };
+  const member = orgMemberRow(org, id);
+  return { legal: !!(member && member.canLegal), auth: !!(member && member.canAuth) };
+}
+
+export function canCompanyLegal(state, company, userId) {
+  return !!companyOrgPowers(state, company, userId).legal;
+}
+
+export function canCompanyAuth(state, company, userId) {
+  return !!companyOrgPowers(state, company, userId).auth;
+}
+
 export function controlsCompany(state, company, userId) {
   if (!company || !company.alive || company.sovereign) return false;
   const id = userId && typeof userId === 'object' ? userId.id : userId;
@@ -868,16 +899,23 @@ function present(state, user, people) {
         shareCount: natStock.shareCount,
       },
     },
-    yourCompanies: mine.map((c) => detailCompany(c, user, people, true)),
-    companies: state.companies.filter((c) => c.alive).map((c) => detailCompany(c, user, people, controlsCompany(state, c, user.id))),
+    yourCompanies: mine.map((c) => detailCompany(state, c, user, people, true)),
+    companies: state.companies
+      .filter((c) => c.alive)
+      .map((c) => detailCompany(state, c, user, people, controlsCompany(state, c, user.id))),
     organizations: (state.organizations || [])
       .filter((org) => isOrgMember(org, user.id))
       .map((org) => ({
         id: org.id,
         name: org.name,
         founderName: (org.members || []).find((member) => uid(member.id) === uid(org.founderId))?.username || 'player',
-        youFounded: uid(org.founderId) === me,
-        members: (org.members || []).map((member) => member.username),
+        youFounded: isOrgFounder(org, me),
+        members: (org.members || []).map((member) => ({
+          username: member.username,
+          isFounder: isOrgFounder(org, member.id),
+          canLegal: isOrgFounder(org, member.id) ? true : !!member.canLegal,
+          canAuth: isOrgFounder(org, member.id) ? true : !!member.canAuth,
+        })),
       })),
     invites: (state.organizations || []).flatMap((org) =>
       (org.invites || [])
@@ -920,8 +958,9 @@ function present(state, user, people) {
   };
 }
 
-function detailCompany(c, user, people, ownerView) {
+function detailCompany(state, c, user, people, ownerView) {
   const me = uid(user.id);
+  const powers = ownerView ? companyOrgPowers(state, c, user.id) : { legal: false, auth: false };
   const row = {
     id: c.id,
     name: c.name,
@@ -957,7 +996,9 @@ function detailCompany(c, user, people, ownerView) {
     webdevFee: c.kind === 'webdev' ? Number(c.webdevFee) || 0 : undefined,
     webdevQuality: c.kind === 'webdev' ? Number(c.webdevQuality) || 1 : undefined,
     lawFee: c.kind === 'law' ? Number(c.lawFee) || 0 : undefined,
-    authCode: ownerView ? ensureAuthCode(c) || undefined : undefined,
+    authCode: ownerView && powers.auth ? ensureAuthCode(c) || undefined : undefined,
+    canLegal: ownerView ? !!powers.legal : undefined,
+    canAuth: ownerView ? !!powers.auth : undefined,
   };
   if (ownerView && c.kind === 'bank') {
     row.deposits = Object.keys(c.deposits || {}).map((id) => ({
@@ -1443,10 +1484,13 @@ export async function updateCompany(store, user, body) {
     }
     if (c.kind === 'law' && body.lawFee != null) c.lawFee = clampMoney(body.lawFee, 0, 10_000_000);
     if (body.refreshAuth || body.refreshWebsiteAuth) {
+      if (!canCompanyAuth(state, c, user.id)) {
+        throw new Error('The organization founder has not given you auth-code access for that company.');
+      }
       c.authCode = newAuthCode();
       if (c.websiteAuthCode != null) delete c.websiteAuthCode;
     }
-    ensureAuthCode(c);
+    if (canCompanyAuth(state, c, user.id)) ensureAuthCode(c);
     return present(state, user, await holders(store));
   });
 }
@@ -1456,8 +1500,39 @@ export async function consumeCompanyAuthCode(store, user, companyId, authCode) {
   return withState(store, async (state) => {
     const company = ownedCompany(state, user.id, companyId);
     if (!company) throw new Error('You do not run that company.');
+    if (!canCompanyAuth(state, company, user.id)) {
+      throw new Error('The organization founder has not given you auth-code access for that company.');
+    }
     const next = consumeAuthCodeOnCompany(company, authCode);
     return { ok: true, authCode: next, companyId: company.id };
+  });
+}
+
+/**
+ * Partnerships/contracts: company id + valid auth code is enough (even if the acting user does not run that company).
+ * Code regenerates after a successful use.
+ */
+export async function consumeCompanyAuthCodeOpen(store, companyId, authCode) {
+  return withState(store, async (state) => {
+    const company = companyById(state, companyId);
+    if (!company || company.sovereign || company.alive === false) throw new Error('Company not found.');
+    const next = consumeAuthCodeOnCompany(company, authCode);
+    return { ok: true, authCode: next, companyId: company.id, company };
+  });
+}
+
+export async function setOrganizationMemberPowers(store, user, body) {
+  return withState(store, async (state) => {
+    const org = orgById(state, body.organizationId);
+    if (!org || !isOrgFounder(org, user.id)) throw new Error('Only the organization founder can set member powers.');
+    const username = String(body.username || '').trim().toLowerCase();
+    if (!username) throw new Error('Enter a username.');
+    const member = (org.members || []).find((row) => String(row.username || '').toLowerCase() === username);
+    if (!member) throw new Error('That player is not in the organization.');
+    if (isOrgFounder(org, member.id)) throw new Error('The founder always has full powers.');
+    member.canLegal = !!body.canLegal;
+    member.canAuth = !!body.canAuth;
+    return present(state, user, await holders(store));
   });
 }
 

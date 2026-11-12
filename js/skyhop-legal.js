@@ -227,10 +227,19 @@
     var partner = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     partner.appendChild(el('h3', 'text-sm font-semibold text-white', 'Propose a partnership'));
     var fromP = field('Your company id', yours[0] ? yours[0].id : '', 'text');
+    var authP = field('Your auth code', '', 'text');
     var toP = field('Other company id', '', 'text');
     var termsP = field('Terms', '', 'textarea');
     var daysP = field('Duration in days', '30', 'number');
     partner.appendChild(fromP.wrap);
+    partner.appendChild(authP.wrap);
+    partner.appendChild(
+      el(
+        'p',
+        'mt-1 text-[11px] text-slate-500',
+        'Proposing burns that company’s one-time auth code. Anyone with the company id and a valid auth code can propose as that company.'
+      )
+    );
     mountCompanySearch(partner, data.companies, toP.input, 'Find other company');
     partner.appendChild(toP.wrap);
     partner.appendChild(termsP.wrap);
@@ -241,6 +250,7 @@
           action: 'proposePartnership',
           fromCompanyId: fromP.input.value,
           toCompanyId: toP.input.value,
+          authCode: authP.input.value,
           terms: termsP.input.value,
           durationDays: Number(daysP.input.value),
         });
@@ -259,10 +269,17 @@
       );
       card.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', row.terms || ''));
       if (row.status === 'proposed') {
+        var acceptAuthP = field('Your auth code to accept', '', 'text');
+        card.appendChild(acceptAuthP.wrap);
         var rowBtns = el('div', 'mt-2 flex flex-wrap gap-2');
         rowBtns.appendChild(
           button('Accept', 'rounded-lg bg-emerald-700 px-2 py-1 text-[11px] text-white', function () {
-            post({ action: 'respondPartnership', id: row.id, response: 'accept' });
+            post({
+              action: 'respondPartnership',
+              id: row.id,
+              response: 'accept',
+              authCode: acceptAuthP.input.value,
+            });
           })
         );
         rowBtns.appendChild(
@@ -279,12 +296,21 @@
     var contract = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     contract.appendChild(el('h3', 'text-sm font-semibold text-white', 'Send a contract'));
     var fromC = field('Your company id', yours[0] ? yours[0].id : '', 'text');
+    var authC = field('Your auth code', '', 'text');
     var toC = field('Other company id', '', 'text');
     var titleC = field('Title', 'Service contract', 'text');
     var termsC = field('Terms', '', 'textarea');
     var payC = field('Payment', '0', 'number');
     var daysC = field('Duration in days', '30', 'number');
     contract.appendChild(fromC.wrap);
+    contract.appendChild(authC.wrap);
+    contract.appendChild(
+      el(
+        'p',
+        'mt-1 text-[11px] text-slate-500',
+        'Sending burns that company’s one-time auth code. Anyone with the company id and a valid auth code can send as that company.'
+      )
+    );
     mountCompanySearch(contract, data.companies, toC.input, 'Find other company');
     contract.appendChild(toC.wrap);
     contract.appendChild(titleC.wrap);
@@ -300,6 +326,7 @@
           action: 'createContract',
           fromCompanyId: fromC.input.value,
           toCompanyId: toC.input.value,
+          authCode: authC.input.value,
           title: titleC.input.value,
           terms: termsC.input.value,
           payment: Number(payC.input.value),
@@ -314,10 +341,17 @@
       card.appendChild(el('p', 'text-xs text-slate-200', row.title + ' · ' + row.fromName + ' → ' + row.toName + ' · ' + row.status));
       card.appendChild(el('p', 'mt-1 text-[11px] text-slate-400', row.terms || ''));
       if (row.status === 'proposed') {
+        var acceptAuthC = field('Your auth code to accept', '', 'text');
+        card.appendChild(acceptAuthC.wrap);
         var rowBtns = el('div', 'mt-2 flex flex-wrap gap-2');
         rowBtns.appendChild(
           button('Accept', 'rounded-lg bg-emerald-700 px-2 py-1 text-[11px] text-white', function () {
-            post({ action: 'respondContract', id: row.id, response: 'accept' });
+            post({
+              action: 'respondContract',
+              id: row.id,
+              response: 'accept',
+              authCode: acceptAuthC.input.value,
+            });
           })
         );
         rowBtns.appendChild(

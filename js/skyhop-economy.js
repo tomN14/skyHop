@@ -725,25 +725,44 @@
         );
         card.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Clients hire your firm from Partnerships & courts.'));
       }
-      card.appendChild(
-        el(
-          'p',
-          'mt-3 text-[11px] text-slate-400',
-          'Auth code: ' + (mine.authCode || '(open this company again to create one)')
-        )
-      );
-      card.appendChild(
-        el(
-          'p',
-          'mt-0.5 text-[11px] text-slate-500',
-          'One-time code for website builds and lawsuits. Regenerates after each use. Never shown in company search.'
-        )
-      );
-      card.appendChild(
-        button('New auth code', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
-          post('/api/economy/company', { companyId: mine.id, refreshAuth: true });
-        })
-      );
+      if (mine.canAuth) {
+        card.appendChild(
+          el(
+            'p',
+            'mt-3 text-[11px] text-slate-400',
+            'Auth code: ' + (mine.authCode || '(open this company again to create one)')
+          )
+        );
+        card.appendChild(
+          el(
+            'p',
+            'mt-0.5 text-[11px] text-slate-500',
+            'One-time code for website builds, partnerships, contracts, and lawsuits. Regenerates after each use. Never shown in company search.'
+          )
+        );
+        card.appendChild(
+          button('New auth code', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
+            post('/api/economy/company', { companyId: mine.id, refreshAuth: true });
+          })
+        );
+      } else if (mine.organizationId) {
+        card.appendChild(
+          el(
+            'p',
+            'mt-3 text-[11px] text-amber-200/90',
+            'No auth-code access. Ask the organization founder to grant it.'
+          )
+        );
+      }
+      if (mine.organizationId && mine.canLegal === false) {
+        card.appendChild(
+          el(
+            'p',
+            'mt-2 text-[11px] text-amber-200/90',
+            'No partnership/contract permission. Ask the organization founder to grant Legal.'
+          )
+        );
+      }
       var fundAmt = field('Add your own coins', 1000);
       card.appendChild(fundAmt.wrap);
       card.appendChild(
@@ -1720,7 +1739,18 @@
     function orgCard(org) {
       var card = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
       card.appendChild(el('h3', 'text-sm font-semibold text-white', org.name));
-      card.appendChild(el('p', 'mt-1 text-[11px] text-slate-500', (org.youFounded ? 'You founded it. ' : '') + 'Members: ' + (org.members || []).join(', ')));
+      var memberNames = (org.members || [])
+        .map(function (m) {
+          return typeof m === 'string' ? m : m.username;
+        })
+        .filter(Boolean);
+      card.appendChild(
+        el(
+          'p',
+          'mt-1 text-[11px] text-slate-500',
+          (org.youFounded ? 'You founded it. ' : '') + 'Members: ' + (memberNames.join(', ') || 'none')
+        )
+      );
       var invite = field('Invite a player', '', 'text');
       invite.input.maxLength = 24;
       invite.input.placeholder = 'Username';
@@ -1730,6 +1760,51 @@
           post('/api/economy/organization', { action: 'invite', organizationId: org.id, username: invite.input.value }, renderOrganizations, 'orgMsg');
         })
       );
+      if (org.youFounded) {
+        card.appendChild(
+          el(
+            'p',
+            'mt-3 text-[11px] text-slate-500',
+            'Member powers: Legal = send/accept partnerships & contracts. Auth = see and use the company auth code. You always have both.'
+          )
+        );
+        (org.members || []).forEach(function (member) {
+          if (!member || typeof member === 'string' || member.isFounder) return;
+          var row = el('div', 'mt-2 rounded-lg border border-white/10 bg-slate-950/70 p-2');
+          row.appendChild(el('p', 'text-xs text-slate-200', member.username));
+          var legalLab = el('label', 'mt-1 flex items-center gap-2 text-[11px] text-slate-300', '');
+          var legalBox = document.createElement('input');
+          legalBox.type = 'checkbox';
+          legalBox.checked = !!member.canLegal;
+          legalLab.appendChild(legalBox);
+          legalLab.appendChild(document.createTextNode(' Partnerships & contracts'));
+          var authLab = el('label', 'mt-1 flex items-center gap-2 text-[11px] text-slate-300', '');
+          var authBox = document.createElement('input');
+          authBox.type = 'checkbox';
+          authBox.checked = !!member.canAuth;
+          authLab.appendChild(authBox);
+          authLab.appendChild(document.createTextNode(' Auth code access'));
+          row.appendChild(legalLab);
+          row.appendChild(authLab);
+          row.appendChild(
+            button('Save powers', 'mt-2 rounded-lg bg-emerald-700 px-2 py-1 text-[11px] font-semibold text-white', function () {
+              post(
+                '/api/economy/organization',
+                {
+                  action: 'setPowers',
+                  organizationId: org.id,
+                  username: member.username,
+                  canLegal: !!legalBox.checked,
+                  canAuth: !!authBox.checked,
+                },
+                renderOrganizations,
+                'orgMsg'
+              );
+            })
+          );
+          card.appendChild(row);
+        });
+      }
       if (!org.youFounded) {
         card.appendChild(
           button('Leave', 'mt-2 ml-2 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-slate-200', function () {

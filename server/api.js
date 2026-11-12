@@ -6050,6 +6050,8 @@ export async function handleApi(req, res) {
         view = await Economy.leaveOrganization(store, sess.user, body.organizationId);
       } else if (action === 'disband') {
         view = await Economy.disbandOrganization(store, sess.user, body.organizationId);
+      } else if (action === 'setPowers') {
+        view = await Economy.setOrganizationMemberPowers(store, sess.user, body);
       } else {
         json(res, 400, { error: 'Unknown organization action.' });
         return true;

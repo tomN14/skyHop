@@ -80,8 +80,14 @@ async function assertControls(store, user, companyId) {
   return company;
 }
 
+/** Partnerships/contracts are authorized by company id + auth code (possession of the code is enough). */
+async function assertLegalActor(store, user, companyId, authCode) {
+  const out = await Economy.consumeCompanyAuthCodeOpen(store, companyId, authCode);
+  return out.company;
+}
+
 export async function proposePartnership(store, user, body) {
-  const from = await assertControls(store, user, body.fromCompanyId);
+  const from = await assertLegalActor(store, user, body.fromCompanyId, body.authCode);
   const to = await companyById(store, body.toCompanyId);
   if (!to) throw new Error('That company was not found.');
   if (idOf(from.id) === idOf(to.id)) throw new Error('A company cannot partner with itself.');
@@ -111,16 +117,18 @@ export async function respondPartnership(store, user, body) {
   const bag = await load(store);
   const row = bag.partnerships.find((item) => item.id === String(body.id || ''));
   if (!row || row.status !== 'proposed') throw new Error('That partnership proposal is gone.');
-  await assertControls(store, user, row.toCompanyId);
   const action = String(body.response || body.decision || '').toLowerCase();
-  if (action === 'accept') {
+  if (action === 'reject') {
+    await assertControls(store, user, row.toCompanyId);
+    row.status = 'rejected';
+  } else if (action === 'accept') {
+    await assertLegalActor(store, user, row.toCompanyId, body.authCode);
     row.status = 'active';
     row.acceptedAt = Date.now();
     row.endsAt = Date.now() + row.durationDays * 24 * 60 * 60 * 1000;
     if (!Array.isArray(row.messages)) row.messages = [];
-  } else if (action === 'reject') {
-    row.status = 'rejected';
   } else if (action === 'counter') {
+    await assertLegalActor(store, user, row.toCompanyId, body.authCode);
     row.terms = cleanText(body.terms, 2000) || row.terms;
     row.durationDays = Math.max(1, Math.min(3650, Math.round(Number(body.durationDays) || row.durationDays)));
     row.exclusivity = body.exclusivity != null ? !!body.exclusivity : row.exclusivity;
@@ -140,7 +148,7 @@ export async function respondPartnership(store, user, body) {
 }
 
 export async function createContract(store, user, body) {
-  const from = await assertControls(store, user, body.fromCompanyId);
+  const from = await assertLegalActor(store, user, body.fromCompanyId, body.authCode);
   const to = await companyById(store, body.toCompanyId);
   if (!to) throw new Error('That company was not found.');
   const bag = await load(store);
@@ -170,13 +178,14 @@ export async function respondContract(store, user, body) {
   const bag = await load(store);
   const row = bag.contracts.find((item) => item.id === String(body.id || ''));
   if (!row || row.status !== 'proposed') throw new Error('That contract is gone.');
-  await assertControls(store, user, row.toCompanyId);
   if (String(body.response || body.decision || '').toLowerCase() === 'accept') {
+    await assertLegalActor(store, user, row.toCompanyId, body.authCode);
     row.status = 'active';
     row.acceptedAt = Date.now();
     row.endsAt = Date.now() + row.durationDays * 24 * 60 * 60 * 1000;
     if (!Array.isArray(row.messages)) row.messages = [];
   } else {
+    await assertControls(store, user, row.toCompanyId);
     row.status = 'rejected';
   }
   await save(store, bag);
