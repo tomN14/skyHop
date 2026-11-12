@@ -308,6 +308,48 @@
     buyName.input.placeholder = 'Name or ticker';
     var buyPrice = field('Your price in coins', 1000);
     buyCard.appendChild(buyName.wrap);
+    buyCard.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'Search shows the company id. Auth codes stay private and are never listed here.')
+    );
+    var buyHits = el('div', 'mt-2 space-y-1');
+    buyCard.appendChild(buyHits);
+    function paintBuyHits() {
+      buyHits.textContent = '';
+      var q = buyName.input.value.trim().toLowerCase();
+      if (!q) return;
+      var hits = buyChoices
+        .filter(function (c) {
+          return (
+            String(c.name || '').toLowerCase().indexOf(q) !== -1 ||
+            String(c.ticker || '').toLowerCase().indexOf(q) !== -1 ||
+            String(c.id || '').toLowerCase() === q
+          );
+        })
+        .slice(0, 8);
+      if (!hits.length) {
+        buyHits.appendChild(el('p', 'text-[11px] text-slate-500', 'No companies match.'));
+        return;
+      }
+      hits.forEach(function (c) {
+        var row = el('button', 'block w-full rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-left hover:bg-white/5');
+        row.type = 'button';
+        row.appendChild(
+          el(
+            'p',
+            'text-xs text-slate-200',
+            c.name + (c.ticker ? ' · ' + c.ticker : '') + ' · ' + c.kind
+          )
+        );
+        row.appendChild(el('p', 'mt-0.5 font-mono text-[10px] text-sky-200/90', 'id ' + c.id));
+        row.addEventListener('click', function () {
+          buyName.input.value = c.name;
+          paintBuyHits();
+          setMsg('Selected ' + c.name + '. Company id: ' + c.id, false);
+        });
+        buyHits.appendChild(row);
+      });
+    }
+    buyName.input.addEventListener('input', paintBuyHits);
     buyCard.appendChild(buyPrice.wrap);
     buyCard.appendChild(
       button('Offer to buy', 'mt-3 rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white', function () {
@@ -588,7 +630,7 @@
         var fee = field('Development fee', mine.webdevFee || 500);
         var quality = field('Quality (1–5)', mine.webdevQuality || 2);
         var clientId = field('Client company id', '', 'text');
-        var auth = field('Client authorization code', '', 'text');
+        var auth = field('Client auth code', '', 'text');
         var siteName = field('Website name', '', 'text');
         card.appendChild(
           el(
@@ -683,20 +725,25 @@
         );
         card.appendChild(el('p', 'mt-2 text-[11px] text-slate-500', 'Clients hire your firm from Partnerships & courts.'));
       }
-      if (mine.kind !== 'webdev') {
-        card.appendChild(
-          el(
-            'p',
-            'mt-3 text-[11px] text-slate-400',
-            'Website auth code: ' + (mine.websiteAuthCode || '(save the company once to create one)')
-          )
-        );
-        card.appendChild(
-          button('New website auth code', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
-            post('/api/economy/company', { companyId: mine.id, refreshWebsiteAuth: true });
-          })
-        );
-      }
+      card.appendChild(
+        el(
+          'p',
+          'mt-3 text-[11px] text-slate-400',
+          'Auth code: ' + (mine.authCode || '(open this company again to create one)')
+        )
+      );
+      card.appendChild(
+        el(
+          'p',
+          'mt-0.5 text-[11px] text-slate-500',
+          'One-time code for website builds and lawsuits. Regenerates after each use. Never shown in company search.'
+        )
+      );
+      card.appendChild(
+        button('New auth code', 'mt-2 rounded-lg border border-sky-500/40 px-3 py-1.5 text-xs font-semibold text-sky-100', function () {
+          post('/api/economy/company', { companyId: mine.id, refreshAuth: true });
+        })
+      );
       var fundAmt = field('Add your own coins', 1000);
       card.appendChild(fundAmt.wrap);
       card.appendChild(

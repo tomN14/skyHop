@@ -163,6 +163,7 @@ export async function fileSuit(store, user, body) {
   const defendant = await companyById(store, body.defendantCompanyId);
   if (!defendant) throw new Error('That company was not found.');
   if (idOf(plaintiff.id) === idOf(defendant.id)) throw new Error('A company cannot sue itself.');
+  await Economy.consumeCompanyAuthCode(store, user, plaintiff.id, body.authCode);
   const bag = await load(store);
   const row = {
     id: nextId(bag),
@@ -398,6 +399,12 @@ export async function overview(store, user) {
     lawFirms,
     companies: (state.companies || [])
       .filter((c) => c.alive !== false && !c.sovereign)
-      .map((c) => ({ id: c.id, name: c.name, kind: c.kind, yours: mineSet.has(idOf(c.id)) })),
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        ticker: c.ticker || '',
+        kind: c.kind,
+        yours: mineSet.has(idOf(c.id)),
+      })),
   };
 }

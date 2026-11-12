@@ -62,6 +62,52 @@
     });
   }
 
+  function mountCompanySearch(parent, companies, targetInput, label) {
+    parent.appendChild(el('p', 'mt-2 text-[11px] font-semibold text-slate-300', label || 'Find a company'));
+    var search = field('Name or ticker', '', 'text');
+    search.input.placeholder = 'Type to find company id';
+    parent.appendChild(search.wrap);
+    parent.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'Shows company id only. Auth codes are never listed in search.')
+    );
+    var hits = el('div', 'mt-2 space-y-1');
+    parent.appendChild(hits);
+    function paint() {
+      hits.textContent = '';
+      var q = search.input.value.trim().toLowerCase();
+      if (!q) return;
+      var list = (companies || [])
+        .filter(function (c) {
+          return (
+            String(c.name || '').toLowerCase().indexOf(q) !== -1 ||
+            String(c.ticker || '').toLowerCase().indexOf(q) !== -1 ||
+            String(c.id || '').toLowerCase() === q
+          );
+        })
+        .slice(0, 8);
+      if (!list.length) {
+        hits.appendChild(el('p', 'text-[11px] text-slate-500', 'No companies match.'));
+        return;
+      }
+      list.forEach(function (c) {
+        var row = el('button', 'block w-full rounded-lg border border-white/10 bg-slate-950/70 px-2 py-1.5 text-left hover:bg-white/5');
+        row.type = 'button';
+        row.appendChild(
+          el('p', 'text-xs text-slate-200', c.name + (c.ticker ? ' · ' + c.ticker : '') + ' · ' + c.kind + (c.yours ? ' · yours' : ''))
+        );
+        row.appendChild(el('p', 'mt-0.5 font-mono text-[10px] text-sky-200/90', 'id ' + c.id));
+        row.addEventListener('click', function () {
+          if (targetInput) targetInput.value = c.id;
+          search.input.value = c.name;
+          paint();
+          setMsg('Filled company id for ' + c.name + '.', false);
+        });
+        hits.appendChild(row);
+      });
+    }
+    search.input.addEventListener('input', paint);
+  }
+
   function render(data) {
     var body = document.getElementById('legalBody');
     if (!body) return;
@@ -82,6 +128,13 @@
       body.appendChild(el('p', 'mt-4 text-sm text-slate-400', 'Register a company first to use partnerships and courts.'));
     }
 
+    var findCard = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
+    findCard.appendChild(el('h3', 'text-sm font-semibold text-white', 'Find a company id'));
+    var findTarget = field('Selected company id', '', 'text');
+    mountCompanySearch(findCard, data.companies, findTarget.input, 'Search by name or ticker');
+    findCard.appendChild(findTarget.wrap);
+    body.appendChild(findCard);
+
     var partner = el('section', 'mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4');
     partner.appendChild(el('h3', 'text-sm font-semibold text-white', 'Propose a partnership'));
     var fromP = field('Your company id', yours[0] ? yours[0].id : '', 'text');
@@ -89,6 +142,7 @@
     var termsP = field('Terms', '', 'textarea');
     var daysP = field('Duration in days', '30', 'number');
     partner.appendChild(fromP.wrap);
+    mountCompanySearch(partner, data.companies, toP.input, 'Find other company');
     partner.appendChild(toP.wrap);
     partner.appendChild(termsP.wrap);
     partner.appendChild(daysP.wrap);
@@ -140,6 +194,7 @@
     var termsC = field('Terms', '', 'textarea');
     var payC = field('Payment', '0', 'number');
     contract.appendChild(fromC.wrap);
+    mountCompanySearch(contract, data.companies, toC.input, 'Find other company');
     contract.appendChild(toC.wrap);
     contract.appendChild(titleC.wrap);
     contract.appendChild(termsC.wrap);
@@ -182,9 +237,15 @@
     var suit = el('section', 'mt-4 rounded-2xl border border-rose-500/30 bg-slate-900/60 p-4');
     suit.appendChild(el('h3', 'text-sm font-semibold text-white', 'File a lawsuit'));
     var fromS = field('Your company id', yours[0] ? yours[0].id : '', 'text');
+    var authS = field('Your auth code', '', 'text');
     var toS = field('Defendant company id', '', 'text');
     var reasonS = field('Reason', '', 'textarea');
     suit.appendChild(fromS.wrap);
+    suit.appendChild(authS.wrap);
+    suit.appendChild(
+      el('p', 'mt-1 text-[11px] text-slate-500', 'Use your company’s one-time auth code from Economy. It regenerates after filing.')
+    );
+    mountCompanySearch(suit, data.companies, toS.input, 'Find defendant company');
     suit.appendChild(toS.wrap);
     suit.appendChild(reasonS.wrap);
     suit.appendChild(
@@ -193,6 +254,7 @@
           action: 'fileSuit',
           plaintiffCompanyId: fromS.input.value,
           defendantCompanyId: toS.input.value,
+          authCode: authS.input.value,
           reason: reasonS.input.value,
         });
       })

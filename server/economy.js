@@ -54,6 +54,36 @@ function newAuthCode() {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+/** One-time company auth code (website builds, lawsuits, etc.). Never exposed on public company listings. */
+function readAuthCode(company) {
+  if (!company || typeof company !== 'object') return '';
+  return String(company.authCode || company.websiteAuthCode || '').trim().toUpperCase();
+}
+
+function ensureAuthCode(company) {
+  if (!company || typeof company !== 'object' || company.sovereign) return '';
+  let code = readAuthCode(company);
+  if (!code) {
+    code = newAuthCode();
+    company.authCode = code;
+  } else {
+    company.authCode = code;
+  }
+  if (company.websiteAuthCode != null) delete company.websiteAuthCode;
+  return code;
+}
+
+function consumeAuthCodeOnCompany(company, provided) {
+  ensureAuthCode(company);
+  const got = String(provided || '').trim().toUpperCase();
+  if (!got || got !== readAuthCode(company)) {
+    throw new Error('That auth code is wrong or already used.');
+  }
+  company.authCode = newAuthCode();
+  if (company.websiteAuthCode != null) delete company.websiteAuthCode;
+  return company.authCode;
+}
+
 function uid(id) {
   return String(id);
 }
@@ -99,6 +129,7 @@ export async function loadState(store) {
     if (!c || typeof c !== 'object') continue;
     if (c.deposits) c.deposits = normalizeBook(c.deposits);
     if (typeof c.quoteLocked !== 'boolean') c.quoteLocked = true;
+    if (!c.sovereign) ensureAuthCode(c);
   }
   state.loans = Array.isArray(row.loans) ? row.loans : [];
   state.marks = row.marks && typeof row.marks === 'object' ? row.marks : {};
@@ -926,7 +957,7 @@ function detailCompany(c, user, people, ownerView) {
     webdevFee: c.kind === 'webdev' ? Number(c.webdevFee) || 0 : undefined,
     webdevQuality: c.kind === 'webdev' ? Number(c.webdevQuality) || 1 : undefined,
     lawFee: c.kind === 'law' ? Number(c.lawFee) || 0 : undefined,
-    websiteAuthCode: ownerView && c.kind !== 'webdev' ? String(c.websiteAuthCode || '') : undefined,
+    authCode: ownerView ? ensureAuthCode(c) || undefined : undefined,
   };
   if (ownerView && c.kind === 'bank') {
     row.deposits = Object.keys(c.deposits || {}).map((id) => ({
@@ -1012,7 +1043,7 @@ export async function registerCompany(store, user, { name, kind, organizationId 
       beta: 0,
       noiseSeed: 0,
       history: [],
-      websiteAuthCode: kind === 'webdev' ? '' : newAuthCode(),
+      authCode: newAuthCode(),
       webdevFee: kind === 'webdev' ? 500 : 0,
       webdevQuality: kind === 'webdev' ? 2 : 0,
       lawFee: kind === 'law' ? 200 : 0,
@@ -1411,11 +1442,22 @@ export async function updateCompany(store, user, body) {
       }
     }
     if (c.kind === 'law' && body.lawFee != null) c.lawFee = clampMoney(body.lawFee, 0, 10_000_000);
-    if (body.refreshWebsiteAuth) {
-      c.websiteAuthCode = newAuthCode();
+    if (body.refreshAuth || body.refreshWebsiteAuth) {
+      c.authCode = newAuthCode();
+      if (c.websiteAuthCode != null) delete c.websiteAuthCode;
     }
-    if (!c.websiteAuthCode && c.kind !== 'webdev') c.websiteAuthCode = newAuthCode();
+    ensureAuthCode(c);
     return present(state, user, await holders(store));
+  });
+}
+
+/** Verify a one-time company auth code for an action the caller controls, then regenerate it. */
+export async function consumeCompanyAuthCode(store, user, companyId, authCode) {
+  return withState(store, async (state) => {
+    const company = ownedCompany(state, user.id, companyId);
+    if (!company) throw new Error('You do not run that company.');
+    const next = consumeAuthCodeOnCompany(company, authCode);
+    return { ok: true, authCode: next, companyId: company.id };
   });
 }
 
@@ -1432,7 +1474,7 @@ export async function transferCompanyCash(store, fromCompanyId, toCompanyId, amo
   });
 }
 
-/** Website development company builds a site for another company using a one-time auth code. */
+/** Website development company builds a site for another company using the client's one-time auth code. */
 export async function buildWebsiteForClient(store, user, body) {
   const Sites = await import('./sites.js');
   return withState(store, async (state) => {
@@ -1440,18 +1482,13 @@ export async function buildWebsiteForClient(store, user, body) {
     if (!builder || builder.kind !== 'webdev') throw new Error('Only a website development company can build for a client.');
     const client = companyById(state, body.clientCompanyId);
     if (!client || client.sovereign) throw new Error('Client company not found.');
-    const code = String(body.authCode || '').trim().toUpperCase();
-    if (!client.websiteAuthCode) client.websiteAuthCode = newAuthCode();
-    if (!code || code !== String(client.websiteAuthCode).toUpperCase()) {
-      throw new Error('That authorization code is wrong or already used.');
-    }
+    consumeAuthCodeOnCompany(client, body.authCode);
     const fee = Math.max(0, Math.floor(Number(builder.webdevFee) || 0));
     if (fee > 0) {
       if (client.cash < fee) throw new Error('The client company does not have enough cash for the fee.');
       client.cash -= fee;
       builder.cash += fee;
     }
-    client.websiteAuthCode = newAuthCode();
     const siteName = String(body.siteName || '').trim();
     const files = Array.isArray(body.files) ? body.files : [];
     const deployed = await Sites.deploySiteForHost(
@@ -1465,7 +1502,7 @@ export async function buildWebsiteForClient(store, user, body) {
       fee,
       quality: builder.webdevQuality || 1,
       site: deployed.site,
-      clientAuthCode: client.websiteAuthCode,
+      clientAuthCode: readAuthCode(client),
       view: present(state, user, await holders(store)),
     };
   });
